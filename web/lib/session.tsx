@@ -212,18 +212,28 @@ export function useAsyncAction<TArgs extends unknown[], TResult>(
 ) {
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [code, setCode] = React.useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
 
   const run = React.useCallback(
     async (...args: TArgs): Promise<TResult | undefined> => {
       setPending(true);
       setError(null);
+      setCode(null);
       setFieldErrors({});
       try {
         return await action(...args);
       } catch (caught) {
-        const apiError = caught as { message?: string; fields?: Record<string, string> };
+        const apiError = caught as {
+          message?: string;
+          code?: string;
+          fields?: Record<string, string>;
+        };
         setError(apiError.message ?? "Something went wrong. Please try again.");
+        // Surfaced separately from the message so a caller can branch on *why*
+        // it failed — `two_factor_required` and `device_cooloff` both want a
+        // specific next step, not a red banner.
+        setCode(apiError.code ?? null);
         setFieldErrors(apiError.fields ?? {});
         return undefined;
       } finally {
@@ -233,7 +243,7 @@ export function useAsyncAction<TArgs extends unknown[], TResult>(
     [action],
   );
 
-  return { run, pending, error, fieldErrors, setError };
+  return { run, pending, error, code, fieldErrors, setError };
 }
 
 export function formatRelative(iso: string): string {

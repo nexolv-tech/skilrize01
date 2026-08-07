@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { PASSWORD_MIN_LENGTH, PasswordPolicy } from "@/components/password";
 import { Alert, Button, Field, Icon, Input, Spinner } from "@/components/ui";
 import { auth } from "@/lib/api";
 import { useAsyncAction } from "@/lib/session";
@@ -81,7 +82,6 @@ function ResetForm() {
           htmlFor="password"
           error={submit.fieldErrors.password}
           required
-          hint="At least 10 characters."
         >
           <Input
             id="password"
@@ -89,12 +89,14 @@ function ResetForm() {
             autoComplete="new-password"
             autoFocus
             required
-            minLength={10}
+            minLength={PASSWORD_MIN_LENGTH}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             invalid={Boolean(submit.fieldErrors.password)}
           />
         </Field>
+
+        {password.length > 0 && <PasswordPolicy password={password} />}
 
         <Field
           label="Confirm password"

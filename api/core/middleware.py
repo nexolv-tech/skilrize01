@@ -73,17 +73,25 @@ class SecurityHeadersMiddleware:
     PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), interest-cohort=()"
 
     def __init__(self, get_response):
+        from django.conf import settings
+
         self.get_response = get_response
+        # Read once at startup rather than per request, and follow the
+        # configured path so relocating the console does not silently hand it
+        # the locked-down API policy and break its own stylesheets.
+        self.admin_prefix = "/" + settings.ADMIN_URL.lstrip("/")
 
     def __call__(self, request):
         response = self.get_response(request)
-        response.setdefault(
-            "Content-Security-Policy",
-            self.ADMIN_CSP if request.path.startswith("/admin") else self.API_CSP,
-        )
+        is_admin = request.path.startswith(self.admin_prefix)
+        response.setdefault("Content-Security-Policy", self.ADMIN_CSP if is_admin else self.API_CSP)
         response.setdefault("Permissions-Policy", self.PERMISSIONS_POLICY)
         response.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        # JSON responses and signed file downloads are for the requesting
+        # origin only; nothing here is meant to be embedded elsewhere.
+        response.setdefault("Cross-Origin-Resource-Policy", "same-origin")
         response.setdefault("X-Content-Type-Options", "nosniff")
+        response.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         return response
 
 

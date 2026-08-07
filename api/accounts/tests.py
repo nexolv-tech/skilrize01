@@ -14,6 +14,7 @@ import time
 import pyotp
 import pytest
 from django.core import mail
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from accounts.models import (
@@ -26,7 +27,7 @@ from accounts.models import (
     VerificationStatus,
 )
 
-PASSWORD = "correct-horse-battery-staple"
+PASSWORD = "Correct-Horse9-Battery"
 
 
 @pytest.fixture
@@ -77,6 +78,40 @@ def test_signup_rejects_a_weak_password(client):
     assert not User.objects.filter(email="weak@example.com").exists()
 
 
+@pytest.mark.parametrize(
+    ("password", "why"),
+    [
+        ("Sh0rt-Aa", "under the 12-character floor"),
+        ("noupperca5e-here", "no uppercase letter"),
+        ("NOLOWERCA5E-HERE", "no lowercase letter"),
+        ("No-Digits-Anywhere", "no digit"),
+        ("NoSymbolsAnywhere9", "no symbol"),
+        ("Passw0rd-Aaaa-Bb", "four repeated characters"),
+        ("Passw0rd-abcd-Bb", "an alphabetical run"),
+        ("Passw0rd-qwer-Bb", "a keyboard walk"),
+    ],
+)
+@pytest.mark.django_db
+def test_signup_rejects_passwords_failing_the_policy(client, password, why):
+    response = client.post(
+        "/api/v1/auth/signup/",
+        {"email": "policy@example.com", "password": password},
+        format="json",
+    )
+    assert response.status_code == 400, f"should have been rejected: {why}"
+    assert not User.objects.filter(email="policy@example.com").exists()
+
+
+@pytest.mark.django_db
+def test_signup_accepts_a_password_meeting_every_rule(client):
+    response = client.post(
+        "/api/v1/auth/signup/",
+        {"email": "strong@example.com", "password": "Tr0ubled-Marlin!Sky"},
+        format="json",
+    )
+    assert response.status_code == 201
+
+
 @pytest.mark.django_db
 def test_signup_sends_email_confirmation(client):
     mail.outbox.clear()
@@ -112,6 +147,404 @@ def test_login_with_a_wrong_password_is_rejected(client, user):
     )
     assert response.status_code == 401
     assert response.data["code"] == "invalid_credentials"
+
+
+@pytest.mark.django_db
+def test_repeated_failures_lock_the_account(client, user, settings):
+    settings.LOGIN_MAX_ATTEMPTS = 3
+
+    for _ in range(3):
+        rejected = client.post(
+            "/api/v1/auth/login/",
+            {"email": user.email, "password": "wrong-guess-here"},
+            format="json",
+        )
+        assert rejected.status_code == 401
+
+    locked = client.post(
+        "/api/v1/auth/login/",
+        {"email": user.email, "password": "wrong-guess-here"},
+        format="json",
+    )
+    assert locked.status_code == 429
+    assert locked.data["code"] == "account_locked"
+    assert locked["Retry-After"]
+
+    # The lock holds even once the caller starts guessing correctly, which is
+    # the whole point — otherwise the budget bounds nothing.
+    still_locked = client.post(
+        "/api/v1/auth/login/", {"email": user.email, "password": PASSWORD}, format="json"
+    )
+    assert still_locked.status_code == 429
+
+
+@pytest.mark.django_db
+def test_a_successful_login_clears_the_failure_count(client, user, settings):
+    settings.LOGIN_MAX_ATTEMPTS = 3
+
+    client.post(
+        "/api/v1/auth/login/", {"email": user.email, "password": "wrong-guess"}, format="json"
+    )
+    client.post("/api/v1/auth/login/", {"email": user.email, "password": PASSWORD}, format="json")
+
+    # Two more failures would trip a counter that had not been reset.
+    for _ in range(2):
+        response = client.post(
+            "/api/v1/auth/login/",
+            {"email": user.email, "password": "wrong-guess"},
+            format="json",
+        )
+        assert response.status_code == 401
+
+
+@pytest.mark.django_db
+def test_lockout_applies_to_unknown_addresses_too(client, settings):
+    """Otherwise the lockout response itself enumerates accounts."""
+    settings.LOGIN_MAX_ATTEMPTS = 2
+
+    for _ in range(2):
+        client.post(
+            "/api/v1/auth/login/",
+            {"email": "nobody@example.com", "password": "guessing"},
+            format="json",
+        )
+
+    response = client.post(
+        "/api/v1/auth/login/",
+        {"email": "nobody@example.com", "password": "guessing"},
+        format="json",
+    )
+    assert response.status_code == 429
+
+
+@pytest.mark.django_db
+def test_one_address_spraying_many_accounts_is_blocked(client, settings):
+    """The attack the per-account budget cannot see.
+
+    Ten guesses spread across ten different accounts never trips any single
+    account's counter, so without a per-address budget it is unbounded.
+    """
+    settings.LOGIN_IP_MAX_FAILURES = 5
+    settings.LOGIN_MAX_ATTEMPTS = 50  # high enough that only the IP rule fires
+
+    for index in range(5):
+        response = client.post(
+            "/api/v1/auth/login/",
+            {"email": f"victim{index}@example.com", "password": "one-guess-each"},
+            format="json",
+        )
+        assert response.status_code == 401
+
+    blocked = client.post(
+        "/api/v1/auth/login/",
+        {"email": "victim99@example.com", "password": "one-guess-each"},
+        format="json",
+    )
+    assert blocked.status_code == 429
+    assert blocked.data["code"] == "ip_blocked"
+
+
+@pytest.mark.django_db
+def test_an_address_block_outranks_valid_credentials(client, user, settings):
+    settings.LOGIN_IP_MAX_FAILURES = 2
+    settings.LOGIN_MAX_ATTEMPTS = 50
+
+    for _ in range(2):
+        client.post(
+            "/api/v1/auth/login/",
+            {"email": "someone@example.com", "password": "guessing"},
+            format="json",
+        )
+
+    response = client.post(
+        "/api/v1/auth/login/", {"email": user.email, "password": PASSWORD}, format="json"
+    )
+    assert response.status_code == 429
+    assert response.data["code"] == "ip_blocked"
+
+
+# --- New-device email verification -----------------------------------------
+
+
+def _emailed_code() -> str:
+    """Pull the six-digit code out of the most recent email."""
+    import re
+
+    match = re.search(r"\b(\d{6})\b", mail.outbox[-1].body)
+    assert match, f"no six-digit code in: {mail.outbox[-1].body!r}"
+    return match.group(1)
+
+
+@pytest.fixture
+def verifying(settings):
+    """Turn the emailed new-device check back on for one test."""
+    settings.REQUIRE_NEW_DEVICE_VERIFICATION = True
+    return settings
+
+
+@pytest.mark.django_db
+def test_a_new_device_without_2fa_must_pass_an_emailed_code(client, user, verifying):
+    mail.outbox.clear()
+
+    first = client.post(
+        "/api/v1/auth/login/",
+        {"email": user.email, "password": PASSWORD},
+        format="json",
+        HTTP_USER_AGENT="Mozilla/5.0 (UnknownMachine)",
+    )
+
+    # A correct password alone does not produce a session.
+    assert first.status_code == 200
+    assert first.data["device_verification_required"] is True
+    assert "skilrize_access" not in first.cookies
+    assert len(mail.outbox) == 1
+    # The address is hinted, never echoed in full.
+    assert first.data["sent_to"].endswith("@example.com")
+    assert user.email not in first.data["sent_to"]
+
+    second = client.post(
+        "/api/v1/auth/login/device/",
+        {"challenge": first.data["challenge"], "code": _emailed_code()},
+        format="json",
+        HTTP_USER_AGENT="Mozilla/5.0 (UnknownMachine)",
+    )
+    assert second.status_code == 200
+    assert second.cookies["skilrize_access"]
+
+
+@pytest.mark.django_db
+def test_a_recognised_device_skips_the_emailed_code(client, user, verifying):
+    agent = "Mozilla/5.0 (TheUsualLaptop)"
+    first = client.post(
+        "/api/v1/auth/login/",
+        {"email": user.email, "password": PASSWORD},
+        format="json",
+        HTTP_USER_AGENT=agent,
+    )
+    client.post(
+        "/api/v1/auth/login/device/",
+        {"challenge": first.data["challenge"], "code": _emailed_code()},
+        format="json",
+        HTTP_USER_AGENT=agent,
+    )
+
+    # Second sign-in from the same device: straight through, no code.
+    again = APIClient()
+    response = again.post(
+        "/api/v1/auth/login/",
+        {"email": user.email, "password": PASSWORD},
+        format="json",
+        HTTP_USER_AGENT=agent,
+    )
+    assert response.status_code == 200
+    assert "device_verification_required" not in response.data
+    assert response.cookies["skilrize_access"]
+
+
+@pytest.mark.django_db
+def test_a_wrong_emailed_code_yields_no_session(client, user, verifying):
+    first = client.post(
+        "/api/v1/auth/login/",
+        {"email": user.email, "password": PASSWORD},
+        format="json",
+        HTTP_USER_AGENT="Mozilla/5.0 (UnknownMachine)",
+    )
+
+    response = client.post(
+        "/api/v1/auth/login/device/",
+        {"challenge": first.data["challenge"], "code": "000000"},
+        format="json",
+    )
+    assert response.status_code == 401
+    assert "skilrize_access" not in response.cookies
+
+
+@pytest.mark.django_db
+def test_an_account_with_2fa_gets_the_authenticator_not_an_email(client, user, verifying):
+    """The two paths are mutually exclusive, and 2FA wins.
+
+    An enrolled account must never be admitted by an email code — that would
+    quietly downgrade its second factor to whatever the inbox is worth.
+    """
+    device = TwoFactorDevice.objects.create(
+        user=user, secret=pyotp.random_base32(), confirmed_at=timezone.now()
+    )
+    mail.outbox.clear()
+
+    response = client.post(
+        "/api/v1/auth/login/",
+        {"email": user.email, "password": PASSWORD},
+        format="json",
+        HTTP_USER_AGENT="Mozilla/5.0 (UnknownMachine)",
+    )
+
+    assert response.data["two_factor_required"] is True
+    assert "device_verification_required" not in response.data
+    assert mail.outbox == []
+
+    # And the 2FA challenge cannot be redeemed at the email-code endpoint.
+    crossover = client.post(
+        "/api/v1/auth/login/device/",
+        {"challenge": response.data["challenge"], "code": pyotp.TOTP(device.secret).now()},
+        format="json",
+    )
+    assert crossover.status_code == 400
+    assert crossover.data["code"] == "invalid_challenge"
+
+
+@pytest.mark.django_db
+def test_emailed_codes_are_single_use(client, user, verifying):
+    first = client.post(
+        "/api/v1/auth/login/",
+        {"email": user.email, "password": PASSWORD},
+        format="json",
+        HTTP_USER_AGENT="Mozilla/5.0 (UnknownMachine)",
+    )
+    code = _emailed_code()
+    challenge = first.data["challenge"]
+
+    assert (
+        client.post(
+            "/api/v1/auth/login/device/",
+            {"challenge": challenge, "code": code},
+            format="json",
+            HTTP_USER_AGENT="Mozilla/5.0 (UnknownMachine)",
+        ).status_code
+        == 200
+    )
+
+    replay = APIClient().post(
+        "/api/v1/auth/login/device/",
+        {"challenge": challenge, "code": code},
+        format="json",
+        HTTP_USER_AGENT="Mozilla/5.0 (SomewhereElse)",
+    )
+    assert replay.status_code == 401
+
+
+# --- New-device cool-off ---------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_signing_in_records_the_device_and_reports_the_hold(client, user, settings):
+    from accounts.models import KnownDevice
+
+    settings.DEVICE_COOLOFF_SECONDS = 7200
+
+    response = client.post(
+        "/api/v1/auth/login/",
+        {"email": user.email, "password": PASSWORD},
+        format="json",
+        HTTP_USER_AGENT="Mozilla/5.0 (TestDevice)",
+    )
+
+    assert response.status_code == 200
+    assert response.data["device_cooloff_seconds"] > 0
+    assert KnownDevice.objects.filter(user=user).count() == 1
+
+
+@pytest.mark.django_db
+def test_a_returning_device_is_not_held_again(client, user, settings):
+    from accounts.models import KnownDevice
+
+    settings.DEVICE_COOLOFF_SECONDS = 7200
+    agent = "Mozilla/5.0 (TestDevice)"
+
+    for _ in range(2):
+        client.post(
+            "/api/v1/auth/login/",
+            {"email": user.email, "password": PASSWORD},
+            format="json",
+            HTTP_USER_AGENT=agent,
+        )
+
+    # Same fingerprint, so one row and one alert — not one per sign-in.
+    assert KnownDevice.objects.filter(user=user).count() == 1
+
+
+@pytest.mark.django_db
+def test_a_new_device_alerts_the_owner(client, user, settings):
+    from core.models import Notification, NotificationCategory
+
+    settings.DEVICE_COOLOFF_SECONDS = 7200
+
+    client.post(
+        "/api/v1/auth/login/",
+        {"email": user.email, "password": PASSWORD},
+        format="json",
+        HTTP_USER_AGENT="Mozilla/5.0 (UnfamiliarDevice)",
+    )
+
+    alert = Notification.objects.filter(user=user, category=NotificationCategory.SECURITY).first()
+    assert alert is not None
+    assert alert.data["kind"] == "new_device"
+
+
+@pytest.mark.django_db
+def test_a_device_in_cooloff_may_browse_but_not_transact(client, settings):
+    """The shape of the control: read everything, move nothing."""
+    from marketplace.models import Category
+
+    settings.DEVICE_COOLOFF_SECONDS = 7200
+
+    account = User.objects.create_user("trader@example.com", PASSWORD, full_name="Trader")
+    account.email_verified = True
+    account.phone_verified = True
+    account.identity_status = VerificationStatus.VERIFIED
+    account.save()
+    assert account.can_transact
+
+    client.post(
+        "/api/v1/auth/login/",
+        {"email": account.email, "password": PASSWORD},
+        format="json",
+        HTTP_USER_AGENT="Mozilla/5.0 (BrandNewDevice)",
+    )
+
+    # Browsing is untouched.
+    assert client.get("/api/v1/projects/").status_code == 200
+
+    category = Category.objects.create(name="Development & IT", slug="development-it")
+    blocked = client.post(
+        "/api/v1/projects/",
+        {
+            "title": "A project posted from a brand new device",
+            "description": "x" * 120,
+            "category": category.pk,
+            "project_type": "fixed",
+            "budget_min": "10000",
+            "budget_max": "20000",
+        },
+        format="json",
+    )
+    assert blocked.status_code == 403
+    assert blocked.data["code"] == "device_cooloff"
+
+
+@pytest.mark.django_db
+def test_transactions_unlock_once_the_hold_expires(client, settings):
+    from accounts.models import KnownDevice
+
+    settings.DEVICE_COOLOFF_SECONDS = 7200
+
+    account = User.objects.create_user("patient@example.com", PASSWORD, full_name="Patient")
+    account.email_verified = True
+    account.phone_verified = True
+    account.identity_status = VerificationStatus.VERIFIED
+    account.save()
+
+    client.post(
+        "/api/v1/auth/login/",
+        {"email": account.email, "password": PASSWORD},
+        format="json",
+        HTTP_USER_AGENT="Mozilla/5.0 (PatientDevice)",
+    )
+
+    # Wind the clock forward rather than sleeping for two hours.
+    KnownDevice.objects.filter(user=account).update(trusted_at=timezone.now())
+
+    response = client.get("/api/v1/proposals/quota/")
+    assert response.status_code == 200
 
 
 @pytest.mark.django_db
@@ -293,20 +726,20 @@ def test_password_reset_completes_and_terminates_every_session(client, user):
 
     response = APIClient().post(
         "/api/v1/auth/password/reset/confirm/",
-        {"email": user.email, "token": raw, "password": "an-entirely-new-passphrase"},
+        {"email": user.email, "token": raw, "password": "An-Entirely7-New-Passphrase"},
         format="json",
     )
 
     assert response.status_code == 200
     user.refresh_from_db()
-    assert user.check_password("an-entirely-new-passphrase")
+    assert user.check_password("An-Entirely7-New-Passphrase")
     assert not RefreshSession.objects.filter(user=user, revoked_at__isnull=True).exists()
 
 
 @pytest.mark.django_db
 def test_a_reset_token_cannot_be_used_twice(client, user):
     _, raw = SecurityToken.issue(user, SecurityToken.Purpose.PASSWORD_RESET)
-    body = {"email": user.email, "token": raw, "password": "an-entirely-new-passphrase"}
+    body = {"email": user.email, "token": raw, "password": "An-Entirely7-New-Passphrase"}
 
     endpoint = "/api/v1/auth/password/reset/confirm/"
     assert client.post(endpoint, body, format="json").status_code == 200

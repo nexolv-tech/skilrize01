@@ -222,6 +222,13 @@ export interface User {
   seller_profile: SellerProfile | null;
   buyer_profile: BuyerProfile | null;
   created_at: string;
+  /**
+   * Seconds until this *device* may transact, 0 once it may. A property of the
+   * browser rather than the account — the same user reads a different value
+   * from a second machine — so it rides along with the account payload instead
+   * of being cached anywhere longer-lived.
+   */
+  device_cooloff_seconds?: number;
 }
 
 export interface Session {
@@ -246,7 +253,16 @@ export interface Notification {
 
 export interface LoginResult {
   user?: User;
+  /** The account has an authenticator enrolled; a TOTP or recovery code is due. */
   two_factor_required?: boolean;
+  /**
+   * No authenticator enrolled, and this device is unrecognised — a code has
+   * been emailed. Mutually exclusive with `two_factor_required`: an enrolled
+   * account is never admitted by an email code.
+   */
+  device_verification_required?: boolean;
+  /** Masked hint at where the code went, e.g. `a•••d@example.com`. */
+  sent_to?: string;
   challenge?: string;
 }
 
@@ -259,6 +275,8 @@ export const auth = {
     api.post<LoginResult>("/auth/login/", body),
   loginTwoFactor: (body: { challenge: string; code: string }) =>
     api.post<{ user: User }>("/auth/login/2fa/", body),
+  loginVerifyDevice: (body: { challenge: string; code: string }) =>
+    api.post<{ user: User }>("/auth/login/device/", body),
   logout: () => api.post<{ detail: string }>("/auth/logout/"),
 
   requestEmailVerification: () => api.post<{ detail: string }>("/auth/email/verify/"),
@@ -278,7 +296,10 @@ export const auth = {
   revokeSession: (family: string) => api.delete<{ revoked: number }>(`/auth/sessions/${family}/`),
   revokeAllSessions: () => api.post<{ revoked: number }>("/auth/sessions/revoke-all/"),
 
-  twoFactorSetup: () => api.post<{ secret: string; otpauth_url: string }>("/auth/2fa/setup/"),
+  // `qr_svg` is an inline `data:image/svg+xml` URI rendered by the API, so the
+  // TOTP secret never reaches a QR library on the client.
+  twoFactorSetup: () =>
+    api.post<{ qr_svg: string; secret: string; otpauth_url: string }>("/auth/2fa/setup/"),
   twoFactorConfirm: (code: string) =>
     api.post<{ recovery_codes: string[] }>("/auth/2fa/confirm/", { code }),
   twoFactorDisable: (body: { password?: string; code?: string }) =>

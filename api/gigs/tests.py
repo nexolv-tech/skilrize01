@@ -174,6 +174,26 @@ def _order(gig, buyer, *, extras=None):
 
 
 @pytest.mark.django_db
+def test_buying_requires_an_enrolled_second_factor(gig):
+    """Money movement asks for 2FA; browsing and bidding do not.
+
+    A fully verified buyer who never enrolled can still look at the gig — they
+    just cannot pay for it until they do.
+    """
+    unenrolled = make_user("no-authenticator@example.com", two_factor=False)
+    package = gig.packages.get(tier=Package.Tier.STANDARD)
+    client = sign_in(unenrolled)
+
+    # Reading the catalogue is untouched.
+    assert client.get(f"/api/v1/gigs/{gig.pk}/").status_code == 200
+
+    response = client.post(f"/api/v1/gigs/{gig.pk}/order/", {"package": package.pk}, format="json")
+    assert response.status_code == 403
+    assert response.data["code"] == "two_factor_required"
+    assert not Order.objects.filter(buyer=unenrolled).exists()
+
+
+@pytest.mark.django_db
 def test_ordering_creates_a_funded_contract(gig, buyer):
     response = _order(gig, buyer)
 

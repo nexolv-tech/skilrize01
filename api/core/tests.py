@@ -277,6 +277,32 @@ def test_scanner_recognises_a_known_signature():
     assert _scan_bytes(b"an ordinary harmless file") == StoredFile.ScanStatus.CLEAN
 
 
+def test_uploads_fail_closed_when_no_scanner_is_configured(settings):
+    """The property that matters more than any signature match.
+
+    If the scanner is unreachable the pipeline must refuse to call anything
+    clean. A misconfiguration should cost downloads, not containment.
+    """
+    from core.models import StoredFile
+    from core.tasks import _scan_bytes
+
+    settings.REQUIRE_FILE_SCANNER = True
+    settings.CLAMAV_HOST = ""
+
+    assert _scan_bytes(b"an ordinary harmless file") == StoredFile.ScanStatus.FAILED
+
+
+def test_an_unusable_scanner_verdict_is_never_treated_as_clean(settings):
+    from core.tasks import _scan_with_clamav
+
+    settings.CLAMAV_TIMEOUT = 1
+
+    # Nothing is listening on this port, so the connection is refused. The
+    # adapter must surface that rather than returning a verdict.
+    with pytest.raises(Exception):  # noqa: B017 — socket errors vary by platform
+        _scan_with_clamav(b"payload", "127.0.0.1", 1)
+
+
 @pytest.mark.django_db
 def test_a_file_is_not_downloadable_until_the_scan_clears_it():
     from core.models import StoredFile

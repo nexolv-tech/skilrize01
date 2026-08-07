@@ -4,26 +4,10 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { PASSWORD_MIN_LENGTH, PasswordPolicy } from "@/components/password";
 import { Alert, Badge, Button, Field, Icon, Input } from "@/components/ui";
 import { auth, type University } from "@/lib/api";
 import { useAsyncAction, useSession } from "@/lib/session";
-
-/**
- * A rough strength read-out. It is guidance only — the real policy (length,
- * breach-corpus and similarity checks) is enforced server-side, and this never
- * blocks submission on its own.
- */
-function strengthOf(password: string): { score: 0 | 1 | 2 | 3; label: string; tone: string } {
-  if (password.length < 10) return { score: 0, label: "Too short", tone: "bg-critical" };
-  const variety =
-    Number(/[a-z]/.test(password)) +
-    Number(/[A-Z]/.test(password)) +
-    Number(/\d/.test(password)) +
-    Number(/[^\w\s]/.test(password));
-  if (password.length >= 16 || variety >= 3) return { score: 3, label: "Strong", tone: "bg-positive" };
-  if (variety >= 2) return { score: 2, label: "Reasonable", tone: "bg-caution" };
-  return { score: 1, label: "Weak", tone: "bg-caution" };
-}
 
 export default function SignupPage() {
   const router = useRouter();
@@ -36,8 +20,6 @@ export default function SignupPage() {
     domainFor: string;
     value: University | null;
   } | null>(null);
-
-  const strength = strengthOf(password);
 
   // Whether the address is even worth looking up is knowable at render time.
   const lookupTarget = /@[^@\s]+\.[^@\s]+$/.test(email) ? email : "";
@@ -146,7 +128,6 @@ export default function SignupPage() {
           htmlFor="password"
           error={register.fieldErrors.password}
           required
-          hint="At least 10 characters. Length beats complexity."
         >
           <Input
             id="password"
@@ -154,29 +135,17 @@ export default function SignupPage() {
             type="password"
             autoComplete="new-password"
             required
-            minLength={10}
-            placeholder="••••••••••"
+            minLength={PASSWORD_MIN_LENGTH}
+            placeholder="••••••••••••"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             invalid={Boolean(register.fieldErrors.password)}
           />
         </Field>
 
-        {password.length > 0 && (
-          <div className="flex items-center gap-2.5" aria-live="polite">
-            <div className="flex flex-1 gap-1">
-              {[1, 2, 3].map((step) => (
-                <span
-                  key={step}
-                  className={`h-1 flex-1 rounded-full transition-colors duration-200 ${
-                    strength.score >= step ? strength.tone : "bg-sunken"
-                  }`}
-                />
-              ))}
-            </div>
-            <span className="w-24 text-right text-[12px] text-muted">{strength.label}</span>
-          </div>
-        )}
+        {/* Shown from the first keystroke rather than on failure: the rules are
+            hard requirements, so a user who cannot see them is just guessing. */}
+        {password.length > 0 && <PasswordPolicy password={password} />}
 
         <Button type="submit" block size="lg" loading={register.pending}>
           Create account

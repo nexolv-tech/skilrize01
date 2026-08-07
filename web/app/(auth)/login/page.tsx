@@ -15,13 +15,28 @@ export default function LoginPage() {
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [code, setCode] = React.useState("");
-  /** Set when the password was right but a second factor is still required. */
-  const [challenge, setChallenge] = React.useState<string | null>(null);
+  /**
+   * Set when the password was right but a second proof is still due.
+   *
+   * `method` decides which endpoint the code goes to. The server chose it —
+   * an account with an authenticator is always sent down the `totp` path, and
+   * the email path is only ever offered to accounts that have none. The client
+   * never picks, because letting it pick would be letting an attacker pick.
+   */
+  const [challenge, setChallenge] = React.useState<{
+    token: string;
+    method: "totp" | "email";
+    sentTo?: string;
+  } | null>(null);
 
   const signIn = useAsyncAction(async () => {
     const result = await auth.login({ email, password });
-    if (result.two_factor_required && result.challenge) {
-      setChallenge(result.challenge);
+    if (result.challenge && (result.two_factor_required || result.device_verification_required)) {
+      setChallenge({
+        token: result.challenge,
+        method: result.two_factor_required ? "totp" : "email",
+        sentTo: result.sent_to,
+      });
       return;
     }
     if (result.user) {
@@ -31,22 +46,36 @@ export default function LoginPage() {
   });
 
   const submitCode = useAsyncAction(async () => {
-    const result = await auth.loginTwoFactor({ challenge: challenge!, code });
+    const body = { challenge: challenge!.token, code };
+    const result =
+      challenge!.method === "totp"
+        ? await auth.loginTwoFactor(body)
+        : await auth.loginVerifyDevice(body);
     setUser(result.user);
     router.push("/dashboard");
   });
 
   if (challenge) {
+    const viaEmail = challenge.method === "email";
     return (
       <div className="animate-rise">
         <span className="grid size-11 place-items-center rounded-lg bg-accent-soft text-accent">
-          <Icon name="shield" className="size-5" />
+          <Icon name={viaEmail ? "mail" : "shield"} className="size-5" />
         </span>
         <h1 className="mt-5 text-2xl font-semibold tracking-[-0.025em] text-fg">
-          Enter your code
+          {viaEmail ? "Confirm it's you" : "Enter your code"}
         </h1>
-        <p className="mt-2 text-sm text-muted">
-          Open your authenticator app and enter the six-digit code. A recovery code works too.
+        <p className="mt-2 text-sm leading-relaxed text-muted">
+          {viaEmail ? (
+            <>
+              You&apos;re signing in from a device we haven&apos;t seen before, so we sent a
+              six-digit code to{" "}
+              <span className="font-medium text-fg">{challenge.sentTo ?? "your email"}</span>. It
+              expires in 10 minutes.
+            </>
+          ) : (
+            "Open your authenticator app and enter the six-digit code. A recovery code works too."
+          )}
         </p>
 
         <form
@@ -58,7 +87,11 @@ export default function LoginPage() {
         >
           {submitCode.error && <Alert tone="critical">{submitCode.error}</Alert>}
 
-          <Field label="Authentication code" htmlFor="code" error={submitCode.fieldErrors.code}>
+          <Field
+            label={viaEmail ? "Code from your email" : "Authentication code"}
+            htmlFor="code"
+            error={submitCode.fieldErrors.code}
+          >
             <Input
               id="code"
               name="code"
@@ -76,6 +109,13 @@ export default function LoginPage() {
           <Button type="submit" block size="lg" loading={submitCode.pending}>
             Verify and sign in
           </Button>
+
+          {viaEmail && (
+            <p className="rounded-md border border-line bg-sunken px-3.5 py-3 text-[12.5px] leading-relaxed text-muted">
+              Didn&apos;t expect this? Someone may know your password. Don&apos;t share the code —
+              sign in from a device you have used before and change your password.
+            </p>
+          )}
 
           <button
             type="button"

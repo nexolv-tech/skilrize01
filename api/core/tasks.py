@@ -36,7 +36,17 @@ def scan_file(self, stored_file_id: int) -> str:
         record.save(update_fields=["scan_status", "updated_at"])
         raise self.retry(exc=exc) from exc
 
-    verdict = _scan_bytes(data)
+    try:
+        verdict = _scan_bytes(data)
+    except Exception as exc:
+        # The engine was unreachable or answered with something unusable. The
+        # file stays quarantined and the task retries; it is never promoted to
+        # clean because the scanner could not be asked.
+        logger.warning("scan_engine_error file=%s error=%s", stored_file_id, exc)
+        record.scan_status = StoredFile.ScanStatus.FAILED
+        record.save(update_fields=["scan_status", "updated_at"])
+        raise self.retry(exc=exc) from exc
+
     record.scan_status = verdict
     record.save(update_fields=["scan_status", "updated_at"])
 
@@ -47,19 +57,80 @@ def scan_file(self, stored_file_id: int) -> str:
     return verdict
 
 
+#: EICAR's standard test string, split so this file does not itself trip a
+#: scanner watching the source tree.
+_EICAR = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR"
+
+
 def _scan_bytes(data: bytes) -> str:
     """Return a scan verdict for ``data``.
 
-    Replace the body with a call to the real engine. The EICAR check is here so
-    the quarantine path is exercised by the test suite rather than assumed to
-    work on the day it first matters.
+    Points at ClamAV when ``CLAMAV_HOST`` is configured. When it is not, the
+    behaviour deliberately differs by environment:
+
+    * With ``REQUIRE_FILE_SCANNER`` off (local development), fall back to
+      matching EICAR, so the quarantine path is exercised by the test suite
+      rather than assumed to work on the day it first matters.
+    * With it on, return ``FAILED``. An unscanned file staying un-downloadable
+      is a visible, fixable outage; an unscanned file being served because
+      nobody noticed the scanner was unset is a breach. This pipeline fails
+      closed on purpose.
     """
     from .models import StoredFile
 
-    eicar = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR"
-    if eicar in data[:1024]:
+    host = getattr(settings, "CLAMAV_HOST", "")
+    if host:
+        return _scan_with_clamav(data, host, settings.CLAMAV_PORT)
+
+    if settings.REQUIRE_FILE_SCANNER:
+        logging.getLogger("skilrize.security").error(
+            "scanner_not_configured: refusing to mark an upload clean without a scanner"
+        )
+        return StoredFile.ScanStatus.FAILED
+
+    return StoredFile.ScanStatus.INFECTED if _EICAR in data[:1024] else StoredFile.ScanStatus.CLEAN
+
+
+def _scan_with_clamav(data: bytes, host: str, port: int) -> str:
+    """Scan one buffer over clamd's INSTREAM protocol.
+
+    Spoken directly rather than through a client library: the protocol is a
+    length-prefixed chunk stream and a one-line reply, and implementing it here
+    is smaller than the dependency plus its transitive surface — which is the
+    wrong thing to grow on the component that handles hostile input.
+    """
+    import socket
+    import struct
+
+    from .models import StoredFile
+
+    chunk_size = 64 * 1024
+    with socket.create_connection((host, port), timeout=settings.CLAMAV_TIMEOUT) as sock:
+        sock.settimeout(settings.CLAMAV_TIMEOUT)
+        sock.sendall(b"zINSTREAM\0")
+        for start in range(0, len(data), chunk_size):
+            chunk = data[start : start + chunk_size]
+            sock.sendall(struct.pack("!L", len(chunk)) + chunk)
+        # A zero-length chunk terminates the stream.
+        sock.sendall(struct.pack("!L", 0))
+
+        reply = b""
+        while b"\0" not in reply:
+            received = sock.recv(4096)
+            if not received:
+                break
+            reply += received
+
+    verdict = reply.rstrip(b"\0").decode("utf-8", "replace").strip()
+    if verdict.endswith("OK"):
+        return StoredFile.ScanStatus.CLEAN
+    if verdict.endswith("FOUND"):
+        logging.getLogger("skilrize.security").error("clamav_hit verdict=%s", verdict)
         return StoredFile.ScanStatus.INFECTED
-    return StoredFile.ScanStatus.CLEAN
+
+    # A size limit, a broken stream, or an engine error. Not clean, and not
+    # provably infected either — so it stays quarantined and gets retried.
+    raise RuntimeError(f"clamav returned an unusable verdict: {verdict!r}")
 
 
 @shared_task(bind=True, max_retries=5, default_retry_delay=60)

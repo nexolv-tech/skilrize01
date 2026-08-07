@@ -9,30 +9,102 @@ the global marketplace.
 
 from __future__ import annotations
 
+import pyotp
 import pytest
+from django.utils import timezone
 from rest_framework.test import APIClient
 
-from accounts.models import University, User, VerificationStatus
+from accounts.models import TwoFactorDevice, University, User, VerificationStatus
 from core.scope import GLOBAL_SCOPE, Scope, SurfaceKind, Visibility, use_scope
 from marketplace.models import Category, Project, ProjectType, Proposal, Skill
 
-PASSWORD = "correct-horse-battery-staple"
+PASSWORD = "Correct-Horse9-Battery"
 
 
-def make_user(email: str, *, transactable: bool = True, **extra) -> User:
+def make_user(
+    email: str, *, transactable: bool = True, two_factor: bool | None = None, **extra
+) -> User:
+    """Build an account, by default one that can do everything.
+
+    `two_factor` defaults to whatever `transactable` is, because money-movement
+    endpoints require an enrolled second factor (`accounts.auth.CanMoveMoney`).
+    A fixture claiming to be able to transact has to model that, or it is
+    testing a user who cannot actually exist. Pass it explicitly to build the
+    half-configured accounts the gate is there to catch.
+    """
     user = User.objects.create_user(email, PASSWORD, **extra)
     if transactable:
         user.email_verified = True
         user.phone_verified = True
         user.identity_status = VerificationStatus.VERIFIED
         user.save()
+
+    if two_factor is None:
+        two_factor = transactable
+    if two_factor:
+        TwoFactorDevice.objects.create(
+            user=user, secret=pyotp.random_base32(), confirmed_at=timezone.now()
+        )
     return user
 
 
 def sign_in(user: User) -> APIClient:
+    """Sign in, completing the second factor when the account has one.
+
+    Walking the real two-step flow rather than forcing a session keeps the
+    fixtures honest: if enrolment ever broke the login path, these tests would
+    notice instead of sailing past it.
+    """
     client = APIClient()
-    client.post("/api/v1/auth/login/", {"email": user.email, "password": PASSWORD}, format="json")
+    response = client.post(
+        "/api/v1/auth/login/", {"email": user.email, "password": PASSWORD}, format="json"
+    )
+
+    if response.data and response.data.get("two_factor_required"):
+        device = user.two_factor
+        # Clear the replay counter first. `verify_totp` refuses a code from a
+        # time-step it has already accepted, which is correct and is covered by
+        # its own test — but tests here call `sign_in` several times for one
+        # user inside a single 30-second step, and every call after the first
+        # would otherwise be rejected as a replay of itself.
+        device.last_used_counter = None
+        device.save(update_fields=["last_used_counter"])
+
+        client.post(
+            "/api/v1/auth/login/2fa/",
+            {"challenge": response.data["challenge"], "code": pyotp.TOTP(device.secret).now()},
+            format="json",
+        )
     return client
+
+
+@pytest.mark.django_db
+def test_bidding_does_not_require_a_second_factor(client_user, category):
+    """The deliberate asymmetry, pinned so nobody 'tidies' it away.
+
+    `CanMoveMoney` guards payment; `CanTransact` guards participation. A
+    freelancer must be able to win work before being asked for an authenticator
+    app — moving the 2FA wall here would cost sign-ups without protecting money
+    that is not yet in play.
+    """
+    seller = make_user("bidder-without-2fa@example.com", two_factor=False)
+    with use_scope(GLOBAL_SCOPE):
+        project = Project.objects.create(
+            client=client_user,
+            category=category,
+            title="A project open for proposals",
+            description="x" * 120,
+            project_type=ProjectType.FIXED,
+            status=Project.Status.OPEN,
+            visibility=Visibility.GLOBAL,
+        )
+
+    response = sign_in(seller).post(
+        f"/api/v1/projects/{project.pk}/proposals/",
+        {"cover_letter": "y" * 100, "bid_amount": "15000", "delivery_days": 7},
+        format="json",
+    )
+    assert response.status_code == 201
 
 
 @pytest.fixture

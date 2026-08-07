@@ -2,7 +2,9 @@
 
 import * as React from "react";
 
+import { PASSWORD_MIN_LENGTH, PasswordPolicy } from "@/components/password";
 import { PageHeading } from "@/components/shell";
+import { TwoFactorEnrol } from "@/components/two-factor";
 import {
   Alert,
   Badge,
@@ -74,7 +76,6 @@ function PasswordCard() {
             label="New password"
             htmlFor="new_password"
             error={change.fieldErrors.new_password}
-            hint="At least 10 characters."
             required
           >
             <Input
@@ -82,12 +83,14 @@ function PasswordCard() {
               type="password"
               autoComplete="new-password"
               required
-              minLength={10}
+              minLength={PASSWORD_MIN_LENGTH}
               value={next}
               onChange={(event) => setNext(event.target.value)}
             />
           </Field>
         </div>
+
+        {next.length > 0 && <PasswordPolicy password={next} />}
 
         <Button type="submit" loading={change.pending}>
           Update password
@@ -103,24 +106,9 @@ function PasswordCard() {
 
 function TwoFactorCard() {
   const { user, refresh } = useSession();
-  const [secret, setSecret] = React.useState<string | null>(null);
-  const [code, setCode] = React.useState("");
-  const [recoveryCodes, setRecoveryCodes] = React.useState<string[] | null>(null);
+  const [enrolling, setEnrolling] = React.useState(false);
   const [disabling, setDisabling] = React.useState(false);
   const [proof, setProof] = React.useState("");
-
-  const begin = useAsyncAction(async () => {
-    const result = await auth.twoFactorSetup();
-    setSecret(result.secret);
-  });
-
-  const confirm = useAsyncAction(async () => {
-    const result = await auth.twoFactorConfirm(code);
-    setRecoveryCodes(result.recovery_codes);
-    setSecret(null);
-    setCode("");
-    await refresh();
-  });
 
   const disable = useAsyncAction(async () => {
     await auth.twoFactorDisable(user?.has_two_factor ? { code: proof } : { password: proof });
@@ -131,46 +119,13 @@ function TwoFactorCard() {
 
   if (!user) return null;
 
-  // Shown exactly once, immediately after enrolment. They cannot be retrieved.
-  if (recoveryCodes) {
-    return (
-      <Card>
-        <CardHeader
-          title="Save your recovery codes"
-          description="Each code works once, if you lose access to your authenticator. This is the only time they are shown."
-        />
-        <div className="p-5">
-          <ul className="grid grid-cols-2 gap-2 rounded-md border border-line bg-sunken p-4 font-mono text-[13px] sm:grid-cols-3">
-            {recoveryCodes.map((recovery) => (
-              <li key={recovery} className="tabular text-fg">
-                {recovery}
-              </li>
-            ))}
-          </ul>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => void navigator.clipboard?.writeText(recoveryCodes.join("\n"))}
-            >
-              Copy all
-            </Button>
-            <Button size="sm" onClick={() => setRecoveryCodes(null)}>
-              I have saved them
-            </Button>
-          </div>
-        </div>
-      </Card>
-    );
-  }
-
   return (
     <Card>
       <CardHeader
         title="Two-factor authentication"
-        description="A code from your authenticator app, on top of your password."
+        description="A code from your authenticator app, on top of your password. Required before money can move on your account."
         action={
-          user.has_two_factor ? <Badge tone="positive">Enabled</Badge> : <Badge>Not set up</Badge>
+          user.has_two_factor ? <Badge tone="positive">Enabled</Badge> : <Badge tone="caution">Not set up</Badge>
         }
       />
 
@@ -185,7 +140,8 @@ function TwoFactorCard() {
               }}
             >
               <Alert tone="caution">
-                Turning this off makes your account materially easier to take over.
+                Turning this off makes your account materially easier to take over, and blocks
+                payments until you enrol again.
               </Alert>
               {disable.error && <Alert tone="critical">{disable.error}</Alert>}
 
@@ -227,66 +183,22 @@ function TwoFactorCard() {
               </Button>
             </div>
           )
-        ) : secret ? (
-          <form
-            className="max-w-md space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void confirm.run();
-            }}
-          >
-            <ol className="space-y-2 text-[13.5px] text-muted">
-              <li>1. Open your authenticator app and add a new account.</li>
-              <li>2. Enter this setup key:</li>
-            </ol>
-
-            <code className="block break-all rounded-md border border-line bg-sunken px-3.5 py-3 font-mono text-[13px] tracking-wide text-fg">
-              {secret}
-            </code>
-
-            {confirm.error && <Alert tone="critical">{confirm.error}</Alert>}
-
-            <Field
-              label="Enter the six-digit code to confirm"
-              htmlFor="totp"
-              error={confirm.fieldErrors.code}
-              required
-            >
-              <Input
-                id="totp"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                autoFocus
-                required
-                placeholder="123456"
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
-                invalid={Boolean(confirm.error)}
-                className="tracking-[0.25em]"
-              />
-            </Field>
-
-            <div className="flex gap-3">
-              <Button type="submit" loading={confirm.pending}>
-                Enable
-              </Button>
-              <Button type="button" variant="ghost" onClick={() => setSecret(null)}>
-                Cancel
-              </Button>
-            </div>
-          </form>
+        ) : enrolling ? (
+          <TwoFactorEnrol
+            onComplete={() => setEnrolling(false)}
+            onCancel={() => setEnrolling(false)}
+          />
         ) : (
           <div className="flex flex-wrap items-center gap-4">
             <p className="text-[13.5px] text-muted">
-              Strongly recommended, and required before your first withdrawal.
+              Strongly recommended, and required before you can pay for or release any work.
             </p>
-            <Button size="sm" loading={begin.pending} onClick={() => void begin.run()}>
+            <Button size="sm" onClick={() => setEnrolling(true)}>
               <Icon name="key" className="size-4" />
               Set up
             </Button>
           </div>
         )}
-        {begin.error && <p className="mt-3 text-[13px] text-critical">{begin.error}</p>}
       </div>
     </Card>
   );

@@ -15,6 +15,10 @@ argon2-cffi==25.1.0
 cryptography==46.0.4
 # TOTP second factor — report Section 6.4.
 pyotp==2.9.0
+# Renders the enrolment QR server-side. Generating it here rather than shipping
+# a QR library to the browser keeps the shared secret out of a third-party
+# bundle's reach and off the client's dependency surface entirely.
+qrcode==8.2
 # Server-side image re-encoding strips EXIF/GPS and destroys polyglot payloads
 # — report Section 7.2.
 pillow==12.1.0

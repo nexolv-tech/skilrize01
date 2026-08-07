@@ -21,6 +21,7 @@ import {
   Tag,
   cn,
 } from "@/components/ui";
+import { TwoFactorRequiredPrompt } from "@/components/two-factor";
 import { gigs, type GigDetail, type Package, type Tier } from "@/lib/api";
 import { useAsyncAction, useLoader } from "@/lib/session";
 
@@ -167,11 +168,29 @@ function PackagePanel({ gig }: { gig: GigDetail }) {
           </span>
         </div>
 
-        {buy.error && (
+        {/* `two_factor_required` and `device_cooloff` are refusals with a
+            specific next step, so they get one. Everything else is a plain
+            error. */}
+        {buy.code === "two_factor_required" ? (
+          <div className="mt-4">
+            <TwoFactorRequiredPrompt onComplete={() => void buy.run()} />
+          </div>
+        ) : buy.code === "device_cooloff" ? (
+          <Alert tone="caution" title="This device is new" className="mt-4">
+            {buy.error} If this sign-in was not you,{" "}
+            <Link
+              href="/settings/security"
+              className="font-medium text-accent underline-offset-4 hover:underline"
+            >
+              secure your account
+            </Link>
+            .
+          </Alert>
+        ) : buy.error ? (
           <Alert tone="critical" className="mt-4">
             {buy.error}
           </Alert>
-        )}
+        ) : null}
 
         {gig.is_owner ? (
           <Alert tone="neutral" className="mt-4">

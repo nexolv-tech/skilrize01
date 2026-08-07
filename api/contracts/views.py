@@ -15,7 +15,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from accounts.auth import CanTransact
+from accounts.auth import CanMoveMoney, CanTransact
 from core import files as filestore
 from core.models import AuditLog, NotificationCategory, StoredFile
 from core.notify import dispatch
@@ -229,7 +229,16 @@ class ContractViewSet(viewsets.ReadOnlyModelViewSet):
 
     # --- Milestones -------------------------------------------------------
 
-    @action(detail=True, methods=["post"], url_path="milestones/(?P<milestone_id>[^/.]+)/fund")
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="milestones/(?P<milestone_id>[^/.]+)/fund",
+        # IsContractParty is repeated from the class default on purpose:
+        # `permission_classes` on an action *replaces* the class list rather
+        # than adding to it, so omitting it here would silently drop the check
+        # that the caller is a party to this contract.
+        permission_classes=[IsAuthenticated, IsContractParty, CanMoveMoney],
+    )
     def fund_milestone(self, request, pk=None, milestone_id=None):
         """Secure the money for one milestone.
 
@@ -319,7 +328,16 @@ class ContractViewSet(viewsets.ReadOnlyModelViewSet):
         )
         return Response(self._detail(contract, request))
 
-    @action(detail=True, methods=["post"], url_path="milestones/(?P<milestone_id>[^/.]+)/release")
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="milestones/(?P<milestone_id>[^/.]+)/release",
+        # IsContractParty is repeated from the class default on purpose:
+        # `permission_classes` on an action *replaces* the class list rather
+        # than adding to it, so omitting it here would silently drop the check
+        # that the caller is a party to this contract.
+        permission_classes=[IsAuthenticated, IsContractParty, CanMoveMoney],
+    )
     def release_milestone(self, request, pk=None, milestone_id=None):
         """Accept the delivery and release the money."""
         contract = self.get_object()

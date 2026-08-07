@@ -28,3 +28,6 @@ api/.storage/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local agent/dev tooling (machine-specific paths)
+.claude/

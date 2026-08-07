@@ -19,10 +19,11 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 
 from core import files as filestore
-from core.models import AuditLog, NotificationCategory, StoredFile
+from core.models import AuditLog, NotificationCategory, StoredFile, client_ip
 from core.notify import dispatch
 
 from . import auth as tokens
+from . import devices, lockout
 from .models import (
     ApprovedEmailDomain,
     BuyerProfile,
@@ -69,12 +70,36 @@ def _throttled(scope: str):
     return decorator
 
 
-def _authenticated_response(user, request, *, created: bool = False):
-    """Issue tokens, set cookies, and return the user."""
+def _authenticated_response(
+    user, request, *, created: bool = False, verified_by_email: bool = False
+):
+    """Issue tokens, set cookies, and return the user.
+
+    Also the single place a sign-in is attributed to a device, so the new-device
+    alert and cool-off cannot be forgotten by one of the several paths that end
+    in an authenticated session.
+    """
+    device, is_new = devices.register(user, request)
+    if is_new and not created and not verified_by_email:
+        # Skipped on signup: the account was created seconds ago from this very
+        # device, and "we noticed a new device" would be nonsense as the first
+        # thing a new user reads.
+        #
+        # Skipped after an emailed code too: that email went to the same inbox
+        # moments ago and already carried the warning. The cool-off still
+        # applies in both cases.
+        devices.send_new_device_alert(user, request, device)
+
     access, refresh = tokens.issue(user, request)
     payload = UserSerializer(user).data
     response = Response(
-        {"user": payload}, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        {
+            "user": payload,
+            # Surfaced so the client can explain the hold up front rather than
+            # letting the user discover it when a purchase fails.
+            "device_cooloff_seconds": device.seconds_until_trusted if device else 0,
+        },
+        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
     )
     user.last_active_at = timezone.now()
     user.save(update_fields=["last_active_at", "updated_at"])
@@ -123,10 +148,51 @@ def login(request):
     serializer = LoginSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     email = serializer.validated_data["email"].strip().lower()
+    ip = client_ip(request)
+
+    # The address block comes first: a sprayer is trying many accounts, so it
+    # would never trip any single account's counter, and it should be turned
+    # away before it costs a database lookup.
+    if (blocked := lockout.ip_blocked_for(ip)) > 0:
+        security_log.warning("login_ip_blocked ip=%s", ip)
+        return Response(
+            {
+                "detail": "Too many failed sign-in attempts from this network. Try again later.",
+                "code": "ip_blocked",
+                "retry_after": blocked,
+            },
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers={"Retry-After": str(blocked)},
+        )
+
+    # Then the account budget, checked before the password is looked at, so a
+    # locked account costs an attacker a request without yielding a hash
+    # comparison to time.
+    if (remaining := lockout.locked_for(email)) > 0:
+        security_log.warning("login_locked email=%s ip=%s", email, ip)
+        return Response(
+            {
+                "detail": "Too many failed attempts. Try again later.",
+                "code": "account_locked",
+                "retry_after": remaining,
+            },
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers={"Retry-After": str(remaining)},
+        )
 
     user = authenticate(request, username=email, password=serializer.validated_data["password"])
     if user is None:
-        security_log.info("login_failed email=%s ip=%s", email, request.META.get("REMOTE_ADDR"))
+        attempts = lockout.record_failure(email)
+        ip_failures, ip_now_blocked = lockout.record_ip_failure(ip)
+        security_log.info(
+            "login_failed email=%s ip=%s attempts=%s ip_failures=%s",
+            email,
+            ip,
+            attempts,
+            ip_failures,
+        )
+        if ip_now_blocked:
+            security_log.error("login_ip_block_applied ip=%s failures=%s", ip, ip_failures)
         AuditLog.record(
             action=AuditLog.Action.LOGIN_FAILED, request=request, after={"email": email}
         )
@@ -134,6 +200,8 @@ def login(request):
             {"detail": "Email or password is incorrect.", "code": "invalid_credentials"},
             status=status.HTTP_401_UNAUTHORIZED,
         )
+
+    lockout.clear(email)
 
     if not user.is_active:
         return Response(
@@ -157,8 +225,121 @@ def login(request):
             status=status.HTTP_403_FORBIDDEN,
         )
 
+    # No authenticator enrolled, and a device this account has never used. The
+    # emailed code stands in for the second factor the user does not have, so
+    # a password on its own is never sufficient from somewhere unfamiliar.
+    # Checked with `current` rather than `register` so a failed attempt cannot
+    # enrol the attacker's device as known.
+    if settings.REQUIRE_NEW_DEVICE_VERIFICATION and devices.current(user, request) is None:
+        _send_device_verification(user, request)
+        challenge = signing.dumps({"uid": user.pk, "dv": True}, salt=CHALLENGE_SALT)
+        return Response(
+            {
+                "device_verification_required": True,
+                "challenge": challenge,
+                # Enough to reassure the right person and useless to anyone else.
+                "sent_to": _mask_email(user.email),
+            }
+        )
+
     AuditLog.record(actor=user, action=AuditLog.Action.LOGIN, target=user, request=request)
     return _authenticated_response(user, request)
+
+
+def _mask_email(email: str) -> str:
+    """`ahmed@example.com` -> `a•••d@example.com`."""
+    name, _, domain = email.partition("@")
+    if len(name) <= 2:
+        return f"{name[:1]}•••@{domain}"
+    return f"{name[0]}•••{name[-1]}@{domain}"
+
+
+def _send_device_verification(user, request) -> None:
+    _, raw = SecurityToken.issue(user, SecurityToken.Purpose.DEVICE_VERIFY, digits=6)
+    send_mail(
+        subject="Your SkilRize sign-in code",
+        message=(
+            f"Your sign-in code is {raw}\n\n"
+            f"It expires in 10 minutes and can be used once.\n\n"
+            f"This code was requested when signing in from a device your account "
+            f"has not used before"
+            f"{f' ({client_ip(request)})' if client_ip(request) else ''}.\n\n"
+            f"If you did not try to sign in, someone else may know your password. "
+            f"Do not share this code with anyone — change your password instead."
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[user.email],
+        fail_silently=False,
+    )
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+@_throttled("otp")
+def login_device_verify(request):
+    """Finish a sign-in from an unrecognised device with the emailed code.
+
+    Mirrors `login_two_factor` deliberately: same challenge envelope, same
+    per-account attempt budget, same refusal to say whether the account exists.
+    The only difference is where the code came from.
+    """
+    serializer = TwoFactorChallengeSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    try:
+        payload = signing.loads(
+            serializer.validated_data["challenge"], salt=CHALLENGE_SALT, max_age=CHALLENGE_MAX_AGE
+        )
+    except signing.BadSignature:
+        return Response(
+            {
+                "detail": "This sign-in attempt has expired. Start again.",
+                "code": "challenge_expired",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # A 2FA challenge must not be redeemable here: that would let an account
+    # with an authenticator be entered with an email code instead, quietly
+    # downgrading its second factor to whatever the inbox is worth.
+    if not payload.get("dv"):
+        return Response(
+            {"detail": "Wrong verification method for this sign-in.", "code": "invalid_challenge"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    lock_id = f"device:{payload.get('uid')}"
+    if (remaining := lockout.locked_for(lock_id)) > 0:
+        security_log.warning("device_verify_locked user=%s", payload.get("uid"))
+        return Response(
+            {
+                "detail": "Too many failed attempts. Try again later.",
+                "code": "account_locked",
+                "retry_after": remaining,
+            },
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers={"Retry-After": str(remaining)},
+        )
+
+    user = User.objects.filter(pk=payload["uid"], is_active=True).first()
+    code = serializer.validated_data["code"]
+    if user is None or not SecurityToken.consume(user, SecurityToken.Purpose.DEVICE_VERIFY, code):
+        attempts = lockout.record_failure(lock_id)
+        lockout.record_ip_failure(client_ip(request))
+        security_log.warning(
+            "device_verify_failed user=%s attempts=%s", payload.get("uid"), attempts
+        )
+        return Response(
+            {"detail": "That code is not valid.", "code": "invalid_code"},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    lockout.clear(lock_id)
+    AuditLog.record(actor=user, action=AuditLog.Action.LOGIN, target=user, request=request)
+    # `verified_by_email` suppresses the separate "new device" alert: the code
+    # that just cleared went to the same inbox, so a second email saying a new
+    # device signed in would be telling them what they already did.
+    return _authenticated_response(user, request, verified_by_email=True)
 
 
 @api_view(["POST"])
@@ -182,13 +363,33 @@ def login_two_factor(request):
         )
 
     user = User.objects.filter(pk=payload["uid"], is_active=True).first()
+
+    # A six-digit code is a 1-in-a-million guess, which is only strong while the
+    # number of guesses is bounded. The budget is keyed to the account, not the
+    # challenge, so minting fresh challenges does not buy more attempts.
+    lock_id = f"2fa:{payload.get('uid')}"
+    if (remaining := lockout.locked_for(lock_id)) > 0:
+        security_log.warning("two_factor_locked user=%s", payload.get("uid"))
+        return Response(
+            {
+                "detail": "Too many failed attempts. Try again later.",
+                "code": "account_locked",
+                "retry_after": remaining,
+            },
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers={"Retry-After": str(remaining)},
+        )
+
     if user is None or not tokens.verify_second_factor(user, serializer.validated_data["code"]):
-        security_log.warning("two_factor_failed user=%s", payload.get("uid"))
+        attempts = lockout.record_failure(lock_id)
+        lockout.record_ip_failure(client_ip(request))
+        security_log.warning("two_factor_failed user=%s attempts=%s", payload.get("uid"), attempts)
         return Response(
             {"detail": "That code is not valid.", "code": "invalid_code"},
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
+    lockout.clear(lock_id)
     AuditLog.record(actor=user, action=AuditLog.Action.LOGIN, target=user, request=request)
     return _authenticated_response(user, request)
 
@@ -239,7 +440,13 @@ def me(request):
         serializer = UserSerializer(request.user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-    return Response(UserSerializer(request.user).data)
+
+    payload = UserSerializer(request.user).data
+    # Attached here rather than on the serializer: it is a property of the
+    # calling device, not of the account, and the same user answers differently
+    # from two browsers.
+    payload["device_cooloff_seconds"] = devices.cooloff_remaining(request.user, request)
+    return Response(payload)
 
 
 @api_view(["PATCH"])
@@ -581,7 +788,16 @@ def two_factor_setup(request):
 
     device.secret = pyotp.random_base32()
     device.save(update_fields=["secret", "updated_at"])
-    return Response({"secret": device.secret, "otpauth_url": tokens.provisioning_uri(device)})
+    return Response(
+        {
+            # The QR is the path everyone actually uses; the secret is the
+            # fallback for authenticators that cannot scan, and is shown behind
+            # a disclosure rather than printed next to the code.
+            "qr_svg": tokens.provisioning_qr(device),
+            "secret": device.secret,
+            "otpauth_url": tokens.provisioning_uri(device),
+        }
+    )
 
 
 @api_view(["POST"])

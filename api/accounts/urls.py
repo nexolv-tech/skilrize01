@@ -9,6 +9,7 @@ urlpatterns = [
     path("signup/", views.signup, name="signup"),
     path("login/", views.login, name="login"),
     path("login/2fa/", views.login_two_factor, name="login-2fa"),
+    path("login/device/", views.login_device_verify, name="login-device-verify"),
     path("refresh/", views.refresh, name="refresh"),
     path("logout/", views.logout, name="logout"),
     # The signed-in user

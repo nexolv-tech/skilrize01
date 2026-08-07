@@ -157,7 +157,7 @@ class Command(BaseCommand):
                 },
             )
             if created:
-                user.set_password("demo-password-1234")
+                user.set_password("Demo-Account9-Pass")
                 user.save()
                 SellerProfile.objects.get_or_create(user=user)
             return user

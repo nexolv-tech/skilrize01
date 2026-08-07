@@ -22,6 +22,7 @@ import {
   cn,
   type IconName,
 } from "@/components/ui";
+import { TwoFactorRequiredPrompt } from "@/components/two-factor";
 import {
   contracts,
   type ContractDetail,
@@ -84,6 +85,9 @@ function MilestoneRow({
   });
 
   const error = fund.error ?? release.error ?? deliver.error;
+  // Only the two money actions can be refused for a missing second factor;
+  // delivering is not gated on it.
+  const blockedCode = fund.code ?? release.code;
 
   return (
     <li className="p-5">
@@ -213,8 +217,21 @@ function MilestoneRow({
           </p>
         )}
 
-        {error && <span className="text-[12.5px] text-critical">{error}</span>}
+        {blockedCode !== "two_factor_required" && error && (
+          <span className="text-[12.5px] text-critical">{error}</span>
+        )}
       </div>
+
+      {/* Enrolment is offered in place rather than as a link to settings: a
+          user stopped mid-payment who is sent elsewhere to fix it mostly does
+          not come back to finish the payment. */}
+      {blockedCode === "two_factor_required" && (
+        <div className="mt-4">
+          <TwoFactorRequiredPrompt
+            onComplete={() => void (fund.code ? fund.run() : release.run())}
+          />
+        </div>
+      )}
     </li>
   );
 }

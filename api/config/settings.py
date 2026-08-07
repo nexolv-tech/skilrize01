@@ -108,24 +108,70 @@ CACHES = {
 
 # --- Authentication --------------------------------------------------------
 
-# Argon2id first (report Section 6.1). The remaining hashers exist only so that
-# legacy hashes can still be verified and transparently upgraded on next login.
+# Argon2id first (report Section 6.1), with cost factors pinned in
+# accounts.hashers rather than inherited from Django's shifting defaults. The
+# remaining hashers exist only so that legacy hashes can still be verified and
+# transparently upgraded on next login.
 PASSWORD_HASHERS = [
+    "accounts.hashers.SkilRizeArgon2Hasher",
     "django.contrib.auth.hashers.Argon2PasswordHasher",
     "django.contrib.auth.hashers.PBKDF2PasswordHasher",
 ]
 
+#: Floor for a new password. Raising this is safe at any time — existing
+#: passwords are unaffected until their next change.
+PASSWORD_MIN_LENGTH = config("PASSWORD_MIN_LENGTH", default=12, cast=int)
+
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    # 10 characters, per Section 6.1 — length over composition rules, which
-    # only push users toward predictable patterns.
     {
         "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
-        "OPTIONS": {"min_length": 10},
+        "OPTIONS": {"min_length": PASSWORD_MIN_LENGTH},
     },
+    # ~20k breached passwords, checked before composition so the clearest
+    # failure is the one reported first.
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+    # All four character classes, then the patterns people fall back on when a
+    # composition rule forces variety they did not want.
+    {"NAME": "accounts.validators.ComplexityValidator"},
+    {"NAME": "accounts.validators.PredictabilityValidator"},
 ]
+
+# --- Brute-force lockout ---------------------------------------------------
+# Two independent budgets, because the two attacks look nothing alike.
+#
+# Per account: bounds what any one account can absorb no matter how many
+# addresses the guesses arrive from. This is the credential-stuffing defence.
+LOGIN_MAX_ATTEMPTS = config("LOGIN_MAX_ATTEMPTS", default=5, cast=int)
+LOGIN_LOCKOUT_SECONDS = config("LOGIN_LOCKOUT_SECONDS", default=1800, cast=int)  # 30 minutes
+
+# Per source address: bounds a single origin spraying many *different* accounts,
+# which the per-account budget above never sees because no one account reaches
+# its limit. Counts failures only — a shared office or campus NAT can produce a
+# steady trickle of successful logins from one address quite legitimately, and
+# counting those would lock out the building.
+LOGIN_IP_MAX_FAILURES = config("LOGIN_IP_MAX_FAILURES", default=10, cast=int)
+LOGIN_IP_WINDOW_SECONDS = config("LOGIN_IP_WINDOW_SECONDS", default=600, cast=int)  # 10 minutes
+LOGIN_IP_BLOCK_SECONDS = config("LOGIN_IP_BLOCK_SECONDS", default=3600, cast=int)  # 1 hour
+
+# --- New-device verification -----------------------------------------------
+# An account with no authenticator enrolled must prove control of its inbox
+# before a device it has never used gets a session. This is what stops a stolen
+# password on its own from being enough for the users who never turned 2FA on —
+# which is most of them.
+#
+# It is a switch rather than a constant so it can be turned off deliberately if
+# outbound mail is down and the alternative is locking everyone out. Default on.
+REQUIRE_NEW_DEVICE_VERIFICATION = config("REQUIRE_NEW_DEVICE_VERIFICATION", default=True, cast=bool)
+
+# --- New-device cool-off ---------------------------------------------------
+# A password that has just been used from an unrecognised device is the exact
+# signature of a freshly stolen credential. Rather than block the session — the
+# legitimate case is common and blocking it is hostile — the device may browse
+# everything and simply cannot move money until the window closes. That leaves
+# the real user a couple of hours to read the alert email and revoke.
+DEVICE_COOLOFF_SECONDS = config("DEVICE_COOLOFF_SECONDS", default=7200, cast=int)  # 2 hours
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
@@ -173,6 +219,14 @@ COOKIE_SECURE = config("COOKIE_SECURE", default=not DEBUG, cast=bool)
 COOKIE_DOMAIN = config("COOKIE_DOMAIN", default="") or None
 COOKIE_SAMESITE = "Lax"
 
+if not DEBUG:
+    # An environment variable may relax this locally over plain http, but it
+    # must never be able to relax it in a deployed environment. `COOKIE_SECURE`
+    # is the single setting most likely to reach production by being copied out
+    # of somebody's local .env, and the cost of getting it wrong is every
+    # session token readable by anything on the path.
+    COOKIE_SECURE = True
+
 
 # --- Security --------------------------------------------------------------
 
@@ -182,10 +236,34 @@ CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
+SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
 X_FRAME_OPTIONS = "DENY"
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = COOKIE_SECURE
+SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SECURE = COOKIE_SECURE
+CSRF_COOKIE_SAMESITE = "Lax"
+# The CSRF cookie is read by the web client to echo the token back in a header,
+# so it cannot be HttpOnly. That is the documented double-submit design and is
+# safe as long as the value is only ever *reflected*, never trusted on its own.
+CSRF_COOKIE_HTTPONLY = False
+
+# --- Request limits --------------------------------------------------------
+# Django's defaults allow a 2.5 MB form body and 1000 fields. Neither is needed
+# here — uploads go through the dedicated endpoint with its own ceiling — and
+# both are cheap denial-of-service surface: parsing is done before any view
+# runs, so an unauthenticated request can spend server memory for free.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 1 * 1024 * 1024  # 1 MB of JSON is already generous
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 200
+DATA_UPLOAD_MAX_NUMBER_FILES = 10
+FILE_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024  # larger files spool to disk
+
+# --- Interim admin ---------------------------------------------------------
+# Django admin is internal tooling until the custom console replaces it. Moving
+# it off the default path is not a security control on its own, but it removes
+# the account from every commodity scanner's first request, which is most of
+# the noise in the auth logs.
+ADMIN_URL = config("ADMIN_URL", default="admin/")
 
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
@@ -208,6 +286,18 @@ FILE_SIGNING_KEY = config("FILE_SIGNING_KEY", default=SECRET_KEY)
 FIELD_ENCRYPTION_KEY = config("FIELD_ENCRYPTION_KEY", default=SECRET_KEY)
 FILE_URL_TTL_SECONDS = 300
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB, per Section 6.2 step 5
+
+# Antivirus. Point this at a clamd instance and every upload is streamed to it
+# before it can be downloaded. Leaving it unset is only viable with DEBUG on —
+# core.tasks refuses to mark anything clean without a scanner otherwise.
+CLAMAV_HOST = config("CLAMAV_HOST", default="")
+CLAMAV_PORT = config("CLAMAV_PORT", default=3310, cast=int)
+CLAMAV_TIMEOUT = config("CLAMAV_TIMEOUT", default=30, cast=int)
+# When true and no scanner is reachable, uploads are quarantined rather than
+# passed. Keyed off DEBUG at import time rather than read at call time, because
+# Django's test runner forces DEBUG off and would otherwise turn every suite
+# into a fail-closed run against a scanner that was never meant to be there.
+REQUIRE_FILE_SCANNER = config("REQUIRE_FILE_SCANNER", default=not DEBUG, cast=bool)
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"

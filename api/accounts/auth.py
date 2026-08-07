@@ -218,6 +218,40 @@ def provisioning_uri(device: TwoFactorDevice) -> str:
     )
 
 
+def provisioning_qr(device: TwoFactorDevice) -> str:
+    """The provisioning URI as an inline SVG data URI.
+
+    Rendered on the server so the TOTP secret is never handed to a QR library
+    in the browser. It also means the enrolment screen needs no client-side
+    dependency at all — the value drops straight into an `<img src>`, which the
+    Content-Security-Policy already permits via `img-src data:`.
+
+    SVG rather than PNG: it is smaller here, stays sharp on any display, and
+    scales to whatever the layout gives it without a second request.
+    """
+    import base64
+    import io
+
+    import qrcode
+    import qrcode.image.svg
+
+    image = qrcode.make(
+        provisioning_uri(device),
+        image_factory=qrcode.image.svg.SvgPathImage,
+        # Level Q tolerates ~25% damage. An authenticator QR is often scanned
+        # off a glossy laptop screen at an angle, and the extra redundancy is
+        # cheap at this payload size.
+        error_correction=qrcode.constants.ERROR_CORRECT_Q,
+        box_size=10,
+        border=2,
+    )
+
+    buffer = io.BytesIO()
+    image.save(buffer)
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded}"
+
+
 def verify_totp(device: TwoFactorDevice, code: str) -> bool:
     """Check a TOTP code, allowing one step of clock drift either way.
 
@@ -273,18 +307,73 @@ def verify_step_up(user, password: str = "", code: str = "") -> bool:
 
 
 class CanTransact(permissions.BasePermission):
-    """The profile-completion gate, as a permission class.
+    """The profile-completion gate and the new-device cool-off, in one place.
 
     Section 8.4: until email, phone, and national identity are all verified, a
     user may browse but may not post projects, publish gigs, submit proposals,
     purchase gigs, or transact in any way. Every phase that adds a
     money-adjacent endpoint attaches this — the gate is enforced in one place
     rather than re-derived per view.
+
+    The second condition is the cool-off: a device signing in for the first time
+    holds off on anything money-adjacent for `DEVICE_COOLOFF_SECONDS`. Both
+    checks belong here for the same reason — an endpoint that forgets one of
+    them is a hole, and there should only ever be one list to attach.
     """
 
     message = "Complete your profile before transacting."
     code = "profile_incomplete"
 
     def has_permission(self, request, view) -> bool:
+        from . import devices
+
         user = request.user
-        return bool(user and user.is_authenticated and user.can_transact)
+        if not (user and user.is_authenticated and user.can_transact):
+            # Falls through to the default message and `profile_incomplete`.
+            return False
+
+        remaining = devices.cooloff_remaining(user, request)
+        if remaining > 0:
+            # Raised rather than returned so the client gets the reason and the
+            # countdown. A bare 403 here reads as "your profile is incomplete",
+            # which would send the user to fix something that is already fine.
+            raise exceptions.PermissionDenied(
+                exceptions.ErrorDetail(
+                    "This device is new. For your security, transactions unlock "
+                    f"in about {max(1, remaining // 60)} minute(s).",
+                    code="device_cooloff",
+                )
+            )
+
+        return True
+
+
+class CanMoveMoney(CanTransact):
+    """Everything `CanTransact` requires, plus an enrolled second factor.
+
+    Deliberately narrower than `CanTransact`. Posting a project, submitting a
+    proposal, or publishing a gig ask only for a complete profile — a new
+    freelancer should be able to win work before anyone demands an authenticator
+    app, and putting the wall there costs sign-ups without protecting money that
+    is not yet in play.
+
+    This class guards the point where value actually moves: funding a milestone,
+    releasing one, buying a package, and — from Phase 3 — withdrawing. By then
+    the user has a concrete reason to care, which is the moment enrolment stops
+    feeling like an obstacle and starts feeling like a lock on their own money.
+    """
+
+    def has_permission(self, request, view) -> bool:
+        if not super().has_permission(request, view):
+            return False
+
+        if not request.user.has_two_factor:
+            raise exceptions.PermissionDenied(
+                exceptions.ErrorDetail(
+                    "Set up two-factor authentication to continue. It is required "
+                    "before money can move on your account.",
+                    code="two_factor_required",
+                )
+            )
+
+        return True

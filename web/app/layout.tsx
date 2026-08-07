@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 
@@ -25,13 +26,28 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Minted per request by middleware.ts. Every inline script on the page must
+  // carry it or the Content-Security-Policy drops the script on the floor.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`} suppressHydrationWarning>
       <head>
         {/* Runs before first paint so the correct theme is already applied and
-            the page never flashes white on the way to dark. */}
-        <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
+            the page never flashes white on the way to dark.
+
+            `suppressHydrationWarning` is required, not cosmetic: the HTML spec
+            has browsers blank the `nonce` *attribute* once parsed (it survives
+            only as a property) so that a CSS attribute selector cannot
+            exfiltrate it. React compares attributes, sees "" against the value
+            it rendered, and reports a mismatch that is really the browser
+            behaving correctly. */}
+        <script
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: themeBootstrap }}
+        />
       </head>
       <body className="min-h-dvh antialiased">
         <a

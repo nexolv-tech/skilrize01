@@ -326,6 +326,10 @@ class SecurityToken(TimestampedModel):
         PASSWORD_RESET = "password_reset", "Password reset"
         PHONE_OTP = "phone_otp", "Phone verification"
         STUDENT_EMAIL_OTP = "student_email_otp", "University email verification"
+        #: Sent when an account with no authenticator signs in from a device it
+        #: has never used. Standing in for the second factor that user has not
+        #: enrolled, so a stolen password alone is never enough.
+        DEVICE_VERIFY = "device_verify", "New device verification"
 
     #: Section 6.2: OTPs allow at most five attempts before they are burned.
     MAX_ATTEMPTS = 5
@@ -334,6 +338,8 @@ class SecurityToken(TimestampedModel):
         Purpose.PASSWORD_RESET: timedelta(minutes=30),
         Purpose.PHONE_OTP: timedelta(minutes=10),
         Purpose.STUDENT_EMAIL_OTP: timedelta(minutes=10),
+        # Short: the user is sitting at the sign-in screen waiting for it.
+        Purpose.DEVICE_VERIFY: timedelta(minutes=10),
     }
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="security_tokens")
@@ -446,6 +452,53 @@ class RefreshSession(TimestampedModel):
         return RefreshSession.objects.filter(
             user_id=self.user_id, family=self.family, revoked_at__isnull=True
         ).update(revoked_at=timezone.now())
+
+
+class KnownDevice(TimestampedModel):
+    """A device this account has signed in from before, and when it earned trust.
+
+    A correct password arriving from a device nobody has ever seen is the
+    clearest cheap signal of a stolen credential. Blocking the session outright
+    would be wrong — that case is overwhelmingly a real person on a new laptop —
+    so instead the device gets full read access immediately and a hold on
+    anything that moves money until ``trusted_at`` passes. The alert email sent
+    at the same moment is what makes the window useful: it gives the real owner
+    time to revoke before a thief can spend anything.
+
+    The fingerprint is a keyed hash of the user agent. That is a weak
+    identifier and is treated as one: it is a heuristic for "have we seen this
+    before", never an authentication factor. Two identical browsers on the same
+    OS collapse into one device, which errs toward fewer alerts rather than
+    toward trusting something unseen.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="devices")
+    fingerprint = models.CharField(max_length=64)
+    label = models.CharField(max_length=120, blank=True)
+    first_ip = models.GenericIPAddressField(null=True, blank=True)
+    last_seen_at = models.DateTimeField(default=timezone.now)
+    #: When this device may begin transacting. Set on creation to first-seen
+    #: plus the cool-off window, and brought forward when the user confirms the
+    #: device from a session that is already trusted.
+    trusted_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["-last_seen_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "fingerprint"], name="unique_device_per_user")
+        ]
+
+    def __str__(self) -> str:
+        return f"Device {self.fingerprint[:8]} for {self.user_id}"
+
+    @property
+    def is_trusted(self) -> bool:
+        return self.trusted_at <= timezone.now()
+
+    @property
+    def seconds_until_trusted(self) -> int:
+        remaining = (self.trusted_at - timezone.now()).total_seconds()
+        return max(int(remaining), 0)
 
 
 class TwoFactorDevice(TimestampedModel):

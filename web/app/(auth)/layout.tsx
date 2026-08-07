@@ -32,20 +32,28 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
       {/* Brand side. Decorative — hidden below large screens rather than
           stacked, so the form is never pushed below the fold on a phone. */}
-      <aside className="bg-aurora relative hidden overflow-hidden border-l border-line lg:block">
-        <div className="bg-grid absolute inset-0 opacity-50" aria-hidden />
+      <aside className="bg-aurora-live texture-grain relative hidden overflow-hidden border-l border-line lg:block">
+        <div className="bg-grid absolute inset-0 opacity-40" aria-hidden />
         <div className="relative flex h-full flex-col justify-center px-14 py-16">
-          <h2 className="max-w-md text-[2rem] font-semibold leading-[1.15] tracking-[-0.03em] text-fg">
+          <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-line bg-raised/70 px-3 py-1.5 text-[12px] font-medium text-muted backdrop-blur">
+            <span className="size-1.5 rounded-full bg-positive" aria-hidden />
+            Two marketplaces, one account
+          </span>
+
+          <h2 className="display-2 mt-6 max-w-md text-fg">
             Hire, get hired, and rise — on one account.
           </h2>
-          <p className="mt-4 max-w-md text-[15px] leading-relaxed text-muted">
+          <p className="mt-5 max-w-md text-[15.5px] leading-relaxed text-muted">
             Post a project and compare proposals, or publish a fixed-price service and sell it
             outright. Same wallet, same reputation, same protection either way.
           </p>
 
-          <ul className="mt-12 space-y-6">
+          <ul className="mt-12 space-y-5">
             {PROOF.map(([title, body]) => (
-              <li key={title} className="flex gap-3.5">
+              <li
+                key={title}
+                className="glass edge-light flex gap-3.5 rounded-xl border border-line p-4"
+              >
                 <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-accent-soft text-accent">
                   <Icon name="check" className="size-3.5" strokeWidth={2.6} />
                 </span>

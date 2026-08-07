@@ -15,7 +15,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from accounts.auth import CanTransact
+from accounts.auth import CanMoveMoney, CanTransact
 from contracts.models import Contract, ContractEvent, ContractType, Milestone
 from core import files as filestore
 from core.models import AuditLog, NotificationCategory, StoredFile
@@ -168,7 +168,7 @@ class GigViewSet(viewsets.ModelViewSet):
 
     # --- Ordering ---------------------------------------------------------
 
-    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated, CanTransact])
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated, CanMoveMoney])
     @transaction.atomic
     def order(self, request, pk=None):
         """Buy a package. Funds are captured immediately (Section 11.3, step 1)."""

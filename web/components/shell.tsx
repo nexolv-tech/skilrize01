@@ -177,6 +177,8 @@ function UserMenu() {
 
 export function AppHeader() {
   const pathname = usePathname();
+  const { user } = useSession();
+  const cooloff = user?.device_cooloff_seconds ?? 0;
 
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-surface/85 backdrop-blur-xl">
@@ -221,7 +223,64 @@ export function AppHeader() {
           <UserMenu />
         </div>
       </div>
+
+      {/* Keyed on the value so a fresh countdown starts from scratch when the
+          session reloads, rather than the effect writing over live state. */}
+      <DeviceCooloffBanner key={cooloff} seconds={cooloff} />
     </header>
+  );
+}
+
+/**
+ * The new-device hold, explained where the user will hit it.
+ *
+ * A control the user cannot see is a control they experience as a bug. This
+ * says what is held, for how long, and — the part that matters — what to do if
+ * the sign-in was not theirs. It counts down locally rather than polling: the
+ * server is still the authority on every request, so a display that drifts a
+ * second is harmless and a request per second is not.
+ */
+function DeviceCooloffBanner({ seconds }: { seconds: number }) {
+  const [remaining, setRemaining] = React.useState(seconds);
+
+  // The deadline is captured inside the effect rather than during render:
+  // `Date.now()` is impure, and anchoring to a wall-clock deadline keeps the
+  // countdown honest across a backgrounded tab, where interval callbacks are
+  // throttled and a naive decrement would fall behind.
+  React.useEffect(() => {
+    if (seconds <= 0) return;
+    const deadline = Date.now() + seconds * 1000;
+    const timer = setInterval(() => {
+      const left = Math.max(Math.ceil((deadline - Date.now()) / 1000), 0);
+      setRemaining(left);
+      if (left <= 0) clearInterval(timer);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [seconds]);
+
+  if (remaining <= 0) return null;
+
+  const hours = Math.floor(remaining / 3600);
+  const minutes = Math.floor((remaining % 3600) / 60);
+  const label = hours > 0 ? `${hours}h ${minutes}m` : `${Math.max(minutes, 1)}m`;
+
+  return (
+    <div className="border-b border-caution/30 bg-caution-soft">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 sm:px-6">
+        <Icon name="shield" className="size-4 shrink-0 text-caution" />
+        <p className="text-[13px] text-fg">
+          <span className="font-medium">New device.</span> You can browse everything, but
+          posting, bidding, and payments unlock in{" "}
+          <span className="tabular font-medium">{label}</span>.
+        </p>
+        <Link
+          href="/settings/security"
+          className="text-[13px] font-medium text-accent underline-offset-4 hover:underline"
+        >
+          Not you? Secure your account
+        </Link>
+      </div>
+    </div>
   );
 }
 
@@ -279,16 +338,35 @@ export function PageHeading({
   );
 }
 
+/**
+ * The category strip under the marketing header.
+ *
+ * Every catalogue marketplace carries one, for a reason worth stating: the
+ * eight top-level fields are the site's real information architecture, and
+ * putting them one click from every page is what stops the search box from
+ * being the only way in.
+ */
+const BROWSE = [
+  ["development-it", "Development & IT"],
+  ["design-creative", "Design & Creative"],
+  ["writing-translation", "Writing & Translation"],
+  ["video-animation", "Video & Animation"],
+  ["marketing-sales", "Marketing & Sales"],
+  ["data-analytics", "Data & Analytics"],
+  ["business-admin", "Business & Admin"],
+  ["academic-support", "Academic Support"],
+] as const;
+
 export function MarketingHeader() {
   const { user, loading } = useSession();
 
   return (
     <header className="sticky top-0 z-40 border-b border-line/70 bg-surface/80 backdrop-blur-xl">
-      <div className="mx-auto flex h-16 max-w-6xl items-center px-5">
+      <div className="mx-auto flex h-16 max-w-7xl items-center px-5">
         <Link href="/" className="rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
           <Logo />
         </Link>
-        <nav className="ml-10 hidden items-center gap-7 md:flex" aria-label="Main">
+        <nav className="ml-10 hidden items-center gap-7 lg:flex" aria-label="Main">
           {[
             ["#tracks", "How it works"],
             ["#campus", "Campus"],
@@ -308,9 +386,9 @@ export function MarketingHeader() {
           {loading ? (
             <div className="h-9 w-32" />
           ) : user ? (
-            <Button size="sm" onClick={() => (window.location.href = "/dashboard")}>
-              Open dashboard
-            </Button>
+            <Link href="/dashboard">
+              <Button size="sm">Open dashboard</Button>
+            </Link>
           ) : (
             <>
               <Link href="/login">
@@ -325,6 +403,22 @@ export function MarketingHeader() {
           )}
         </div>
       </div>
+
+      {/* Scrolls horizontally rather than wrapping or collapsing into a menu:
+          eight items is too many for a header row and too few to hide. */}
+      <nav aria-label="Browse categories" className="border-t border-line/60">
+        <div className="no-bar mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4">
+          {BROWSE.map(([slug, label]) => (
+            <Link
+              key={slug}
+              href={`/gigs?category=${slug}`}
+              className="whitespace-nowrap rounded-md px-3 py-2.5 text-[13px] text-muted transition-colors duration-150 hover:bg-sunken hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              {label}
+            </Link>
+          ))}
+        </div>
+      </nav>
     </header>
   );
 }
