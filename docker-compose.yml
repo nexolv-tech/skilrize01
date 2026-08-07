@@ -1,0 +1,77 @@
+# SkilRize local stack. `docker compose up` gives a working environment on day
+# one — the report's Phase 0 requirement that a new developer is productive
+# immediately rather than on day three.
+
+name: skilrize
+
+x-api-env: &api-env
+  SECRET_KEY: ${SECRET_KEY:-dev-only-change-me}
+  DEBUG: ${DEBUG:-True}
+  ALLOWED_HOSTS: localhost,127.0.0.1,api
+  POSTGRES_DB: ${POSTGRES_DB:-skilrize}
+  POSTGRES_USER: ${POSTGRES_USER:-skilrize}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-skilrize}
+  POSTGRES_HOST: db
+  POSTGRES_PORT: 5432
+  REDIS_URL: redis://redis:6379/0
+  CORS_ALLOWED_ORIGINS: http://localhost:3000
+  FRONTEND_URL: http://localhost:3000
+  FILE_SIGNING_KEY: ${FILE_SIGNING_KEY:-dev-only-file-signing-key}
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-skilrize}
+      POSTGRES_USER: ${POSTGRES_USER:-skilrize}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-skilrize}
+    volumes: [db-data:/var/lib/postgresql/data]
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-skilrize}"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: ./api
+    environment: *api-env
+    volumes: ["./api:/app"]
+    ports: ["8000:8000"]
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
+
+  worker:
+    build: ./api
+    environment: *api-env
+    volumes: ["./api:/app"]
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    command: celery -A config worker -B --loglevel=info
+
+  web:
+    build: ./web
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+      - /app/.next
+    ports: ["3000:3000"]
+    depends_on: [api]
+    command: npm run dev
+
+volumes:
+  db-data:

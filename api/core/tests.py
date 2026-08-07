@@ -1,0 +1,393 @@
+"""
+Tests for the foundations.
+
+The scope tests matter most: they are the seed of the cross-tenant leakage
+suite that Section 4.4 makes a release gate. A build that cannot keep one
+university's rows away from another does not ship, so the enforcement is proved
+against real rows in a real table rather than asserted about in the abstract.
+"""
+
+from __future__ import annotations
+
+import io
+
+import pytest
+from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
+from django.db import connection, models
+
+from core import crypto
+from core import files as filestore
+from core.models import (
+    AuditLog,
+    Channel,
+    NotificationCategory,
+    NotificationPreference,
+    ScopedModel,
+)
+from core.scope import (
+    GLOBAL_SCOPE,
+    UNRESTRICTED_SCOPE,
+    Scope,
+    ScopeDenied,
+    ScopeNotSet,
+    SurfaceKind,
+    Visibility,
+    resolve_for,
+    use_scope,
+)
+
+User = get_user_model()
+
+
+# --- Scope: the cross-tenant leakage suite ---------------------------------
+
+
+class ScopedWidget(ScopedModel):
+    """A concrete stand-in for the scopeable models later phases will add.
+
+    Gigs, projects, communities, posts and message threads all inherit the same
+    base, so proving the guarantee once here proves it for every one of them.
+    The table is built inside the test transaction and vanishes on rollback,
+    which is why it never appears in a migration.
+    """
+
+    name = models.CharField(max_length=50)
+
+    class Meta:
+        app_label = "core"
+
+
+@pytest.fixture
+def widgets(db):
+    with connection.schema_editor() as editor:
+        editor.create_model(ScopedWidget)
+    return ScopedWidget
+
+
+@pytest.fixture
+def universities(db):
+    from accounts.models import University
+
+    return (
+        University.objects.create(name="COMSATS", short_code="CUI"),
+        University.objects.create(name="FAST", short_code="FAST"),
+    )
+
+
+def test_scoped_query_without_context_raises(widgets):
+    """A scopeable model queried with no scope must raise, not return rows."""
+    with pytest.raises(ScopeNotSet):
+        list(widgets.objects.all())
+
+
+def test_university_scope_never_sees_another_university(widgets, universities):
+    """The central guarantee: X sees zero rows belonging to Y."""
+    cui, fast = universities
+
+    widgets.objects.unscoped().create(name="global", visibility=Visibility.GLOBAL)
+    widgets.objects.unscoped().create(name="cui", visibility=Visibility.UNIVERSITY, university=cui)
+    widgets.objects.unscoped().create(
+        name="fast", visibility=Visibility.UNIVERSITY, university=fast
+    )
+
+    with use_scope(Scope(SurfaceKind.UNIVERSITY, university_id=cui.pk)):
+        assert {w.name for w in widgets.objects.all()} == {"cui"}
+
+    with use_scope(Scope(SurfaceKind.UNIVERSITY, university_id=fast.pk)):
+        assert {w.name for w in widgets.objects.all()} == {"fast"}
+
+    # The global surface sees only global content — portal content never leaks
+    # into the public marketplace.
+    with use_scope(GLOBAL_SCOPE):
+        assert {w.name for w in widgets.objects.all()} == {"global"}
+
+    # Guessing an id must not bypass scoping either.
+    with use_scope(Scope(SurfaceKind.UNIVERSITY, university_id=cui.pk)):
+        assert not widgets.objects.filter(name="fast").exists()
+
+    with use_scope(UNRESTRICTED_SCOPE):
+        assert widgets.objects.count() == 3
+    # The escape hatch is explicit and needs no context at all.
+    assert widgets.objects.unscoped().count() == 3
+
+
+def test_scope_is_a_pre_filter_not_a_post_filter(widgets, universities):
+    """A count must not leak the existence of another university's rows."""
+    cui, fast = universities
+    widgets.objects.unscoped().create(
+        name="shared", visibility=Visibility.UNIVERSITY, university=cui
+    )
+    widgets.objects.unscoped().create(
+        name="shared", visibility=Visibility.UNIVERSITY, university=fast
+    )
+
+    with use_scope(Scope(SurfaceKind.UNIVERSITY, university_id=cui.pk)):
+        assert widgets.objects.filter(name="shared").count() == 1
+
+
+def test_university_content_requires_a_university(widgets, universities):
+    """The two scope fields cannot contradict each other."""
+    from django.core.exceptions import ValidationError as DjangoValidationError
+
+    cui, _ = universities
+
+    with pytest.raises(DjangoValidationError):
+        widgets(name="orphan", visibility=Visibility.UNIVERSITY).clean()
+    with pytest.raises(DjangoValidationError):
+        widgets(name="confused", visibility=Visibility.GLOBAL, university=cui).clean()
+
+
+@pytest.mark.django_db
+def test_resolve_for_rejects_unentitled_university(universities):
+    """A surface the user is not verified for is refused, not silently emptied."""
+    cui, _ = universities
+    outsider = User.objects.create_user("outsider@example.com", "correct-horse-battery")
+
+    with pytest.raises(ScopeDenied):
+        resolve_for(outsider, "university")
+
+    student = User.objects.create_user("student@cui.edu.pk", "correct-horse-battery")
+    student.university = cui
+    student.student_verification_status = "verified"
+    student.save()
+
+    scope = resolve_for(student, "university")
+    assert scope.kind is SurfaceKind.UNIVERSITY
+    assert scope.university_id == cui.pk
+
+    # Asking for a different university than the one they belong to.
+    with pytest.raises(ScopeDenied):
+        resolve_for(student, "university", university_id=cui.pk + 999)
+
+
+def test_unknown_surface_is_rejected():
+    with pytest.raises(ScopeDenied):
+        resolve_for(None, "some-other-university")
+
+
+def test_university_scope_requires_an_id():
+    with pytest.raises(ValueError):
+        Scope(SurfaceKind.UNIVERSITY)
+
+
+# --- Files -----------------------------------------------------------------
+
+
+def _png_bytes(size: tuple[int, int] = (8, 8)) -> bytes:
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", size, (90, 76, 232)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _upload(name: str, data: bytes):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    return SimpleUploadedFile(name, data, content_type="application/octet-stream")
+
+
+def test_type_is_decided_by_magic_bytes_not_extension():
+    assert filestore.sniff(_png_bytes()[:32]) == "image/png"
+    assert filestore.sniff(b"%PDF-1.7 ...") == "application/pdf"
+    assert filestore.sniff(b"MZ\x90\x00 this is an executable") is None
+
+
+def test_executable_renamed_as_an_image_is_rejected():
+    """The attack this whole pipeline exists to stop."""
+    with pytest.raises(ValidationError):
+        filestore.prepare_upload(_upload("photo.png", b"MZ\x90\x00" + b"payload" * 40), "avatar")
+
+
+def test_pdf_is_rejected_where_only_images_are_allowed():
+    with pytest.raises(ValidationError):
+        filestore.prepare_upload(_upload("scan.pdf", b"%PDF-1.7 " + b"x" * 100), "avatar")
+
+
+def test_image_is_reencoded_and_metadata_is_stripped():
+    from PIL import Image
+
+    original = Image.new("RGB", (12, 12), (255, 0, 0))
+    buffer = io.BytesIO()
+    exif = Image.Exif()
+    exif[0x010F] = "SkilRizeTestCamera"  # Make
+    exif[0x010E] = "taken at a private address"  # ImageDescription
+    original.save(buffer, format="JPEG", exif=exif)
+    raw = buffer.getvalue()
+    assert b"SkilRizeTestCamera" in raw
+
+    prepared = filestore.prepare_upload(_upload("photo.jpg", raw), "avatar")
+
+    # Re-encoding is what actually removes it: none of the original metadata
+    # survives, which is how EXIF GPS stops leaking a seller's home address.
+    assert b"SkilRizeTestCamera" not in prepared.data
+    assert b"private address" not in prepared.data
+    assert prepared.content_type == "image/jpeg"
+
+
+def test_oversize_upload_is_rejected():
+    with pytest.raises(ValidationError):
+        filestore.prepare_upload(_upload("big.png", _png_bytes()), "avatar", max_bytes=10)
+
+
+def test_empty_upload_is_rejected():
+    with pytest.raises(ValidationError):
+        filestore.prepare_upload(_upload("nothing.png", b""), "avatar")
+
+
+def test_signed_url_round_trip_and_tamper_resistance():
+    token = filestore.sign("avatar/1/abc")
+    assert filestore.verify(token) == "avatar/1/abc"
+
+    with pytest.raises(ValidationError):
+        filestore.verify(token[:-2] + "xy")
+    with pytest.raises(ValidationError):
+        filestore.verify("not-a-token")
+
+
+def test_expired_signed_url_is_refused():
+    with pytest.raises(ValidationError):
+        filestore.verify(filestore.sign("avatar/1/abc", ttl=-1))
+
+
+def test_storage_key_cannot_escape_the_root(tmp_path):
+    storage = filestore.LocalPrivateStorage(tmp_path)
+    storage.write("ok/file.bin", b"data")
+    assert storage.read("ok/file.bin") == b"data"
+
+    with pytest.raises(ValidationError):
+        storage.write("../../escaped.bin", b"data")
+
+
+def test_scanner_recognises_a_known_signature():
+    """The scanner verdict itself, checked in memory.
+
+    The EICAR string is assembled at runtime and never written to disk: it is
+    the industry-standard antivirus test file, so a real endpoint scanner on
+    the developer's machine will quarantine it the moment it is written and the
+    test would fail for reasons that have nothing to do with our code.
+    """
+    from core.models import StoredFile
+    from core.tasks import _scan_bytes
+
+    eicar = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$" + b"EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+
+    assert _scan_bytes(eicar) == StoredFile.ScanStatus.INFECTED
+    assert _scan_bytes(b"an ordinary harmless file") == StoredFile.ScanStatus.CLEAN
+
+
+@pytest.mark.django_db
+def test_a_file_is_not_downloadable_until_the_scan_clears_it():
+    from core.models import StoredFile
+    from core.tasks import scan_file
+
+    user = User.objects.create_user("uploader@example.com", "correct-horse-battery")
+    record = StoredFile.objects.create(
+        owner=user,
+        purpose=StoredFile.Purpose.ATTACHMENT,
+        key="t/clean.png",
+        original_name="clean.png",
+        content_type="image/png",
+        size_bytes=10,
+        checksum="x" * 64,
+    )
+    # Pending on creation: nothing is released before it has been scanned.
+    assert not record.is_downloadable
+
+    filestore.get_storage().write(record.key, _png_bytes())
+    assert scan_file(record.pk) == StoredFile.ScanStatus.CLEAN
+
+    record.refresh_from_db()
+    assert record.is_downloadable
+
+    # And a file the scanner rejected stays sealed.
+    record.scan_status = StoredFile.ScanStatus.INFECTED
+    assert not record.is_downloadable
+
+
+# --- Audit log -------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_audit_log_is_append_only():
+    user = User.objects.create_user("auditor@example.com", "correct-horse-battery")
+    entry = AuditLog.record(actor=user, action=AuditLog.Action.LOGIN, target=user)
+
+    entry.justification = "rewritten"
+    with pytest.raises(PermissionError):
+        entry.save()
+    with pytest.raises(PermissionError):
+        entry.delete()
+
+    entry.refresh_from_db()
+    assert entry.justification == ""
+
+
+# --- Notifications ---------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_security_notifications_cannot_be_silenced():
+    user = User.objects.create_user("quiet@example.com", "correct-horse-battery")
+    preference = NotificationPreference.objects.create(
+        user=user,
+        overrides={
+            NotificationCategory.SECURITY: {Channel.EMAIL: False},
+            NotificationCategory.ANNOUNCEMENT: {Channel.EMAIL: False},
+        },
+    )
+
+    # Marketing can be turned off; a security notice cannot.
+    assert preference.allows(NotificationCategory.ANNOUNCEMENT, Channel.EMAIL) is False
+    assert preference.allows(NotificationCategory.SECURITY, Channel.EMAIL) is True
+
+
+@pytest.mark.django_db
+def test_sms_is_reserved_for_security_and_payment():
+    user = User.objects.create_user("sms@example.com", "correct-horse-battery")
+    preference = NotificationPreference.objects.create(
+        user=user, overrides={NotificationCategory.MESSAGE: {Channel.SMS: True}}
+    )
+
+    assert preference.allows(NotificationCategory.MESSAGE, Channel.SMS) is False
+    assert preference.allows(NotificationCategory.SECURITY, Channel.SMS) is True
+
+
+@pytest.mark.django_db
+def test_dispatch_writes_in_app_notification():
+    from core.notify import dispatch
+
+    user = User.objects.create_user("notify@example.com", "correct-horse-battery")
+    notification = dispatch(user, NotificationCategory.VERIFICATION, "Hello", "Body")
+
+    assert user.notifications.count() == 1
+    assert not notification.is_read
+
+
+# --- Field encryption ------------------------------------------------------
+
+
+def test_encrypted_values_round_trip_and_differ_each_time():
+    secret = "JBSWY3DPEHPK3PXP"
+    first, second = crypto.encrypt(secret), crypto.encrypt(secret)
+
+    assert first != second  # A fresh nonce per write.
+    assert secret not in first
+    assert crypto.decrypt(first) == crypto.decrypt(second) == secret
+
+
+@pytest.mark.django_db
+def test_totp_secret_is_not_stored_in_the_clear():
+    from accounts.models import TwoFactorDevice
+
+    user = User.objects.create_user("totp@example.com", "correct-horse-battery")
+    device = TwoFactorDevice.objects.create(user=user, secret="JBSWY3DPEHPK3PXP")
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT secret FROM accounts_twofactordevice WHERE id = %s", [device.pk])
+        stored = cursor.fetchone()[0]
+
+    assert "JBSWY3DPEHPK3PXP" not in stored
+    device.refresh_from_db()
+    assert device.secret == "JBSWY3DPEHPK3PXP"

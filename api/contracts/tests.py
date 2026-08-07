@@ -1,0 +1,528 @@
+"""
+Tests for the contract lifecycle.
+
+Four properties matter most, and each has cost someone real money on other
+platforms when it was wrong: terms cannot change after acceptance, work cannot
+be demanded before it is funded, money cannot be released twice, and neither
+side can read the other's review before writing their own.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+
+import pytest
+
+from contracts.models import Contract, ContractType, Milestone, Review, TimeEntry
+from core.scope import GLOBAL_SCOPE, use_scope
+from marketplace.models import Project, ProjectType, Proposal
+from marketplace.tests import make_user, sign_in
+
+
+@pytest.fixture
+def parties(db):
+    return make_user("client@example.com"), make_user("freelancer@example.com")
+
+
+@pytest.fixture
+def awarded(parties):
+    """A funded-ready fixed-price contract with one accepted proposal."""
+    client_user, freelancer = parties
+
+    with use_scope(GLOBAL_SCOPE):
+        project = Project.objects.create(
+            client=client_user,
+            title="Build an ops dashboard",
+            description="React front end, Django API.",
+            project_type=ProjectType.FIXED,
+            budget_max=60000,
+            status=Project.Status.OPEN,
+        )
+    proposal = Proposal.objects.create(
+        project=project,
+        freelancer=freelancer,
+        cover_letter="Done this before.",
+        bid_amount=60000,
+        estimated_days=21,
+    )
+
+    response = sign_in(client_user).post(
+        "/api/v1/contracts/award/", {"proposal": proposal.id}, format="json"
+    )
+    assert response.status_code == 201
+    return Contract.objects.unscoped().get(pk=response.data["id"])
+
+
+# --- Awarding --------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_awarding_creates_a_pending_contract_with_one_milestone(awarded, parties):
+    client_user, freelancer = parties
+
+    assert awarded.status == Contract.Status.PENDING
+    assert awarded.contract_type == ContractType.FIXED
+    assert awarded.total_amount == 60000
+    # A single-payment fixed contract is modelled as one milestone, not a
+    # special case.
+    assert awarded.milestones.count() == 1
+    assert awarded.milestones.first().amount == 60000
+    assert awarded.freelancer_id == freelancer.pk
+
+
+@pytest.mark.django_db
+def test_only_the_posting_client_can_award(parties):
+    client_user, freelancer = parties
+    stranger = make_user("stranger@example.com")
+
+    with use_scope(GLOBAL_SCOPE):
+        project = Project.objects.create(
+            client=client_user,
+            title="A brief",
+            description="x",
+            project_type=ProjectType.FIXED,
+            budget_max=1000,
+            status=Project.Status.OPEN,
+        )
+    proposal = Proposal.objects.create(
+        project=project, freelancer=freelancer, cover_letter="x", bid_amount=1000
+    )
+
+    response = sign_in(stranger).post(
+        "/api/v1/contracts/award/", {"proposal": proposal.id}, format="json"
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_a_proposal_cannot_be_awarded_twice(awarded, parties):
+    client_user, _ = parties
+
+    response = sign_in(client_user).post(
+        "/api/v1/contracts/award/", {"proposal": awarded.proposal_id}, format="json"
+    )
+    assert response.status_code == 400
+    assert response.data["code"] == "already_awarded"
+
+
+@pytest.mark.django_db
+def test_milestone_amounts_must_add_up_to_the_agreed_price(parties):
+    client_user, freelancer = parties
+
+    with use_scope(GLOBAL_SCOPE):
+        project = Project.objects.create(
+            client=client_user,
+            title="A brief",
+            description="x",
+            project_type=ProjectType.FIXED,
+            budget_max=10000,
+            status=Project.Status.OPEN,
+        )
+    proposal = Proposal.objects.create(
+        project=project, freelancer=freelancer, cover_letter="x", bid_amount=10000
+    )
+
+    response = sign_in(client_user).post(
+        "/api/v1/contracts/award/",
+        {
+            "proposal": proposal.id,
+            "milestones": [
+                {"title": "Phase one", "amount": "3000"},
+                {"title": "Phase two", "amount": "3000"},
+            ],
+        },
+        format="json",
+    )
+    assert response.status_code == 400
+    assert "add up" in response.data["detail"]
+
+
+# --- Acceptance freezes the terms -----------------------------------------
+
+
+@pytest.mark.django_db
+def test_acceptance_freezes_the_terms(awarded, parties):
+    """Editing the brief afterwards must not rewrite what was agreed."""
+    client_user, freelancer = parties
+
+    assert sign_in(freelancer).post(f"/api/v1/contracts/{awarded.pk}/accept/").status_code == 200
+
+    awarded.refresh_from_db()
+    assert awarded.status == Contract.Status.ACTIVE
+    assert awarded.terms["total_amount"] == "60000.00"
+    original_description = awarded.terms["project_description"]
+
+    project = awarded.project
+    project.description = "Actually, please also rebuild the mobile app."
+    project.save(update_fields=["description"])
+
+    awarded.refresh_from_db()
+    assert awarded.terms["project_description"] == original_description
+
+
+@pytest.mark.django_db
+def test_only_the_freelancer_can_accept(awarded, parties):
+    client_user, _ = parties
+    response = sign_in(client_user).post(f"/api/v1/contracts/{awarded.pk}/accept/")
+    assert response.status_code == 403
+
+
+# --- Funding and delivery --------------------------------------------------
+
+
+def _activate(contract, freelancer):
+    sign_in(freelancer).post(f"/api/v1/contracts/{contract.pk}/accept/")
+    contract.refresh_from_db()
+    return contract.milestones.first()
+
+
+@pytest.mark.django_db
+def test_work_cannot_be_delivered_before_it_is_funded(awarded, parties):
+    """The freelancer is told plainly not to begin an unfunded milestone."""
+    _, freelancer = parties
+    milestone = _activate(awarded, freelancer)
+
+    response = sign_in(freelancer).post(
+        f"/api/v1/contracts/{awarded.pk}/milestones/{milestone.pk}/deliver/"
+    )
+    assert response.status_code == 400
+    assert response.data["code"] == "not_funded"
+
+
+@pytest.mark.django_db
+def test_the_full_funding_delivery_release_loop(awarded, parties):
+    client_user, freelancer = parties
+    milestone = _activate(awarded, freelancer)
+
+    client_api, freelancer_api = sign_in(client_user), sign_in(freelancer)
+
+    assert (
+        client_api.post(
+            f"/api/v1/contracts/{awarded.pk}/milestones/{milestone.pk}/fund/"
+        ).status_code
+        == 200
+    )
+    milestone.refresh_from_db()
+    assert milestone.status == Milestone.Status.FUNDED
+    awarded.refresh_from_db()
+    assert awarded.funded_amount == 60000
+
+    assert (
+        freelancer_api.post(
+            f"/api/v1/contracts/{awarded.pk}/milestones/{milestone.pk}/deliver/",
+            {"note": "Dashboard is live on staging."},
+            format="json",
+        ).status_code
+        == 200
+    )
+    milestone.refresh_from_db()
+    assert milestone.status == Milestone.Status.DELIVERED
+    awarded.refresh_from_db()
+    # A delivery starts the client's review clock.
+    assert awarded.review_deadline is not None
+
+    assert (
+        client_api.post(
+            f"/api/v1/contracts/{awarded.pk}/milestones/{milestone.pk}/release/"
+        ).status_code
+        == 200
+    )
+
+    milestone.refresh_from_db()
+    awarded.refresh_from_db()
+    assert milestone.status == Milestone.Status.RELEASED
+    assert awarded.released_amount == 60000
+    assert awarded.funded_amount == 0
+    # Nothing left outstanding, so the contract closes itself.
+    assert awarded.status == Contract.Status.COMPLETED
+
+
+@pytest.mark.django_db
+def test_a_freelancer_cannot_release_their_own_payment(awarded, parties):
+    _, freelancer = parties
+    milestone = _activate(awarded, freelancer)
+    milestone.fund()
+    milestone.deliver()
+
+    response = sign_in(freelancer).post(
+        f"/api/v1/contracts/{awarded.pk}/milestones/{milestone.pk}/release/"
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_a_stranger_cannot_see_or_touch_a_contract(awarded):
+    stranger = make_user("nosy@example.com")
+    api = sign_in(stranger)
+
+    assert api.get(f"/api/v1/contracts/{awarded.pk}/").status_code == 404
+    assert api.get("/api/v1/contracts/").data["count"] == 0
+
+
+@pytest.mark.django_db
+def test_a_contract_with_funds_held_cannot_be_cancelled(awarded, parties):
+    client_user, freelancer = parties
+    milestone = _activate(awarded, freelancer)
+    milestone.fund()
+
+    response = sign_in(client_user).post(f"/api/v1/contracts/{awarded.pk}/cancel/")
+    assert response.status_code == 400
+    assert response.data["code"] == "funds_held"
+
+
+# --- Hourly work diary -----------------------------------------------------
+
+
+@pytest.fixture
+def hourly(parties):
+    client_user, freelancer = parties
+
+    with use_scope(GLOBAL_SCOPE):
+        project = Project.objects.create(
+            client=client_user,
+            title="Ongoing maintenance",
+            description="x",
+            project_type=ProjectType.HOURLY,
+            rate_min=2000,
+            rate_max=3000,
+            weekly_hours=10,
+            status=Project.Status.OPEN,
+        )
+    proposal = Proposal.objects.create(
+        project=project, freelancer=freelancer, cover_letter="x", hourly_rate=2500
+    )
+    contract_id = (
+        sign_in(client_user)
+        .post("/api/v1/contracts/award/", {"proposal": proposal.id}, format="json")
+        .data["id"]
+    )
+
+    contract = Contract.objects.unscoped().get(pk=contract_id)
+    sign_in(freelancer).post(f"/api/v1/contracts/{contract.pk}/accept/")
+    contract.refresh_from_db()
+    return contract
+
+
+@pytest.mark.django_db
+def test_hourly_contracts_carry_a_rate_and_no_milestones(hourly):
+    assert hourly.contract_type == ContractType.HOURLY
+    assert hourly.hourly_rate == 2500
+    assert hourly.weekly_hour_limit == 10
+    assert hourly.milestones.count() == 0
+
+
+@pytest.mark.django_db
+def test_logging_time_accrues_value(hourly, parties):
+    _, freelancer = parties
+
+    response = sign_in(freelancer).post(
+        f"/api/v1/contracts/{hourly.pk}/time/",
+        {"worked_on": str(date.today()), "minutes": 120, "memo": "Auth refactor"},
+        format="json",
+    )
+
+    assert response.status_code == 201
+    assert response.data["hours"] == 2.0
+    hourly.refresh_from_db()
+    assert hourly.logged_amount == 5000  # two hours at 2500
+
+
+@pytest.mark.django_db
+def test_the_weekly_hour_cap_is_enforced(hourly, parties):
+    """A client cannot be surprised by an unbounded invoice."""
+    _, freelancer = parties
+    api = sign_in(freelancer)
+    today = str(date.today())
+
+    assert (
+        api.post(
+            f"/api/v1/contracts/{hourly.pk}/time/",
+            {"worked_on": today, "minutes": 9 * 60, "memo": "Long week"},
+            format="json",
+        ).status_code
+        == 201
+    )
+
+    over = api.post(
+        f"/api/v1/contracts/{hourly.pk}/time/",
+        {"worked_on": today, "minutes": 2 * 60, "memo": "Two more"},
+        format="json",
+    )
+    assert over.status_code == 400
+    assert over.data["code"] == "weekly_limit"
+
+
+@pytest.mark.django_db
+def test_manual_time_is_disputable_and_tracked_time_is_not(hourly, parties):
+    """The asymmetry that makes hourly protection credible."""
+    client_user, freelancer = parties
+
+    manual = TimeEntry.objects.create(
+        contract=hourly,
+        freelancer=freelancer,
+        worked_on=date.today(),
+        minutes=60,
+        memo="Added by hand",
+        source=TimeEntry.Source.MANUAL,
+    )
+    tracked = TimeEntry.objects.create(
+        contract=hourly,
+        freelancer=freelancer,
+        worked_on=date.today(),
+        minutes=60,
+        memo="Captured by the tracker",
+        source=TimeEntry.Source.TRACKER,
+        activity_level=74,
+    )
+
+    assert manual.is_protected is False
+    assert tracked.is_protected is True
+
+    api = sign_in(client_user)
+    assert (
+        api.post(
+            f"/api/v1/contracts/{hourly.pk}/time/{manual.pk}/dispute/",
+            {"note": "I did not ask for this."},
+            format="json",
+        ).status_code
+        == 200
+    )
+
+    refused = api.post(
+        f"/api/v1/contracts/{hourly.pk}/time/{tracked.pk}/dispute/", {}, format="json"
+    )
+    assert refused.status_code == 400
+    assert refused.data["code"] == "time_protected"
+
+
+@pytest.mark.django_db
+def test_time_cannot_be_logged_by_the_client(hourly, parties):
+    client_user, _ = parties
+    response = sign_in(client_user).post(
+        f"/api/v1/contracts/{hourly.pk}/time/",
+        {"worked_on": str(date.today()), "minutes": 60, "memo": "Nope"},
+        format="json",
+    )
+    assert response.status_code == 403
+
+
+# --- Messaging -------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_both_parties_share_one_contract_timeline(awarded, parties):
+    client_user, freelancer = parties
+    _activate(awarded, freelancer)
+
+    sign_in(freelancer).post(
+        f"/api/v1/contracts/{awarded.pk}/events/", {"body": "Starting today."}, format="json"
+    )
+
+    timeline = sign_in(client_user).get(f"/api/v1/contracts/{awarded.pk}/events/").data
+    bodies = [event["body"] for event in timeline]
+    assert "Starting today." in bodies
+    # Status changes share the stream with messages, which is what makes it
+    # readable as a single history.
+    assert any(event["kind"] == "status" for event in timeline)
+
+
+# --- Double-blind reviews --------------------------------------------------
+
+
+def _complete(contract, client_user, freelancer):
+    milestone = _activate(contract, freelancer)
+    sign_in(client_user).post(f"/api/v1/contracts/{contract.pk}/milestones/{milestone.pk}/fund/")
+    sign_in(freelancer).post(f"/api/v1/contracts/{contract.pk}/milestones/{milestone.pk}/deliver/")
+    sign_in(client_user).post(f"/api/v1/contracts/{contract.pk}/milestones/{milestone.pk}/release/")
+    contract.refresh_from_db()
+    return contract
+
+
+CLIENT_REVIEW = {
+    "overall": 5,
+    "communication": 5,
+    "quality": 5,
+    "deadline": 4,
+    "value": 5,
+    "comment": "Delivered exactly what was agreed.",
+}
+FREELANCER_REVIEW = {
+    "overall": 5,
+    "communication": 4,
+    "clarity": 5,
+    "payment_promptness": 5,
+    "comment": "Clear brief, paid on time.",
+}
+
+
+@pytest.mark.django_db
+def test_a_review_stays_hidden_until_both_sides_submit(awarded, parties):
+    client_user, freelancer = parties
+    contract = _complete(awarded, client_user, freelancer)
+
+    first = sign_in(client_user).post(
+        f"/api/v1/contracts/{contract.pk}/review/", CLIENT_REVIEW, format="json"
+    )
+    assert first.status_code == 201
+    assert first.data["published"] is False
+
+    # Nothing is public yet, and the freelancer cannot read it early.
+    assert sign_in(freelancer).get(f"/api/v1/contracts/{contract.pk}/review/").data == []
+    detail = sign_in(freelancer).get(f"/api/v1/contracts/{contract.pk}/").data
+    assert detail["counterparty_review"] is None
+
+    second = sign_in(freelancer).post(
+        f"/api/v1/contracts/{contract.pk}/review/", FREELANCER_REVIEW, format="json"
+    )
+    assert second.data["published"] is True
+    assert len(sign_in(client_user).get(f"/api/v1/contracts/{contract.pk}/review/").data) == 2
+
+
+@pytest.mark.django_db
+def test_an_incomplete_contract_cannot_be_reviewed(awarded, parties):
+    client_user, _ = parties
+    response = sign_in(client_user).post(
+        f"/api/v1/contracts/{awarded.pk}/review/", CLIENT_REVIEW, format="json"
+    )
+    assert response.status_code == 400
+    assert response.data["code"] == "not_completed"
+
+
+@pytest.mark.django_db
+def test_a_party_cannot_review_twice(awarded, parties):
+    client_user, freelancer = parties
+    contract = _complete(awarded, client_user, freelancer)
+    api = sign_in(client_user)
+
+    assert (
+        api.post(
+            f"/api/v1/contracts/{contract.pk}/review/", CLIENT_REVIEW, format="json"
+        ).status_code
+        == 201
+    )
+    repeat = api.post(f"/api/v1/contracts/{contract.pk}/review/", CLIENT_REVIEW, format="json")
+    assert repeat.status_code == 400
+    assert repeat.data["code"] == "already_reviewed"
+
+
+@pytest.mark.django_db
+def test_each_side_answers_only_its_own_sub_ratings(awarded, parties):
+    """A freelancer cannot rate their own quality of work."""
+    client_user, freelancer = parties
+    contract = _complete(awarded, client_user, freelancer)
+
+    response = sign_in(freelancer).post(
+        f"/api/v1/contracts/{contract.pk}/review/", CLIENT_REVIEW, format="json"
+    )
+    assert response.status_code == 400
+    assert "clarity" in response.data
+
+    saved = sign_in(client_user).post(
+        f"/api/v1/contracts/{contract.pk}/review/", CLIENT_REVIEW, format="json"
+    )
+    assert saved.status_code == 201
+    review = Review.objects.get(pk=saved.data["id"])
+    # Sub-ratings that do not apply to the author's role are cleared, not left
+    # to carry a misleading value.
+    assert review.clarity is None
+    assert review.quality == 5
