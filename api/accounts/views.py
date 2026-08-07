@@ -30,6 +30,7 @@ from .models import (
     RefreshSession,
     SecurityToken,
     SellerProfile,
+    StudentVerification,
     TwoFactorDevice,
     User,
     VerificationStatus,
@@ -47,7 +48,10 @@ from .serializers import (
     SessionSerializer,
     SignupSerializer,
     StepUpSerializer,
+    StudentEmailSerializer,
+    StudentVerificationSerializer,
     TwoFactorChallengeSerializer,
+    UniversitySerializer,
     UserSerializer,
 )
 
@@ -446,7 +450,25 @@ def me(request):
     # calling device, not of the account, and the same user answers differently
     # from two browsers.
     payload["device_cooloff_seconds"] = devices.cooloff_remaining(request.user, request)
+    # The surfaces this user may ask for. The client renders the switcher from
+    # this list rather than deciding for itself who is a student — and the
+    # server re-checks entitlement on every request regardless, so a client
+    # that ignores it gains nothing.
+    payload["surfaces"] = _surfaces_for(request.user)
     return Response(payload)
+
+
+def _surfaces_for(user) -> list[dict]:
+    surfaces = [{"kind": "global", "label": "Global marketplace", "university": None}]
+    if user.is_verified_student and user.university:
+        surfaces.append(
+            {
+                "kind": "university",
+                "label": f"{user.university.short_code} campus",
+                "university": UniversitySerializer(user.university).data,
+            }
+        )
+    return surfaces
 
 
 @api_view(["PATCH"])
@@ -629,6 +651,197 @@ def submit_identity(request):
         "We will review it shortly.",
     )
     return Response(UserSerializer(request.user).data, status=status.HTTP_201_CREATED)
+
+
+# --- Student verification --------------------------------------------------
+#
+# Three steps, in order: prove the university address, prove the ID card where
+# the university asks for one, then a human decision. The portal only opens on
+# `StudentVerification.approve()`, which is the single place `User.university`
+# is ever written — everything else here moves an application toward that one
+# call or away from it.
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def student_verification(request):
+    """The caller's current or most recent application."""
+    row = StudentVerification.objects.filter(user=request.user).select_related("university").first()
+    if row is None:
+        return Response({"application": None})
+    return Response({"application": StudentVerificationSerializer(row).data})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@_throttled("otp")
+def student_email_request(request):
+    """Start an application by claiming a university address."""
+    serializer = StudentEmailSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    address = serializer.validated_data["university_email"].strip().lower()
+
+    university = ApprovedEmailDomain.match(address)
+    if university is None:
+        return Response(
+            {
+                "detail": "That address does not belong to a university on SkilRize yet.",
+                "code": "unknown_university_domain",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # One account per university address. Without this, several students could
+    # each claim the same address and every one of them would land inside the
+    # same portal on the strength of one inbox.
+    taken = (
+        StudentVerification.objects.filter(university_email=address)
+        .exclude(user=request.user)
+        .exclude(status=StudentVerification.Status.REJECTED)
+        .exists()
+    )
+    if taken:
+        security_log.warning("student_email_contested email=%s user=%s", address, request.user.pk)
+        return Response(
+            {
+                "detail": "That university address is already linked to another account.",
+                "code": "email_taken",
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    # Restarting replaces any open attempt rather than stacking a second one,
+    # which the partial unique constraint would refuse anyway.
+    StudentVerification.objects.filter(
+        user=request.user,
+        status__in=[
+            StudentVerification.Status.EMAIL_PENDING,
+            StudentVerification.Status.AWAITING_ID,
+            StudentVerification.Status.UNDER_REVIEW,
+        ],
+    ).delete()
+
+    application = StudentVerification.objects.create(
+        user=request.user, university=university, university_email=address
+    )
+
+    _, raw = SecurityToken.issue(
+        request.user,
+        SecurityToken.Purpose.STUDENT_EMAIL_OTP,
+        destination=address,
+        digits=6,
+    )
+    send_mail(
+        subject=f"Confirm your {university.short_code} email",
+        message=(
+            f"Your SkilRize verification code is {raw}\n\n"
+            f"It expires in 10 minutes.\n\n"
+            f"Entering it links your account to {university.name} and, once approved, "
+            f"opens your campus marketplace."
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        # Deliberately the claimed address, not the account address — sending
+        # the code anywhere else would prove nothing about who controls it.
+        recipient_list=[address],
+        fail_silently=False,
+    )
+
+    AuditLog.record(
+        actor=request.user,
+        action=AuditLog.Action.CREATE,
+        target=application,
+        request=request,
+        justification=f"Student verification started for {university.short_code}.",
+    )
+    return Response(
+        {"application": StudentVerificationSerializer(application).data},
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@_throttled("otp")
+def student_email_verify(request):
+    """Confirm the emailed code and advance the application."""
+    serializer = OTPSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    application = (
+        StudentVerification.objects.filter(
+            user=request.user, status=StudentVerification.Status.EMAIL_PENDING
+        )
+        .select_related("university")
+        .first()
+    )
+    if application is None:
+        return Response(
+            {"detail": "There is no email confirmation pending.", "code": "not_started"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not SecurityToken.consume(
+        request.user, SecurityToken.Purpose.STUDENT_EMAIL_OTP, serializer.validated_data["code"]
+    ):
+        return Response(
+            {"detail": "That code is not valid.", "code": "invalid_code"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    application.mark_email_verified()
+    return Response({"application": StudentVerificationSerializer(application).data})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def student_id_card(request):
+    """Attach the student ID card and hand the application to a reviewer."""
+    application = (
+        StudentVerification.objects.filter(
+            user=request.user,
+            status__in=[
+                StudentVerification.Status.AWAITING_ID,
+                StudentVerification.Status.UNDER_REVIEW,
+            ],
+        )
+        .select_related("university")
+        .first()
+    )
+    if application is None:
+        return Response(
+            {"detail": "Confirm your university email first.", "code": "email_not_verified"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    uploaded = request.FILES.get("file")
+    if uploaded is None:
+        return Response(
+            {"detail": "No file was provided.", "code": "invalid"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    record = filestore.store(uploaded, owner=request.user, purpose=StoredFile.Purpose.IDENTITY)
+    application.id_card = record
+    application.status = StudentVerification.Status.UNDER_REVIEW
+    application.save(update_fields=["id_card", "status", "updated_at"])
+
+    AuditLog.record(
+        actor=request.user,
+        action=AuditLog.Action.CREATE,
+        target=record,
+        request=request,
+        justification="Student ID card submitted for review.",
+    )
+    dispatch(
+        request.user,
+        NotificationCategory.VERIFICATION,
+        "Student ID received",
+        f"We will review your {application.university.short_code} verification shortly.",
+    )
+    return Response(
+        {"application": StudentVerificationSerializer(application).data},
+        status=status.HTTP_201_CREATED,
+    )
 
 
 @api_view(["GET"])

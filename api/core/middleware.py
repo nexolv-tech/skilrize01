@@ -6,9 +6,7 @@ import logging
 import uuid
 from contextvars import ContextVar
 
-from django.http import JsonResponse
-
-from .scope import ScopeDenied, resolve_for, use_scope
+from .scope import ScopeDenied, defer_scope
 
 # Django configures logging before the app registry is ready, and it imports
 # `RequestContextFilter` from this module to do it. Nothing at module level
@@ -38,19 +36,12 @@ class RequestContextMiddleware:
 
         try:
             requested = request.META.get(SURFACE_HEADER)
-            try:
-                scope = resolve_for(getattr(request, "user", None), requested)
-            except ScopeDenied as exc:
-                # Rejected outright and recorded, never silently emptied.
-                security_log.warning(
-                    "scope_denied path=%s requested=%s request_id=%s",
-                    request.path,
-                    requested,
-                    request_id,
-                )
-                return JsonResponse({"detail": str(exc), "code": "scope_denied"}, status=403)
-
-            with use_scope(scope):
+            # Registered rather than resolved. Authentication happens inside
+            # DRF, which is downstream of every middleware, so `request.user`
+            # here is still Django's session user — anonymous for any
+            # token-authenticated call. Resolving now would deny every
+            # university surface to everyone. See `core.scope.defer_scope`.
+            with defer_scope(lambda: getattr(request, "user", None), requested):
                 response = self.get_response(request)
         finally:
             _request_id.reset(token)

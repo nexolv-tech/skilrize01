@@ -8,9 +8,15 @@ select = ["E", "F", "I", "UP", "B", "DJ", "S"]
 ignore = ["S101"]  # pytest uses bare assert
 
 [tool.ruff.lint.per-file-ignores]
-"*/tests.py" = ["S105", "S106"]  # test fixtures carry obvious dummy credentials
+# Test fixtures carry obvious dummy credentials. Both patterns are listed
+# because suites live under two names here: one `tests.py` per app, plus
+# standalone `test_*.py` files for cross-cutting gates like the tenancy suite.
+"*/tests.py" = ["S105", "S106"]
+"*/test_*.py" = ["S105", "S106"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"
+# Both patterns matter: dropping `test_*.py` would silently stop collecting the
+# cross-tenant leakage gate, which is the one suite whose absence is invisible.
 python_files = ["tests.py", "test_*.py"]
 addopts = "--reuse-db"

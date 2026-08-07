@@ -25,6 +25,11 @@ urlpatterns = [
     path("phone/verify/", views.verify_phone, name="phone-verify"),
     path("identity/", views.submit_identity, name="identity-submit"),
     path("universities/lookup/", views.lookup_university, name="university-lookup"),
+    # Student portals
+    path("student/", views.student_verification, name="student-verification"),
+    path("student/email/", views.student_email_request, name="student-email-request"),
+    path("student/email/verify/", views.student_email_verify, name="student-email-verify"),
+    path("student/id-card/", views.student_id_card, name="student-id-card"),
     # Passwords
     path("password/reset/", views.request_password_reset, name="password-reset-request"),
     path("password/reset/confirm/", views.confirm_password_reset, name="password-reset-confirm"),

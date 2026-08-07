@@ -102,6 +102,9 @@ UNRESTRICTED_SCOPE = Scope(SurfaceKind.UNRESTRICTED)
 
 _current: ContextVar[Scope | None] = ContextVar("skilrize_scope", default=None)
 
+#: A request whose scope is known but not yet *resolvable*. See `defer_scope`.
+_pending: ContextVar[tuple | None] = ContextVar("skilrize_scope_pending", default=None)
+
 
 def get_scope() -> Scope | None:
     return _current.get()
@@ -109,13 +112,24 @@ def get_scope() -> Scope | None:
 
 def require_scope() -> Scope:
     scope = _current.get()
-    if scope is None:
-        raise ScopeNotSet(
-            "This model is scopeable and was queried with no active scope. Wrap the "
-            "call in `with use_scope(...)`, or use `.unscoped()` if reaching across "
-            "every surface is genuinely intended."
-        )
-    return scope
+    if scope is not None:
+        return scope
+
+    # Resolve a deferred scope on first use. By the time a scopeable model is
+    # queried we are inside the view, which means authentication has run and
+    # the user is finally known.
+    pending = _pending.get()
+    if pending is not None:
+        user_source, requested = pending
+        scope = resolve_for(user_source(), requested)
+        _current.set(scope)
+        return scope
+
+    raise ScopeNotSet(
+        "This model is scopeable and was queried with no active scope. Wrap the "
+        "call in `with use_scope(...)`, or use `.unscoped()` if reaching across "
+        "every surface is genuinely intended."
+    )
 
 
 @contextmanager
@@ -126,6 +140,37 @@ def use_scope(scope: Scope):
         yield scope
     finally:
         _current.reset(token)
+
+
+@contextmanager
+def defer_scope(user_source, requested_surface: str | None):
+    """Register a scope to be resolved the first time one is needed.
+
+    This exists because of an ordering problem that is easy to get wrong and
+    silent when you do. Scope depends on *who is calling*, but this API
+    authenticates with a JWT inside DRF — which happens during view dispatch,
+    long after every middleware has run. Middleware reading ``request.user``
+    sees Django's session user, which for a token-authenticated request is
+    always anonymous. Resolving there does not merely misbehave at the edges:
+    no user is ever entitled to a university surface, so the portals cannot
+    open at all.
+
+    Deferring fixes the ordering without moving scope enforcement out of the
+    data layer, which is the property worth protecting. ``user_source`` is
+    called at resolution time rather than passed a user, so it observes
+    whatever authentication has since established.
+
+    A denied surface therefore raises inside the view instead of at the edge.
+    That is handled: ``core.middleware.exception_handler`` maps ``ScopeDenied``
+    to a 403 with the same body it had before.
+    """
+    token = _pending.set((user_source, requested_surface))
+    current_token = _current.set(None)
+    try:
+        yield
+    finally:
+        _pending.reset(token)
+        _current.reset(current_token)
 
 
 def resolve_for(user, requested_surface: str | None, university_id: int | None = None) -> Scope:

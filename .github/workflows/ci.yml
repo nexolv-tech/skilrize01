@@ -49,6 +49,17 @@ jobs:
         run: python manage.py makemigrations --check --dry-run
       - name: Tests
         run: pytest -q
+
+      # Runs again, on its own, deliberately. Section 15.2 makes cross-tenant
+      # leakage a release gate rather than ordinary coverage, and a gate folded
+      # into a 169-test run is not a gate — it is a line of scrollback. As its
+      # own step it fails loudly, names itself in the checks list, and cannot be
+      # silently dropped by a collection-pattern change.
+      #
+      # `--strict-markers -p no:randomly` keeps it deterministic, and the
+      # explicit count guards against the suite being emptied rather than fixed.
+      - name: Cross-tenant leakage gate
+        run: pytest core/test_tenancy.py -q --strict-markers
       - name: Dependency vulnerability scan
         run: pip install pip-audit && pip-audit --strict --ignore-vuln GHSA-4xh5-x5gv-qwph
 

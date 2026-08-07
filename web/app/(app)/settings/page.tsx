@@ -3,6 +3,7 @@
 import * as React from "react";
 
 import { PageHeading } from "@/components/shell";
+import { StudentVerificationCard } from "@/components/student";
 import {
   Alert,
   Avatar,
@@ -281,6 +282,8 @@ function ProfileForm({ user }: { user: User }) {
             ))}
           </div>
         </Card>
+
+        <StudentVerificationCard />
     </div>
   );
 }

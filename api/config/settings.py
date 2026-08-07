@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "marketplace",
     "contracts",
     "gigs",
+    "communities",
 ]
 
 MIDDLEWARE = [

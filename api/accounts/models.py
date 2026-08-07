@@ -454,6 +454,143 @@ class RefreshSession(TimestampedModel):
         ).update(revoked_at=timezone.now())
 
 
+class StudentVerification(TimestampedModel):
+    """One attempt to prove membership of a university.
+
+    Kept as its own row rather than as more columns on `User` for two reasons.
+    A rejected attempt has to survive — a reviewer needs to see that this person
+    already tried twice with a doctored card — and the denormalised state on
+    `User` (`university`, `student_verification_status`) is read on *every*
+    scoped request by `core.scope.resolve_for`, so it must stay a cheap column
+    read rather than a join.
+
+    That makes `User` the fast path and this the record of how it got there. The
+    two are kept in step by `approve()` and `reject()`, which are the only
+    supported ways to move the state.
+    """
+
+    class Status(models.TextChoices):
+        EMAIL_PENDING = "email_pending", "Awaiting email confirmation"
+        AWAITING_ID = "awaiting_id", "Awaiting student ID card"
+        UNDER_REVIEW = "under_review", "Awaiting reviewer"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="student_verifications")
+    university = models.ForeignKey(
+        University, on_delete=models.CASCADE, related_name="verifications"
+    )
+    #: The university address being proved. Deliberately separate from
+    #: `User.email`: the account is very often a personal address, and forcing
+    #: students to sign up with an address they lose at graduation would be a
+    #: guaranteed account-recovery problem in three years' time.
+    university_email = models.EmailField()
+    email_verified_at = models.DateTimeField(null=True, blank=True)
+
+    id_card = models.ForeignKey(
+        "core.StoredFile", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.EMAIL_PENDING, db_index=True
+    )
+
+    reviewed_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    #: Shown to the student verbatim, so it has to be written for them.
+    rejection_reason = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["status", "created_at"])]
+        constraints = [
+            # One live attempt per user. A student who wants to try a different
+            # university must have the previous attempt resolved first, which
+            # keeps the review queue free of duplicates competing for a decision.
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=models.Q(status__in=["email_pending", "awaiting_id", "under_review"]),
+                name="one_open_student_verification_per_user",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.university_email} → {self.university.short_code} ({self.status})"
+
+    @property
+    def is_open(self) -> bool:
+        return self.status in {
+            self.Status.EMAIL_PENDING,
+            self.Status.AWAITING_ID,
+            self.Status.UNDER_REVIEW,
+        }
+
+    def mark_email_verified(self) -> None:
+        """Advance past the email step, and finish outright where that is all
+        the university asks for."""
+        self.email_verified_at = timezone.now()
+        self.status = (
+            self.Status.AWAITING_ID if self.university.require_id_card else self.Status.UNDER_REVIEW
+        )
+        self.save(update_fields=["email_verified_at", "status", "updated_at"])
+
+    def approve(self, reviewer: User | None = None) -> None:
+        """Grant the student their portal.
+
+        This is the single write that opens a university surface to a user, so
+        it is also the only place `User.university` is set. Anything else
+        setting it would be a way into a portal that never passed review.
+        """
+        self.status = self.Status.APPROVED
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.save(update_fields=["status", "reviewed_by", "reviewed_at", "updated_at"])
+
+        self.user.university = self.university
+        self.user.student_verification_status = VerificationStatus.VERIFIED
+        self.user.student_verified_at = timezone.now()
+        self.user.save(
+            update_fields=[
+                "university",
+                "student_verification_status",
+                "student_verified_at",
+                "updated_at",
+            ]
+        )
+
+    def reject(self, reason: str, reviewer: User | None = None) -> None:
+        self.status = self.Status.REJECTED
+        self.rejection_reason = reason
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.save(
+            update_fields=[
+                "status",
+                "rejection_reason",
+                "reviewed_by",
+                "reviewed_at",
+                "updated_at",
+            ]
+        )
+
+        # Revoking the portal is the whole point of a rejection that follows an
+        # earlier approval — a student who has graduated or was mis-approved
+        # must lose the surface, not merely stop gaining one.
+        if self.user.university_id == self.university_id:
+            self.user.university = None
+            self.user.student_verification_status = VerificationStatus.REJECTED
+            self.user.student_verified_at = None
+            self.user.save(
+                update_fields=[
+                    "university",
+                    "student_verification_status",
+                    "student_verified_at",
+                    "updated_at",
+                ]
+            )
+
+
 class KnownDevice(TimestampedModel):
     """A device this account has signed in from before, and when it earned trust.
 

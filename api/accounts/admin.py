@@ -11,13 +11,15 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.html import format_html
 
 from core.files import signed_url
-from core.models import AuditLog
+from core.models import AuditLog, NotificationCategory
+from core.notify import dispatch
 
 from .models import (
     ApprovedEmailDomain,
     BuyerProfile,
     RefreshSession,
     SellerProfile,
+    StudentVerification,
     TwoFactorDevice,
     University,
     User,
@@ -154,6 +156,116 @@ class UserAdmin(BaseUserAdmin):
                 target=obj,
                 request=request,
                 justification="Identity record opened in admin.",
+            )
+        return obj
+
+
+@admin.register(StudentVerification)
+class StudentVerificationAdmin(admin.ModelAdmin):
+    """The review queue.
+
+    Approving here is the only route into a university portal, so the actions
+    go through `approve()`/`reject()` on the model rather than editing `status`
+    directly — those methods are what keep `User.university` in step, and a
+    status edited around them would leave an approved application whose owner
+    still has no portal (or worse, the reverse).
+    """
+
+    list_display = [
+        "university_email",
+        "user",
+        "university",
+        "status",
+        "email_confirmed",
+        "has_id_card",
+        "created_at",
+    ]
+    list_filter = ["status", "university", "created_at"]
+    search_fields = ["university_email", "user__email", "user__full_name"]
+    readonly_fields = [
+        "user",
+        "university",
+        "university_email",
+        "email_verified_at",
+        "id_card_link",
+        "reviewed_by",
+        "reviewed_at",
+        "created_at",
+    ]
+    exclude = ["id_card"]
+    actions = ["approve_selected", "reject_selected"]
+
+    @admin.display(description="Email", boolean=True)
+    def email_confirmed(self, obj: StudentVerification) -> bool:
+        return obj.email_verified_at is not None
+
+    @admin.display(description="ID card", boolean=True)
+    def has_id_card(self, obj: StudentVerification) -> bool:
+        return obj.id_card_id is not None
+
+    @admin.display(description="Student ID card")
+    def id_card_link(self, obj: StudentVerification):
+        if not obj.id_card:
+            return "—"
+        return format_html(
+            '<a href="{}" rel="noopener">Open (expires in minutes, access is logged)</a>',
+            signed_url(obj.id_card),
+        )
+
+    @admin.action(description="Approve — opens the campus portal")
+    def approve_selected(self, request, queryset):
+        opened = 0
+        for application in queryset.select_related("user", "university"):
+            if application.status == StudentVerification.Status.APPROVED:
+                continue
+            application.approve(reviewer=request.user)
+            AuditLog.record(
+                actor=request.user,
+                action=AuditLog.Action.UPDATE,
+                target=application,
+                request=request,
+                justification=(
+                    f"Student verification approved for {application.university.short_code}."
+                ),
+            )
+            dispatch(
+                application.user,
+                NotificationCategory.VERIFICATION,
+                f"Your {application.university.short_code} portal is open",
+                "You can now switch to your campus marketplace from the header.",
+            )
+            opened += 1
+        self.message_user(request, f"{opened} portal(s) opened.")
+
+    @admin.action(description="Reject — closes any portal already granted")
+    def reject_selected(self, request, queryset):
+        for application in queryset.select_related("user", "university"):
+            application.reject("Rejected during review.", reviewer=request.user)
+            AuditLog.record(
+                actor=request.user,
+                action=AuditLog.Action.UPDATE,
+                target=application,
+                request=request,
+                justification="Student verification rejected.",
+            )
+            dispatch(
+                application.user,
+                NotificationCategory.VERIFICATION,
+                "Student verification was not approved",
+                "Open Settings → Profile to see why and try again.",
+            )
+        self.message_user(request, "Rejected.")
+
+    def get_object(self, request, object_id, from_field=None):
+        obj = super().get_object(request, object_id, from_field)
+        # Opening an application means looking at somebody's ID card.
+        if obj is not None and obj.id_card_id:
+            AuditLog.record(
+                actor=request.user,
+                action=AuditLog.Action.READ_SENSITIVE,
+                target=obj,
+                request=request,
+                justification="Student ID card opened in admin.",
             )
         return obj
 

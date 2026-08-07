@@ -11,7 +11,6 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
-from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -20,6 +19,7 @@ from contracts.models import Contract, ContractEvent, ContractType, Milestone
 from core import files as filestore
 from core.models import AuditLog, NotificationCategory, StoredFile
 from core.notify import dispatch
+from core.pagination import StandardPagination
 
 from .models import BuyerRequest, CustomOffer, Gig, GigExtra, Order, Package
 from .permissions import IsGigOwnerOrReadOnly, IsOrderParty
@@ -32,12 +32,6 @@ from .serializers import (
     GigWriteSerializer,
     OrderSerializer,
 )
-
-
-class StandardPagination(PageNumberPagination):
-    page_size = 24
-    page_size_query_param = "page_size"
-    max_page_size = 100
 
 
 def _forbidden(message: str):

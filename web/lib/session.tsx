@@ -10,7 +10,14 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { auth, type User } from "./api";
+import {
+  auth,
+  getSurface,
+  restoreSurface,
+  setSurface as persistSurface,
+  type SurfaceKind,
+  type User,
+} from "./api";
 
 interface SessionValue {
   user: User | null;
@@ -19,6 +26,9 @@ interface SessionValue {
   refresh: () => Promise<User | null>;
   setUser: (user: User | null) => void;
   signOut: () => Promise<void>;
+  /** Which marketplace is being viewed. */
+  surface: SurfaceKind;
+  switchSurface: (next: SurfaceKind) => void;
 }
 
 const SessionContext = React.createContext<SessionValue | null>(null);
@@ -32,12 +42,23 @@ export function SessionProvider({
 }) {
   const [user, setUser] = React.useState<User | null>(initialUser);
   const [loading, setLoading] = React.useState(true);
+  const [surface, setSurfaceState] = React.useState<SurfaceKind>(getSurface);
   const router = useRouter();
 
   const refresh = React.useCallback(async () => {
     try {
       const next = await auth.me();
       setUser(next);
+
+      // A stored surface can outlive the entitlement behind it — the student
+      // graduated, or a reviewer revoked the approval. Every request would then
+      // 403 until the user found the switcher, so the stale choice is dropped
+      // here instead, the moment the server tells us what is actually allowed.
+      const allowed = (next.surfaces ?? []).some((option) => option.kind === getSurface());
+      if (!allowed && getSurface() !== "global") {
+        persistSurface("global");
+        setSurfaceState("global");
+      }
       return next;
     } catch {
       setUser(null);
@@ -47,11 +68,29 @@ export function SessionProvider({
     }
   }, []);
 
+  const switchSurface = React.useCallback(
+    (next: SurfaceKind) => {
+      if (next === getSurface()) return;
+      persistSurface(next);
+      setSurfaceState(next);
+      // A full navigation rather than a soft refresh: every cached list on the
+      // page belongs to the surface it was fetched under, and re-rendering with
+      // the old data under a new label is exactly the confusion the switcher
+      // exists to prevent.
+      router.refresh();
+    },
+    [router],
+  );
+
   React.useEffect(() => {
+    // localStorage is not readable during render, so the surface is restored
+    // here and the module-level value in api.ts is primed before the first
+    // request goes out.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSurfaceState(restoreSurface());
     // Restoring the session from the refresh cookie is a read of external
     // state; the setState lands in the async continuation, which the lint rule
     // cannot follow across the await.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh();
   }, [refresh]);
 
@@ -62,8 +101,8 @@ export function SessionProvider({
   }, [router]);
 
   const value = React.useMemo(
-    () => ({ user, loading, refresh, setUser, signOut }),
-    [user, loading, refresh, signOut],
+    () => ({ user, loading, refresh, setUser, signOut, surface, switchSurface }),
+    [user, loading, refresh, signOut, surface, switchSurface],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

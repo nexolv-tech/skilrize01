@@ -9,13 +9,13 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
-from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from accounts.auth import CanTransact
 from core.models import AuditLog, NotificationCategory
 from core.notify import dispatch
+from core.pagination import StandardPagination
 
 from .models import (
     Category,
@@ -36,13 +36,6 @@ from .serializers import (
     ProposalWriteSerializer,
     SkillSerializer,
 )
-
-
-class StandardPagination(PageNumberPagination):
-    page_size = 20
-    page_size_query_param = "page_size"
-    max_page_size = 100
-
 
 # --- Taxonomy --------------------------------------------------------------
 

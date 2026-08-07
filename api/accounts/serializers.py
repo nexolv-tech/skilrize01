@@ -7,7 +7,14 @@ from rest_framework import serializers
 
 from core.files import signed_url
 
-from .models import BuyerProfile, RefreshSession, SellerProfile, University, User
+from .models import (
+    BuyerProfile,
+    RefreshSession,
+    SellerProfile,
+    StudentVerification,
+    University,
+    User,
+)
 
 
 class UniversitySerializer(serializers.ModelSerializer):
@@ -229,6 +236,53 @@ class OTPSerializer(serializers.Serializer):
 
 class PhoneSerializer(serializers.Serializer):
     phone_number = serializers.CharField(max_length=20)
+
+
+class StudentEmailSerializer(serializers.Serializer):
+    university_email = serializers.EmailField()
+
+
+class StudentVerificationSerializer(serializers.ModelSerializer):
+    """The student's own view of where their application has got to."""
+
+    university = UniversitySerializer(read_only=True)
+    id_card_required = serializers.SerializerMethodField()
+    next_step = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StudentVerification
+        fields = [
+            "id",
+            "university",
+            "university_email",
+            "email_verified_at",
+            "status",
+            "rejection_reason",
+            "id_card_required",
+            "next_step",
+            "created_at",
+            "reviewed_at",
+        ]
+        read_only_fields = fields
+
+    def get_id_card_required(self, row: StudentVerification) -> bool:
+        return row.university.require_id_card
+
+    def get_next_step(self, row: StudentVerification) -> str:
+        """What the student has to do now, decided server-side.
+
+        The client renders whatever this says rather than re-deriving it from
+        the status. Two implementations of the same branching is how the UI
+        ends up telling someone to upload a card the university does not ask
+        for.
+        """
+        return {
+            StudentVerification.Status.EMAIL_PENDING: "confirm_email",
+            StudentVerification.Status.AWAITING_ID: "upload_id_card",
+            StudentVerification.Status.UNDER_REVIEW: "wait_for_review",
+            StudentVerification.Status.APPROVED: "done",
+            StudentVerification.Status.REJECTED: "start_again",
+        }[row.status]
 
 
 class SessionSerializer(serializers.ModelSerializer):

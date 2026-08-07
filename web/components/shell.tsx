@@ -33,6 +33,13 @@ const WORK_NAV = [
   { href: "/contracts", label: "Contracts", icon: "briefcase" as const },
 ];
 
+/** The social layer. Separated from the work nav so the two do not compete. */
+const SOCIAL_NAV = [
+  { href: "/communities", label: "Communities", icon: "users" as const },
+  { href: "/feed", label: "Activity", icon: "sparkles" as const },
+  { href: "/messages", label: "Messages", icon: "send" as const },
+];
+
 export function ThemeToggle({ className }: { className?: string }) {
   const { theme, toggle } = useTheme();
   return (
@@ -58,35 +65,101 @@ export function ThemeToggle({ className }: { className?: string }) {
  * is disabled until student verification passes — which is exactly what the
  * server would enforce anyway.
  */
+/**
+ * Global marketplace vs university portal.
+ *
+ * Section 15.2 names posting to the wrong scope as the most likely user-facing
+ * failure in this system, and the defence is that the active surface is
+ * unmistakable at a glance — hence a permanently visible control rather than a
+ * setting, and an accent-coloured campus state rather than a subtle one.
+ *
+ * The campus side is shown to everyone, disabled until verification passes, so
+ * the model is legible before you qualify for it. Disabling it here is a
+ * courtesy: `core.scope.resolve_for` refuses the surface server-side regardless
+ * of what the client sends.
+ */
 function SurfaceSwitcher() {
-  const { user } = useSession();
-  const verified = user?.is_verified_student ?? false;
+  const { user, surface, switchSurface } = useSession();
+  const campus = (user?.surfaces ?? []).find((option) => option.kind === "university");
+  const verified = Boolean(campus);
 
   return (
     <div
       role="group"
-      aria-label="Active surface"
+      aria-label="Active marketplace"
       className="hidden items-center gap-0.5 rounded-lg border border-line bg-sunken p-0.5 sm:flex"
     >
-      <span className="inline-flex items-center gap-1.5 rounded-[7px] bg-raised px-2.5 py-1.5 text-[13px] font-medium text-fg shadow-e1">
-        <Icon name="layers" className="size-3.5 text-accent" />
-        Global
-      </span>
-      <span
-        title={
-          verified
-            ? `${user?.university?.name ?? "Your university"} portal`
-            : "Verify as a student to unlock your university portal"
-        }
-        aria-disabled={!verified}
+      <button
+        type="button"
+        onClick={() => switchSurface("global")}
+        aria-pressed={surface === "global"}
         className={cn(
           "inline-flex items-center gap-1.5 rounded-[7px] px-2.5 py-1.5 text-[13px] font-medium",
-          verified ? "text-muted" : "cursor-not-allowed text-subtle",
+          "transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+          surface === "global"
+            ? "bg-raised text-fg shadow-e1"
+            : "text-muted hover:text-fg",
+        )}
+      >
+        <Icon name="layers" className="size-3.5" />
+        Global
+      </button>
+
+      <button
+        type="button"
+        disabled={!verified}
+        onClick={() => switchSurface("university")}
+        aria-pressed={surface === "university"}
+        title={
+          verified
+            ? `${campus?.university?.name ?? "Your university"} portal`
+            : "Verify as a student to unlock your university portal"
+        }
+        className={cn(
+          "inline-flex items-center gap-1.5 rounded-[7px] px-2.5 py-1.5 text-[13px] font-medium",
+          "transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+          !verified && "cursor-not-allowed text-subtle",
+          verified && surface === "university" && "bg-accent text-on-accent shadow-e1",
+          verified && surface !== "university" && "text-muted hover:text-fg",
         )}
       >
         <Icon name={verified ? "building" : "lock"} className="size-3.5" />
-        {verified ? (user?.university?.short_code ?? "Campus") : "Campus"}
-      </span>
+        {campus?.university?.short_code ?? "Campus"}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * A full-width bar shown only inside a campus portal.
+ *
+ * The switcher alone is a small control in a busy header. This is the part that
+ * makes the surface impossible to miss while composing a brief, which is the
+ * moment the mistake actually costs something.
+ */
+function CampusBanner() {
+  const { user, surface, switchSurface } = useSession();
+  const campus = (user?.surfaces ?? []).find((option) => option.kind === "university");
+
+  if (surface !== "university" || !campus) return null;
+
+  return (
+    <div className="border-b border-accent/30 bg-accent-soft">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 sm:px-6">
+        <Icon name="building" className="size-4 shrink-0 text-accent" />
+        <p className="text-[13px] text-fg">
+          You are inside the{" "}
+          <span className="font-semibold">{campus.university?.name}</span> portal. Everything you
+          post or publish here is visible only to verified students of your university.
+        </p>
+        <button
+          type="button"
+          onClick={() => switchSurface("global")}
+          className="ml-auto text-[13px] font-medium text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          Back to global
+        </button>
+      </div>
     </div>
   );
 }
@@ -191,7 +264,7 @@ export function AppHeader() {
         </Link>
 
         <nav aria-label="Marketplace" className="ml-4 hidden items-center gap-1 md:flex">
-          {WORK_NAV.map((item) => {
+          {[...WORK_NAV, ...SOCIAL_NAV].map((item) => {
             const active = pathname.startsWith(item.href);
             return (
               <Link
@@ -224,6 +297,7 @@ export function AppHeader() {
         </div>
       </div>
 
+      <CampusBanner />
       {/* Keyed on the value so a fresh countdown starts from scratch when the
           session reloads, rather than the effect writing over live state. */}
       <DeviceCooloffBanner key={cooloff} seconds={cooloff} />

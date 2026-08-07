@@ -263,6 +263,157 @@ def test_an_address_block_outranks_valid_credentials(client, user, settings):
     assert response.data["code"] == "ip_blocked"
 
 
+# --- Student verification --------------------------------------------------
+
+
+@pytest.fixture
+def comsats(db):
+    from accounts.models import ApprovedEmailDomain
+
+    uni = University.objects.create(name="COMSATS University", short_code="CUI")
+    ApprovedEmailDomain.objects.create(university=uni, domain="cuiatd.edu.pk")
+    return uni
+
+
+def _emailed_otp() -> str:
+    import re
+
+    match = re.search(r"\b(\d{6})\b", mail.outbox[-1].body)
+    assert match, f"no code in: {mail.outbox[-1].body!r}"
+    return match.group(1)
+
+
+@pytest.mark.django_db
+def test_the_code_goes_to_the_claimed_address_not_the_account(signed_in, user, comsats):
+    """Sending it to the account address would prove nothing about the claim."""
+    mail.outbox.clear()
+    response = signed_in.post(
+        "/api/v1/auth/student/email/",
+        {"university_email": "fa21-bcs-001@cuiatd.edu.pk"},
+        format="json",
+    )
+
+    assert response.status_code == 201
+    assert response.data["application"]["status"] == "email_pending"
+    assert mail.outbox[-1].to == ["fa21-bcs-001@cuiatd.edu.pk"]
+    assert mail.outbox[-1].to != [user.email]
+
+
+@pytest.mark.django_db
+def test_an_unknown_domain_is_refused(signed_in, comsats):
+    response = signed_in.post(
+        "/api/v1/auth/student/email/", {"university_email": "me@gmail.com"}, format="json"
+    )
+    assert response.status_code == 400
+    assert response.data["code"] == "unknown_university_domain"
+
+
+@pytest.mark.django_db
+def test_the_full_verification_journey_opens_the_portal(signed_in, user, comsats):
+    from accounts.models import StudentVerification
+
+    mail.outbox.clear()
+    signed_in.post(
+        "/api/v1/auth/student/email/",
+        {"university_email": "fa21-bcs-001@cuiatd.edu.pk"},
+        format="json",
+    )
+
+    confirmed = signed_in.post(
+        "/api/v1/auth/student/email/verify/", {"code": _emailed_otp()}, format="json"
+    )
+    assert confirmed.status_code == 200
+    # COMSATS requires an ID card, so email alone is not enough.
+    assert confirmed.data["application"]["next_step"] == "upload_id_card"
+
+    user.refresh_from_db()
+    assert not user.is_verified_student, "a portal must not open before review"
+
+    application = StudentVerification.objects.get(user=user)
+    application.approve()
+
+    user.refresh_from_db()
+    assert user.is_verified_student
+    assert user.university_id == comsats.pk
+
+    surfaces = signed_in.get("/api/v1/auth/me/").data["surfaces"]
+    assert [s["kind"] for s in surfaces] == ["global", "university"]
+
+
+@pytest.mark.django_db
+def test_a_wrong_code_does_not_advance_the_application(signed_in, comsats):
+    signed_in.post(
+        "/api/v1/auth/student/email/",
+        {"university_email": "fa21-bcs-001@cuiatd.edu.pk"},
+        format="json",
+    )
+    response = signed_in.post(
+        "/api/v1/auth/student/email/verify/", {"code": "000000"}, format="json"
+    )
+    assert response.status_code == 400
+    assert response.data["code"] == "invalid_code"
+
+
+@pytest.mark.django_db
+def test_a_university_address_cannot_be_claimed_by_two_accounts(client, signed_in, comsats):
+    signed_in.post(
+        "/api/v1/auth/student/email/",
+        {"university_email": "shared@cuiatd.edu.pk"},
+        format="json",
+    )
+
+    other = User.objects.create_user("other@example.com", PASSWORD)
+    client.post("/api/v1/auth/login/", {"email": other.email, "password": PASSWORD}, format="json")
+    response = client.post(
+        "/api/v1/auth/student/email/",
+        {"university_email": "shared@cuiatd.edu.pk"},
+        format="json",
+    )
+
+    assert response.status_code == 409
+    assert response.data["code"] == "email_taken"
+
+
+@pytest.mark.django_db
+def test_an_id_card_cannot_be_uploaded_before_the_email_is_confirmed(signed_in, comsats):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    signed_in.post(
+        "/api/v1/auth/student/email/",
+        {"university_email": "fa21-bcs-001@cuiatd.edu.pk"},
+        format="json",
+    )
+    response = signed_in.post(
+        "/api/v1/auth/student/id-card/",
+        {"file": SimpleUploadedFile("card.png", b"\x89PNG\r\n\x1a\n" + b"0" * 64, "image/png")},
+        format="multipart",
+    )
+    assert response.status_code == 400
+    assert response.data["code"] == "email_not_verified"
+
+
+@pytest.mark.django_db
+def test_a_university_that_waives_the_card_skips_that_step(signed_in, user, comsats):
+    comsats.require_id_card = False
+    comsats.save(update_fields=["require_id_card"])
+
+    mail.outbox.clear()
+    signed_in.post(
+        "/api/v1/auth/student/email/",
+        {"university_email": "fa21-bcs-001@cuiatd.edu.pk"},
+        format="json",
+    )
+    confirmed = signed_in.post(
+        "/api/v1/auth/student/email/verify/", {"code": _emailed_otp()}, format="json"
+    )
+    assert confirmed.data["application"]["next_step"] == "wait_for_review"
+
+
+@pytest.mark.django_db
+def test_surfaces_lists_only_global_for_a_non_student(signed_in):
+    assert [s["kind"] for s in signed_in.get("/api/v1/auth/me/").data["surfaces"]] == ["global"]
+
+
 # --- New-device email verification -----------------------------------------
 
 

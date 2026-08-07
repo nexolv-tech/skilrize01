@@ -11,7 +11,6 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -19,6 +18,7 @@ from accounts.auth import CanMoveMoney, CanTransact
 from core import files as filestore
 from core.models import AuditLog, NotificationCategory, StoredFile
 from core.notify import dispatch
+from core.pagination import StandardPagination
 from marketplace.models import Project, ProjectType, Proposal
 
 from .models import Contract, ContractEvent, ContractType, Milestone, Review, TimeEntry
@@ -32,12 +32,6 @@ from .serializers import (
     ReviewWriteSerializer,
     TimeEntrySerializer,
 )
-
-
-class StandardPagination(PageNumberPagination):
-    page_size = 20
-    page_size_query_param = "page_size"
-    max_page_size = 100
 
 
 def _forbidden(message: str):

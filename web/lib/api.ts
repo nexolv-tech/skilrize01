@@ -108,12 +108,57 @@ function refreshSession(): Promise<boolean> {
   return refreshInFlight;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Active surface                                                             */
+/* -------------------------------------------------------------------------- */
+
+export type SurfaceKind = "global" | "university";
+
+const SURFACE_STORAGE_KEY = "skilrize.surface";
+
+/**
+ * Which marketplace the client is currently looking at.
+ *
+ * Held in a module-level variable so *every* request carries it without each
+ * call site remembering — the whole failure mode this defends against is one
+ * forgotten header on one endpoint, which would silently serve global results
+ * inside the campus portal.
+ *
+ * It is a request, not an instruction. The server re-derives entitlement from
+ * the session on every call and returns 403 rather than trusting this, so a
+ * tampered value buys nothing.
+ */
+let activeSurface: SurfaceKind = "global";
+
+export function getSurface(): SurfaceKind {
+  return activeSurface;
+}
+
+export function setSurface(surface: SurfaceKind): void {
+  activeSurface = surface;
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(SURFACE_STORAGE_KEY, surface);
+  }
+}
+
+/** Restore the last surface on boot. Called once by the session provider. */
+export function restoreSurface(): SurfaceKind {
+  if (typeof window === "undefined") return "global";
+  const stored = window.localStorage.getItem(SURFACE_STORAGE_KEY);
+  activeSurface = stored === "university" ? "university" : "global";
+  return activeSurface;
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const method = options.method ?? "GET";
   const headers: Record<string, string> = {};
 
   const isFormData = options.body instanceof FormData;
   if (options.body !== undefined && !isFormData) headers["Content-Type"] = "application/json";
+
+  // Sent on every request, including reads. The server decides whether the
+  // caller is entitled to the surface it names.
+  if (activeSurface !== "global") headers["X-Skilrize-Surface"] = activeSurface;
 
   if (UNSAFE.has(method)) {
     await primeCsrf();
@@ -229,6 +274,35 @@ export interface User {
    * of being cached anywhere longer-lived.
    */
   device_cooloff_seconds?: number;
+  /** The surfaces this account may switch to, decided server-side. */
+  surfaces?: Surface[];
+}
+
+export interface Surface {
+  kind: SurfaceKind;
+  label: string;
+  university: University | null;
+}
+
+export type StudentApplicationStatus =
+  | "email_pending"
+  | "awaiting_id"
+  | "under_review"
+  | "approved"
+  | "rejected";
+
+export interface StudentApplication {
+  id: number;
+  university: University;
+  university_email: string;
+  email_verified_at: string | null;
+  status: StudentApplicationStatus;
+  rejection_reason: string;
+  id_card_required: boolean;
+  /** What the student does next. Decided server-side so the UI never re-derives it. */
+  next_step: "confirm_email" | "upload_id_card" | "wait_for_review" | "done" | "start_again";
+  created_at: string;
+  reviewed_at: string | null;
 }
 
 export interface Session {
@@ -304,6 +378,19 @@ export const auth = {
     api.post<{ recovery_codes: string[] }>("/auth/2fa/confirm/", { code }),
   twoFactorDisable: (body: { password?: string; code?: string }) =>
     api.post<{ detail: string }>("/auth/2fa/disable/", body),
+
+  // Student portals
+  studentApplication: () =>
+    api.get<{ application: StudentApplication | null }>("/auth/student/"),
+  startStudentVerification: (university_email: string) =>
+    api.post<{ application: StudentApplication }>("/auth/student/email/", { university_email }),
+  confirmStudentEmail: (code: string) =>
+    api.post<{ application: StudentApplication }>("/auth/student/email/verify/", { code }),
+  uploadStudentIdCard: (file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    return api.post<{ application: StudentApplication }>("/auth/student/id-card/", body);
+  },
 
   lookupUniversity: (email: string) =>
     api.get<{ matched: boolean; university?: University }>(
@@ -799,4 +886,209 @@ export const orders = {
     api.post<GigOrder>(`/orders/${id}/request-revision/`, { note }),
   accept: (id: number) => api.post<GigOrder>(`/orders/${id}/accept/`),
   cancel: (id: number) => api.post<GigOrder>(`/orders/${id}/cancel/`),
+};
+
+/* -------------------------------------------------------------------------- */
+/* Communities — the social layer                                             */
+/* -------------------------------------------------------------------------- */
+
+export type CommunityKind = "open" | "request" | "closed";
+export type MemberRole = "member" | "moderator" | "owner";
+
+export interface Author {
+  id: number;
+  handle: string;
+  display_name: string;
+  avatar_url: string | null;
+}
+
+export interface Community {
+  id: number;
+  name: string;
+  slug: string;
+  tagline: string;
+  description: string;
+  kind: CommunityKind;
+  cover_url: string | null;
+  created_by: Author;
+  member_count: number;
+  thread_count: number;
+  is_archived: boolean;
+  visibility: "global" | "university";
+  /** Null when the viewer has not joined. */
+  my_role: MemberRole | null;
+  can_post: boolean;
+  created_at: string;
+}
+
+export interface CommunityThread {
+  id: number;
+  community?: number;
+  title: string;
+  body?: string;
+  author: Author;
+  reply_count: number;
+  is_pinned: boolean;
+  is_locked: boolean;
+  last_activity_at: string;
+  created_at: string;
+}
+
+export interface ThreadReply {
+  id: number;
+  author: Author;
+  parent: number | null;
+  body: string;
+  depth: number;
+  is_deleted: boolean;
+  created_at: string;
+}
+
+export interface ChatMessage {
+  id: number;
+  author: Author;
+  body: string;
+  is_deleted: boolean;
+  created_at: string;
+}
+
+export interface CommunityEvent {
+  id: number;
+  community: number;
+  title: string;
+  description: string;
+  created_by: Author;
+  starts_at: string;
+  ends_at: string | null;
+  location: string;
+  online_url: string;
+  capacity: number;
+  going_count: number;
+  is_full: boolean;
+  is_cancelled: boolean;
+  my_rsvp: "going" | "interested" | "declined" | null;
+  created_at: string;
+}
+
+export interface CommunityResource {
+  id: number;
+  community: number;
+  title: string;
+  description: string;
+  kind: "file" | "link";
+  url: string;
+  file_url: string | null;
+  tags: string[];
+  uploaded_by: Author;
+  download_count: number;
+  created_at: string;
+}
+
+export interface Conversation {
+  id: number;
+  other: Author | null;
+  last_message: DirectMessage | null;
+  unread_count: number;
+  last_message_at: string;
+}
+
+export interface DirectMessage {
+  id: number;
+  sender: Author;
+  body: string;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface FeedEntry {
+  id: number;
+  actor: Author;
+  verb: string;
+  summary: string;
+  url: string;
+  community: number | null;
+  created_at: string;
+}
+
+export interface ModerationReport {
+  id: number;
+  reporter: Author;
+  community: number | null;
+  kind: string;
+  object_id: number;
+  reason: string;
+  status: "open" | "upheld" | "dismissed";
+  resolution_note: string;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export const communities = {
+  list: (filters: Record<string, string | undefined> = {}) =>
+    api.get<Paginated<Community>>(`/communities/${toQuery(filters)}`),
+  detail: (id: number | string) => api.get<Community>(`/communities/${id}/`),
+  create: (body: Partial<Community>) => api.post<Community>("/communities/", body),
+  join: (id: number) => api.post<Community>(`/communities/${id}/join/`),
+  leave: (id: number) => api.delete<void>(`/communities/${id}/leave/`),
+  members: (id: number) =>
+    api.get<Array<{ id: number; user: Author; role: MemberRole; status: string }>>(
+      `/communities/${id}/members/`,
+    ),
+
+  threads: (communityId: number) =>
+    api.get<Paginated<CommunityThread>>(`/threads/${toQuery({ community: String(communityId) })}`),
+  thread: (id: number | string) => api.get<CommunityThread>(`/threads/${id}/`),
+  createThread: (community: number, title: string, body: string) =>
+    api.post<CommunityThread>("/threads/", { community, title, body }),
+  replies: (threadId: number | string) =>
+    api.get<Paginated<ThreadReply>>(`/threads/${threadId}/replies/`),
+  reply: (threadId: number | string, body: string, parent?: number | null) =>
+    api.post<ThreadReply>(`/threads/${threadId}/replies/`, { body, parent: parent ?? null }),
+  removeReply: (id: number) => api.delete<void>(`/replies/${id}/`),
+  pinThread: (id: number) => api.post<CommunityThread>(`/threads/${id}/pin/`),
+  lockThread: (id: number) => api.post<CommunityThread>(`/threads/${id}/lock/`),
+
+  chat: (communityId: number, before?: number) =>
+    api.get<ChatMessage[]>(
+      `/communities/${communityId}/chat/${toQuery({ before: before ? String(before) : undefined })}`,
+    ),
+  sendChat: (communityId: number, body: string) =>
+    api.post<ChatMessage>(`/communities/${communityId}/chat/`, { body }),
+
+  events: (communityId?: number) =>
+    api.get<Paginated<CommunityEvent>>(
+      `/events/${toQuery({ community: communityId ? String(communityId) : undefined })}`,
+    ),
+  createEvent: (body: Partial<CommunityEvent> & { community: number }) =>
+    api.post<CommunityEvent>("/events/", body),
+  rsvp: (id: number, status: "going" | "interested" | "declined") =>
+    api.post<CommunityEvent>(`/events/${id}/rsvp/`, { status }),
+  cancelEvent: (id: number) => api.post<CommunityEvent>(`/events/${id}/cancel/`),
+
+  resources: (communityId?: number) =>
+    api.get<Paginated<CommunityResource>>(
+      `/resources/${toQuery({ community: communityId ? String(communityId) : undefined })}`,
+    ),
+  shareResource: (community: number, fields: Record<string, string>, file?: File | null) => {
+    const form = new FormData();
+    form.append("community", String(community));
+    Object.entries(fields).forEach(([key, value]) => form.append(key, value));
+    if (file) form.append("file", file);
+    return request<CommunityResource>("/resources/", { method: "POST", body: form });
+  },
+
+  feed: (verb?: string) => api.get<Paginated<FeedEntry>>(`/feed/${toQuery({ verb })}`),
+  report: (body: { kind: string; object_id: number; community?: number; reason: string }) =>
+    api.post<ModerationReport>("/reports/", body),
+  moderationQueue: () => api.get<ModerationReport[]>("/moderation/queue/"),
+  resolveReport: (id: number, upheld: boolean, note = "") =>
+    api.post<ModerationReport>(`/moderation/reports/${id}/resolve/`, { upheld, note }),
+};
+
+export const messages = {
+  conversations: () => api.get<Paginated<Conversation>>("/conversations/"),
+  start: (handle: string) => api.post<Conversation>("/conversations/start/", { handle }),
+  thread: (id: number | string) => api.get<Paginated<DirectMessage>>(`/conversations/${id}/messages/`),
+  send: (id: number | string, body: string) =>
+    api.post<DirectMessage>(`/conversations/${id}/messages/`, { body }),
 };
