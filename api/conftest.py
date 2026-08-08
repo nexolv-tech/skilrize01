@@ -58,6 +58,40 @@ def _no_scanner_required(settings):
 
 
 @pytest.fixture(autouse=True)
+def _http_test_client(settings):
+    """Undo the two production settings the test client cannot satisfy.
+
+    CI runs with `DEBUG=False`, which is correct — it is the configuration that
+    ships. But Django's test client speaks plain http and has no TLS to offer,
+    so `SECURE_SSL_REDIRECT` turns every single request into a 301 to
+    `https://testserver/`, and `COOKIE_SECURE` means no session cookie is ever
+    stored. The suite then fails everywhere at once for one reason that has
+    nothing to do with what any of it is testing.
+
+    Neither is relaxed in the shipped configuration: `settings.py` forces both
+    on whenever `DEBUG` is off, and `manage.py check --deploy` is what proves
+    it. This only tells the harness to stop redirecting itself.
+    """
+    settings.SECURE_SSL_REDIRECT = False
+    settings.COOKIE_SECURE = False
+
+
+@pytest.fixture(autouse=True)
+def _tasks_run_inline(settings):
+    """Run Celery tasks in-process.
+
+    Notifications and confirmation emails are deliberately queued rather than
+    sent inline with the request, so with a real broker the assertions that
+    follow a sign-up would race a worker that CI does not run. Eager execution
+    is how the test observes the outcome at all; `CELERY_TASK_ALWAYS_EAGER`
+    otherwise defaults to `DEBUG`, which is on locally and off in CI — the same
+    suite passing in one place and failing in the other.
+    """
+    settings.CELERY_TASK_ALWAYS_EAGER = True
+    settings.CELERY_TASK_EAGER_PROPAGATES = True
+
+
+@pytest.fixture(autouse=True)
 def _isolated_cache():
     """Give every test a clean cache.
 

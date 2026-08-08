@@ -213,6 +213,15 @@ The cross-tenant leakage gate runs separately in CI and can be run alone:
 cd api && .venv/Scripts/python -m pytest core/test_tenancy.py
 ```
 
+CI runs with `DEBUG=False`, which is the configuration that ships. The suite is
+written to behave identically either way — `conftest.py` turns off the two
+settings a plain-http test client cannot satisfy — but if you are chasing a
+failure that only appears in CI, reproduce it with the same environment:
+
+```bash
+cd api && DEBUG=False SECRET_KEY=ci-secret-key FILE_SIGNING_KEY=ci-file-signing-key .venv/Scripts/python -m pytest -q
+```
+
 ---
 
 ## Architecture

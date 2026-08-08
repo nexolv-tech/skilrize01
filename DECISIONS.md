@@ -420,6 +420,30 @@ permission from the team you are trying to leave.
 
 ---
 
+## D25 · The test suite runs the shipped settings, and names its exceptions
+
+**CI runs with `DEBUG=False`. Where a production setting is incompatible with a
+plain-http test client, `conftest.py` turns off that one setting explicitly,
+with the reason written down — the suite is never run under `DEBUG=True` to
+make it pass.**
+
+*Why this exists:* it was written after the whole suite passed locally and
+failed in CI with 144 failures and 57 errors. `SECURE_SSL_REDIRECT` turns on
+whenever `DEBUG` is off, so every request in CI became a 301 to
+`https://testserver/` — a green local run proving nothing about the
+configuration that ships.
+
+*Why not set `DEBUG=True` in CI:* that is the fix that hides the next one.
+`REQUIRE_FILE_SCANNER`, `COOKIE_SECURE`, and `CELERY_TASK_ALWAYS_EAGER` are all
+keyed off `DEBUG` too, and running the suite in development mode means none of
+their production behaviour is ever exercised.
+
+*The rule:* verify against CI's environment before claiming a suite is green,
+and when a setting has to be relaxed for the harness, relax exactly that
+setting and say why in the fixture.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, or a personal relationship. Nothing
