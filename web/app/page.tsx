@@ -152,9 +152,11 @@ const STORIES = [
 /**
  * Membership tiers.
  *
- * The paid tiers are marked as not yet available rather than quietly presented
- * as buyable. Pre-launch pricing on a landing page is ordinary; an order button
- * for something that cannot be ordered is not.
+ * The features listed are the ones the tier actually grants — they mirror
+ * `seed_default_plans` rather than being written independently here, because a
+ * landing page that promises a capability the plan does not carry is a refund
+ * request with extra steps. `/pricing` renders the same tiers from the API and
+ * is the page that can transact; this is the summary that sends people there.
  */
 const PLANS = [
   {
@@ -183,13 +185,13 @@ const PLANS = [
       "Everything in Free",
       "Triple the monthly proposals",
       "Profile boost in search results",
-      "Advanced earnings and funnel analytics",
-      "Priority dispute review",
+      "Unlimited CRM contacts and pipeline",
+      "Sell services as monthly retainers",
     ],
-    cta: "Notify me",
-    href: "/signup",
+    cta: "See what Pro adds",
+    href: "/pricing",
     featured: true,
-    available: false,
+    available: true,
   },
   {
     name: "Elite",
@@ -199,14 +201,14 @@ const PLANS = [
     features: [
       "Everything in Pro",
       "Team and agency workspaces",
+      "Up to 10 seats",
       "Shared client CRM and pipelines",
-      "Sellable subscription services",
-      "Dedicated account support",
+      "Unlimited proposals",
     ],
-    cta: "Notify me",
-    href: "/signup",
+    cta: "See what Elite adds",
+    href: "/pricing",
     featured: false,
-    available: false,
+    available: true,
   },
 ];
 

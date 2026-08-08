@@ -1223,3 +1223,253 @@ export const discovery = {
     api.post<Promotion>("/promotions/", body),
   pausePromotion: (id: number) => api.post<Promotion>(`/promotions/${id}/pause/`),
 };
+
+/* -------------------------------------------------------------------------- */
+/* Professional layer — subscriptions, CRM, agencies, retainers               */
+/* -------------------------------------------------------------------------- */
+
+export type PlanTier = "free" | "pro" | "elite";
+export type DealStage =
+  | "lead"
+  | "qualified"
+  | "proposed"
+  | "negotiating"
+  | "won"
+  | "lost";
+
+/** -1 means no ceiling. Kept as a constant so no call site invents its own. */
+export const UNLIMITED = -1;
+
+export interface SubscriptionPlan {
+  id: number;
+  tier: PlanTier;
+  name: string;
+  tagline: string;
+  monthly_price: string;
+  yearly_price: string;
+  is_paid: boolean;
+  proposal_quota: number;
+  team_seats: number;
+  crm_contact_limit: number;
+  search_boost: boolean;
+  advanced_analytics: boolean;
+  can_sell_retainers: boolean;
+  can_create_agency: boolean;
+  priority_support: boolean;
+  features: string[];
+}
+
+export interface Entitlements {
+  tier: PlanTier;
+  plan_name: string;
+  proposal_quota: number;
+  team_seats: number;
+  crm_contact_limit: number;
+  search_boost: boolean;
+  advanced_analytics: boolean;
+  can_sell_retainers: boolean;
+  can_create_agency: boolean;
+  priority_support: boolean;
+  renews_at: string | null;
+}
+
+export interface UserSubscription {
+  id: number;
+  plan: SubscriptionPlan;
+  interval: "monthly" | "yearly";
+  status: string;
+  is_live: boolean;
+  started_at: string;
+  current_period_end: string;
+  cancel_at_period_end: boolean;
+  cancelled_at: string | null;
+}
+
+export interface CrmContact {
+  id: number;
+  name: string;
+  email: string;
+  phone: string;
+  company: string;
+  source: string;
+  tags: string[];
+  notes: string;
+  linked_user: number | null;
+  is_archived: boolean;
+  last_interaction_at: string | null;
+  open_deals: number;
+  pipeline_value: string;
+  created_at: string;
+}
+
+export interface CrmDeal {
+  id: number;
+  contact: number;
+  contact_name: string;
+  title: string;
+  value: string;
+  stage: DealStage;
+  is_open: boolean;
+  expected_close: string | null;
+  contract: number | null;
+  closed_at: string | null;
+  lost_reason: string;
+  created_at: string;
+}
+
+export interface CrmTask {
+  id: number;
+  contact: number | null;
+  deal: number | null;
+  title: string;
+  due_at: string | null;
+  completed_at: string | null;
+  is_overdue: boolean;
+  created_at: string;
+}
+
+export interface PipelineSummary {
+  stages: Array<{ stage: DealStage; count: number; value: string }>;
+  open_value: string;
+  won_value: string;
+  /** Null until something has actually been decided. */
+  win_rate: number | null;
+  contacts: number;
+  overdue_tasks: number;
+}
+
+export interface AgencyTeam {
+  id: number;
+  name: string;
+  slug: string;
+  tagline: string;
+  description: string;
+  logo_url: string | null;
+  owner: number;
+  seats_used: number;
+  my_role: "owner" | "admin" | "member" | null;
+  /** Includes a pending invite, which `my_role` deliberately does not report. */
+  my_status: "invited" | "active" | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AgencyTeamMember {
+  id: number;
+  user: number;
+  display_name: string;
+  handle: string;
+  avatar_url: string | null;
+  role: "owner" | "admin" | "member";
+  status: "invited" | "active" | "removed";
+  revenue_share: number;
+  joined_at: string | null;
+}
+
+export interface SharedWorkspace {
+  id: number;
+  agency: number | null;
+  name: string;
+  description: string;
+  client_contact: number | null;
+  members: Array<{ id: number; user: number; display_name: string; is_client: boolean }>;
+  contract_count: number;
+  is_archived: boolean;
+  created_at: string;
+}
+
+export interface Retainer {
+  id: number;
+  seller: number;
+  seller_name: string;
+  seller_handle: string;
+  title: string;
+  description: string;
+  monthly_price: string;
+  deliverables: string[];
+  max_subscribers: number;
+  minimum_months: number;
+  active_subscriber_count: number;
+  is_full: boolean;
+  is_active: boolean;
+  visibility: "global" | "university";
+  created_at: string;
+}
+
+export interface RetainerEngagement {
+  id: number;
+  plan: number;
+  plan_title: string;
+  seller_name: string;
+  buyer_name: string;
+  buyer_handle: string;
+  monthly_price: string;
+  status: string;
+  started_at: string;
+  current_period_end: string;
+  cancel_at_period_end: boolean;
+  months_billed: number;
+  can_cancel_now: boolean;
+}
+
+export const professional = {
+  plans: () => api.get<SubscriptionPlan[]>("/plans/"),
+  subscription: () =>
+    api.get<{ subscription: UserSubscription | null; entitlements: Entitlements }>(
+      "/subscription/",
+    ),
+  subscribe: (tier: PlanTier, interval: "monthly" | "yearly" = "monthly") =>
+    api.post<UserSubscription>("/subscription/subscribe/", { tier, interval }),
+  cancelSubscription: () => api.post<UserSubscription>("/subscription/cancel/"),
+
+  contacts: (filters: Record<string, string | undefined> = {}) =>
+    api.get<Paginated<CrmContact>>(`/crm/contacts/${toQuery(filters)}`),
+  createContact: (body: Partial<CrmContact>) => api.post<CrmContact>("/crm/contacts/", body),
+  updateContact: (id: number, body: Partial<CrmContact>) =>
+    api.patch<CrmContact>(`/crm/contacts/${id}/`, body),
+  interactions: (contactId: number) =>
+    api.get<Array<{ id: number; kind: string; body: string; author_name: string; occurred_at: string }>>(
+      `/crm/contacts/${contactId}/interactions/`,
+    ),
+  logInteraction: (contactId: number, body: { kind: string; body: string }) =>
+    api.post(`/crm/contacts/${contactId}/interactions/`, body),
+
+  deals: (filters: Record<string, string | undefined> = {}) =>
+    api.get<Paginated<CrmDeal>>(`/crm/deals/${toQuery(filters)}`),
+  createDeal: (body: Partial<CrmDeal>) => api.post<CrmDeal>("/crm/deals/", body),
+  moveDeal: (id: number, stage: DealStage, reason = "") =>
+    api.post<CrmDeal>(`/crm/deals/${id}/stage/`, { stage, reason }),
+  pipeline: () => api.get<PipelineSummary>("/crm/pipeline/"),
+
+  tasks: (filters: Record<string, string | undefined> = {}) =>
+    api.get<Paginated<CrmTask>>(`/crm/tasks/${toQuery(filters)}`),
+  createTask: (body: Partial<CrmTask>) => api.post<CrmTask>("/crm/tasks/", body),
+  toggleTask: (id: number) => api.post<CrmTask>(`/crm/tasks/${id}/complete/`),
+
+  agencies: (filters: Record<string, string | undefined> = {}) =>
+    api.get<Paginated<AgencyTeam>>(`/agencies/${toQuery(filters)}`),
+  createAgency: (body: Partial<AgencyTeam>) => api.post<AgencyTeam>("/agencies/", body),
+  agencyMembers: (id: number) => api.get<AgencyTeamMember[]>(`/agencies/${id}/members/`),
+  inviteToAgency: (id: number, handle: string, role = "member") =>
+    api.post<AgencyTeamMember>(`/agencies/${id}/members/`, { handle, role }),
+  acceptAgency: (id: number) => api.post<AgencyTeamMember>(`/agencies/${id}/accept/`),
+  /** Also how a member leaves, and how an invitee declines. */
+  removeMember: (agencyId: number, memberId: number) =>
+    api.post<void>(`/agencies/${agencyId}/members/${memberId}/remove/`),
+
+  workspaces: () => api.get<Paginated<SharedWorkspace>>("/workspaces/"),
+  createWorkspace: (body: Partial<SharedWorkspace>) =>
+    api.post<SharedWorkspace>("/workspaces/", body),
+  inviteToWorkspace: (id: number, handle: string, isClient = false) =>
+    api.post<SharedWorkspace>(`/workspaces/${id}/invite/`, { handle, is_client: isClient }),
+
+  retainers: (filters: Record<string, string | undefined> = {}) =>
+    api.get<Paginated<Retainer>>(`/retainers/${toQuery(filters)}`),
+  createRetainer: (body: Partial<Retainer>) => api.post<Retainer>("/retainers/", body),
+  subscribeToRetainer: (id: number) =>
+    api.post<RetainerEngagement>(`/retainers/${id}/subscribe/`),
+  myRetainers: () =>
+    api.get<{ selling: RetainerEngagement[]; buying: RetainerEngagement[] }>("/retainers/mine/"),
+  cancelRetainer: (id: number) =>
+    api.post<RetainerEngagement>(`/retainers/subscriptions/${id}/cancel/`),
+};

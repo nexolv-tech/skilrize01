@@ -14,11 +14,17 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { Avatar, Badge, Button, Icon, Logo, cn } from "@/components/ui";
+import { Avatar, Badge, Button, Icon, Logo, cn, type IconName } from "@/components/ui";
 import { useSession, useTheme } from "@/lib/session";
 
+interface NavItem {
+  href: string;
+  label: string;
+  icon: IconName;
+}
+
 /** Account-level pages, shown in the settings sidebar and the user menu. */
-const NAV = [
+const NAV: NavItem[] = [
   { href: "/dashboard", label: "Overview", icon: "home" as const },
   { href: "/settings", label: "Profile", icon: "user" as const },
   { href: "/settings/security", label: "Security", icon: "shield" as const },
@@ -40,6 +46,19 @@ const SOCIAL_NAV = [
   { href: "/communities", label: "Communities", icon: "users" as const },
   { href: "/feed", label: "Activity", icon: "sparkles" as const },
   { href: "/messages", label: "Messages", icon: "send" as const },
+];
+
+/**
+ * The professional layer — tools for running the business rather than surfaces
+ * for browsing it. Kept out of the top bar deliberately: those are the things
+ * you click many times an hour, and these are the things you open a few times
+ * a day, so they sit with the account rather than competing for the same space.
+ */
+const BUSINESS_NAV: NavItem[] = [
+  { href: "/crm", label: "Clients", icon: "chart" },
+  { href: "/retainers", label: "Retainers", icon: "clock" },
+  { href: "/teams", label: "Teams", icon: "building" },
+  { href: "/pricing", label: "Plans", icon: "sparkles" },
 ];
 
 export function ThemeToggle({ className }: { className?: string }) {
@@ -234,6 +253,20 @@ function UserMenu() {
             ))}
           </div>
           <div className="border-t border-line p-1">
+            {BUSINESS_NAV.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                role="menuitem"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] text-muted transition-colors duration-150 hover:bg-sunken hover:text-fg"
+              >
+                <Icon name={item.icon} className="size-4" />
+                {item.label}
+              </Link>
+            ))}
+          </div>
+          <div className="border-t border-line p-1">
             <button
               type="button"
               role="menuitem"
@@ -260,12 +293,20 @@ export function AppHeader() {
       <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4 sm:px-6">
         <Link
           href="/dashboard"
-          className="rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           <Logo />
         </Link>
 
-        <nav aria-label="Marketplace" className="ml-4 hidden items-center gap-1 md:flex">
+        {/* The nav is the one part allowed to give way. Nine destinations plus
+            the account controls do not fit a laptop width, and the failure
+            mode of a fixed-width nav is the *page* scrolling sideways — which
+            pushes the user menu off-screen entirely. This scrolls inside its
+            own box instead, so the controls on the right always stay put. */}
+        <nav
+          aria-label="Marketplace"
+          className="ml-4 hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto md:flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
           {[...WORK_NAV, ...SOCIAL_NAV].map((item) => {
             const active = pathname.startsWith(item.href);
             return (
@@ -286,8 +327,10 @@ export function AppHeader() {
           })}
         </nav>
 
-        <div className="ml-auto flex items-center gap-2">
-          <Link href="/projects/new" className="hidden sm:block">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {/* Held back until there is room for it beside the nav: on a laptop
+              it is the first thing that pushes the account controls out. */}
+          <Link href="/projects/new" className="hidden lg:block">
             <Button size="sm" variant="secondary">
               <Icon name="plus" className="size-3.5" />
               Post a project
@@ -363,32 +406,38 @@ function DeviceCooloffBanner({ seconds }: { seconds: number }) {
 export function SideNav() {
   const pathname = usePathname();
 
+  function link(item: NavItem) {
+    // `/settings` must not light up while on `/settings/security`.
+    const active =
+      item.href === "/settings" ? pathname === item.href : pathname.startsWith(item.href);
+    return (
+      <li key={item.href}>
+        <Link
+          href={item.href}
+          aria-current={active ? "page" : undefined}
+          className={cn(
+            "flex items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-[13px] font-medium",
+            "transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+            active ? "bg-accent-soft text-accent" : "text-muted hover:bg-sunken hover:text-fg",
+          )}
+        >
+          <Icon name={item.icon} className="size-4" />
+          {item.label}
+        </Link>
+      </li>
+    );
+  }
+
   return (
-    <nav aria-label="Account" className="w-full shrink-0 lg:w-56">
+    <nav aria-label="Account" className="w-full shrink-0 space-y-1 lg:w-56">
       <ul className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
-        {NAV.map((item) => {
-          // `/settings` must not light up while on `/settings/security`.
-          const active =
-            item.href === "/settings" ? pathname === item.href : pathname.startsWith(item.href);
-          return (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "flex items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-[13px] font-medium",
-                  "transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                  active
-                    ? "bg-accent-soft text-accent"
-                    : "text-muted hover:bg-sunken hover:text-fg",
-                )}
-              >
-                <Icon name={item.icon} className="size-4" />
-                {item.label}
-              </Link>
-            </li>
-          );
-        })}
+        {NAV.map(link)}
+      </ul>
+      <p className="hidden px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider text-subtle lg:block">
+        Business
+      </p>
+      <ul className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
+        {BUSINESS_NAV.map(link)}
       </ul>
     </nav>
   );
@@ -456,6 +505,15 @@ export function MarketingHeader() {
               {label}
             </a>
           ))}
+          {/* A route rather than an anchor: pricing is its own page, and it has
+              to be reachable from every marketing surface, not just the one
+              with a matching section on it. */}
+          <Link
+            href="/pricing"
+            className="text-[13.5px] text-muted transition-colors duration-150 hover:text-fg"
+          >
+            Pricing
+          </Link>
         </nav>
         <div className="ml-auto flex items-center gap-2">
           <ThemeToggle />

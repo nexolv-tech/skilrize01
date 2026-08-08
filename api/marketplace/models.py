@@ -339,7 +339,18 @@ class Proposal(TimestampedModel):
 
     @classmethod
     def quota_for(cls, user) -> int:
-        return cls.FREE_PLAN_STUDENT_QUOTA if user.is_verified_student else cls.FREE_PLAN_QUOTA
+        """The outstanding-proposal ceiling for this user.
+
+        Delegated to the subscription layer, which resolves the free tier for
+        anyone without a plan and never returns less than the student
+        allowance. Kept as a method here rather than inlined at the call sites
+        so there is exactly one answer to "how many may they have" — a limit
+        enforced in two places is a limit that eventually disagrees with
+        itself.
+        """
+        from professional.entitlements import for_user
+
+        return for_user(user).proposal_quota
 
     @classmethod
     def outstanding_count(cls, user) -> int:
@@ -349,7 +360,14 @@ class Proposal(TimestampedModel):
 
     @classmethod
     def remaining_quota(cls, user) -> int:
-        return max(0, cls.quota_for(user) - cls.outstanding_count(user))
+        from professional.models import Plan
+
+        limit = cls.quota_for(user)
+        if limit == Plan.UNLIMITED:
+            # Reported as a large number rather than -1: every caller treats
+            # this as "slots left" and would render a negative one.
+            return 10**6
+        return max(0, limit - cls.outstanding_count(user))
 
 
 class ScreeningAnswer(TimestampedModel):

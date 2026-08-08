@@ -16,6 +16,7 @@ function isPublicBrowse(pathname: string): boolean {
   return (
     pathname === "/projects" ||
     pathname === "/gigs" ||
+    pathname === "/pricing" ||
     /^\/(projects|gigs)\/\d+$/.test(pathname)
   );
 }

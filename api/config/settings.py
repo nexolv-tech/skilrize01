@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     "gigs",
     "communities",
     "discovery",
+    "professional",
 ]
 
 MIDDLEWARE = [
