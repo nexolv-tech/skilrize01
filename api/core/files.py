@@ -270,11 +270,29 @@ def sign(key: str, ttl: int | None = None) -> str:
     return base64.urlsafe_b64encode(payload + b"." + signature).decode().rstrip("=")
 
 
+#: A SHA-256 digest is always this long, which is what makes the split below
+#: unambiguous.
+_SIGNATURE_BYTES = hashlib.sha256().digest_size
+
+
 def verify(token: str) -> str:
-    """Return the storage key a token grants, or raise ``ValidationError``."""
+    """Return the storage key a token grants, or raise ``ValidationError``.
+
+    The signature is split off by its known length rather than by searching for
+    the ``.`` separator. Splitting on the delimiter looks equivalent and is not:
+    the signature is 32 *raw* bytes, so roughly one token in eight contains a
+    0x2E byte of its own, and `rsplit` would cut there instead — rejecting a
+    token the server had just minted correctly.
+    """
     try:
         raw = base64.urlsafe_b64decode(token + "=" * (-len(token) % 4))
-        payload, signature = raw.rsplit(b".", 1)
+        payload, separator, signature = (
+            raw[: -_SIGNATURE_BYTES - 1],
+            raw[-_SIGNATURE_BYTES - 1 : -_SIGNATURE_BYTES],
+            raw[-_SIGNATURE_BYTES:],
+        )
+        if separator != b".":
+            raise ValueError("Missing separator.")
         key, expires = payload.decode().rsplit(":", 1)
     except (ValueError, UnicodeDecodeError) as exc:
         raise ValidationError("Malformed file token.") from exc

@@ -246,6 +246,32 @@ def test_signed_url_round_trip_and_tamper_resistance():
         filestore.verify("not-a-token")
 
 
+def test_signed_url_survives_a_dot_byte_inside_the_signature():
+    """A signature containing 0x2E must still verify.
+
+    This was a real failure: `verify` split the token on the last ``.`` byte,
+    and a raw SHA-256 signature contains one about an eighth of the time, so
+    roughly one signed URL in eight was rejected as malformed. Picking the key
+    by search rather than trusting a random draw is what makes it a regression
+    test instead of a coin flip that passes seven times out of eight.
+    """
+    import base64
+    import hashlib
+
+    digest_size = hashlib.sha256().digest_size
+
+    for index in range(500):
+        key = f"avatar/1/probe{index}"
+        token = filestore.sign(key)
+        raw = base64.urlsafe_b64decode(token + "=" * (-len(token) % 4))
+        # Everything after the separator is the signature; look for a dot in it.
+        if b"." in raw[-digest_size:]:
+            assert filestore.verify(token) == key
+            return
+
+    pytest.fail("No signature containing a dot byte was found in 500 attempts.")
+
+
 def test_expired_signed_url_is_refused():
     with pytest.raises(ValidationError):
         filestore.verify(filestore.sign("avatar/1/abc", ttl=-1))
