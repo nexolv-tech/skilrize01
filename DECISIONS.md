@@ -223,17 +223,185 @@ The generated layer is the floor, not the ceiling.
 
 ---
 
+## D15 · Password composition rules, against the usual advice
+
+**Twelve characters, all four character classes, and no runs or keyboard
+walks** — taken at the CEO's explicit direction, overriding the report's
+length-over-composition position.
+
+*Why the original advice existed:* composition rules push people toward
+predictable shapes. Demand an uppercase, a digit and a symbol and a large share
+of users produce `Password1!`.
+
+*Why it is still defensible as built:* the composition rule is the weakest of
+four checks, not the only one. It sits on top of a 12-character floor, the
+breach corpus, and a pattern rule that rejects exactly the shapes composition
+requirements produce — `aaaa`, `1234`, `qwer`. Composition alone would have
+closed the "twelve lowercase letters" hole while opening the `Xxxxxxxx1!` one;
+stacked, it closes both.
+
+*Reversal:* drop `ComplexityValidator` from `AUTH_PASSWORD_VALIDATORS` and
+raise `PASSWORD_MIN_LENGTH`. No migration, no effect on existing passwords.
+
+---
+
+## D16 · New-device verification, and a hold rather than a block
+
+**An unrecognised device must pass a second proof — the authenticator if one is
+enrolled, otherwise a code emailed to the account. Either way the device then
+holds off on money-adjacent actions for two hours.**
+
+*Why not block the session outright:* signing in from a new laptop is
+overwhelmingly ordinary, and blocking it is hostile to the majority to catch
+the minority. Full read access with a hold on spending costs a real user
+nothing they notice and costs a thief the only thing they came for.
+
+*Why the two proofs are mutually exclusive and server-chosen:* an enrolled
+account must never be admissible by an email code, or its second factor has
+been quietly downgraded to whatever the inbox is worth. The client never picks
+— letting it pick is letting an attacker pick.
+
+*Known cost:* the hold stacks with the emailed code rather than replacing it,
+at the CEO's direction. A user who has just proved inbox control still waits
+two hours before bidding. Setting `DEVICE_COOLOFF_SECONDS=0` for OTP-verified
+devices is a one-line change if that friction proves too high.
+
+---
+
+## D17 · Two gates for money, not one
+
+**`CanTransact` guards participation; `CanMoveMoney` adds an enrolled second
+factor and guards only payment.**
+
+*Why not one gate:* requiring an authenticator before a freelancer can submit
+their first proposal costs sign-ups to protect money that is not yet in play.
+Requiring nothing until money moves protects nobody. Splitting them means the
+wall arrives at the moment it is obviously worth it — checkout — and enrolment
+is offered inline there rather than as a link to Settings, because a user
+stopped mid-payment who is sent elsewhere mostly does not come back.
+
+---
+
+## D18 · PostgreSQL full-text search before a search engine
+
+**Search is Postgres FTS with weighted vectors, GIN indexes, and a trigram
+fallback for misspellings.**
+
+*Why:* a dedicated engine introduces a second datastore to keep in sync, and
+every stale-index bug that follows is a listing a seller swears they published.
+With Postgres the index updates in the same transaction as the row. It stops
+being the right answer somewhere north of a few million listings — and the
+catalogue will say so long before that.
+
+*One non-obvious rule that came out of building it:* the fuzzy matcher is
+switched off whenever the query contains operators. ORing similarity back in
+resurrects exactly the rows a `-exclusion` just removed, and an exclusion that
+does not exclude is worse than no exclusion at all.
+
+---
+
+## D19 · Promoted placement is additive, and never beats an explicit sort
+
+**Promotion is a bounded term in the ranking formula, always labelled in the
+API payload, and it is discarded entirely when the user picks a sort order.
+Briefs cannot be promoted at all.**
+
+*Why:* a search whose top result is simply whoever paid most is a search people
+stop trusting, and a marketplace nobody trusts has nothing left to sell. A bad
+listing with a budget still loses to a good one without.
+
+*Why briefs are excluded:* a client paying to rank above other clients would be
+auctioning the freelancer's attention. That is the wrong side of this
+marketplace to sell, and selling it would make every freelancer's feed an
+advertisement.
+
+*Also not an auction.* A second-price auction is the right answer at scale, but
+it needs enough bidders per query for the clearing price to mean anything; on a
+thin marketplace it just charges the only bidder their maximum. Flat daily rate
+until there is competition to clear.
+
+---
+
+## D20 · Reputation weights are stated, not fitted
+
+**The Job Success Score weights and the seller-level thresholds are named
+constants with their reasoning attached, not numbers derived from data.**
+
+*Why they cannot be fitted yet:* fitting needs a body of completed, paid
+contracts with known outcomes, and Phase 3 is deferred. Pretending otherwise
+would be worse than admitting it.
+
+*What was done instead:* every weight is in one module
+(`accounts/reputation.py`), and `discovery.SearchLog` records search terms and
+result counts so demand data accumulates from now rather than from whenever
+somebody remembers to start collecting it. Zero-result queries in particular
+are a free list of things buyers want and nobody is selling.
+
+*One threshold is not up for tuning:* seller levels require tenure alongside
+volume. Any ladder counting only completions can be climbed in a weekend by a
+ring of accounts trading tiny contracts. Time is the one input that cannot be
+bought.
+
+---
+
+## D21 · Review integrity never acts on a single signal
+
+**Six weighted fraud signals accumulate; a review is flagged for a human above
+one threshold and excluded from scoring above a second. Nothing is ever
+deleted.**
+
+*Why weights rather than rules:* two freelancers who genuinely hire each other,
+a shared campus network, and a fast reviewer are each perfectly innocent alone.
+It is their co-occurrence that is not. Every individual weight sits below the
+flag threshold, and there is a test asserting exactly that.
+
+*Why suppressed rather than removed:* the first question a support agent asks
+about a suppressed review is "why", and the second is "show me". Deleting the
+row destroys the evidence the decision was based on.
+
+*Why "unchecked" is a distinct state from "clean":* otherwise a backlog in the
+checker silently reads as a clean bill of health.
+
+---
+
 ## Not mine to take
 
-These need a legal identity, a signature, or a personal relationship:
+These need a legal identity, a signature, or a personal relationship. Nothing
+here has moved since the log was opened, and all of it now sits on the critical
+path rather than ahead of it — Phase 3 is deferred *because* of items 1–3, and
+Phase 4 has shipped without the cohort in item 6.
 
 1. **Engage a corporate lawyer** on the escrow question in D8. Slowest item on
-   the board; start regardless of how far away Phase 3 feels.
+   the board, and now the binding constraint: everything built after Phase 2 is
+   sitting on a marketplace that cannot take money.
 2. **Register the company.** Gates the merchant accounts, which gate Phase 3.
-3. **Open JazzCash and Easypaisa merchant accounts.** Weeks of lead time, and
-   they require the registered entity to exist first.
+3. **Choose the payment rails.** The report assumed JazzCash and Easypaisa.
+   Stripe was raised later and researched: **Stripe does not operate in
+   Pakistan**, and the product that makes escrow legally simple (Connect) cannot
+   pay Pakistani sellers at all. Global Payouts can reach Pakistan but pushes
+   the licensing burden back onto us. Three routes — local rails, a foreign
+   entity, or a hybrid — and the choice changes the architecture, not just the
+   adapter.
 4. **Buy the domain** in D1.
 5. **Confirm or override the launch campus** in D4.
 6. **Recruit the seed cohort** — roughly 30 committed student sellers and one
-   moderator at one campus, before Phase 4 opens. This is relationship work,
-   and it is the single highest-risk item in the whole plan.
+   moderator at one campus. Phase 4 shipped the portals; this is what puts
+   anybody inside them, and it remains the single highest-risk item in the
+   whole plan.
+
+---
+
+## Engineering debt worth naming
+
+Not decisions, but known gaps recorded so they are not rediscovered as
+surprises:
+
+- **An admin cannot enrol 2FA through the product.** Administrative roles
+  cannot hold a session without a second factor, and cannot reach enrolment
+  without a session. A locked-out admin currently needs a database-level fix.
+- **Ranking and reputation weights are unfitted** (D20), and will stay that way
+  until Phase 3 produces transaction history.
+- **Group chat is polled, not pushed.** The read model is what a socket would
+  need, so this is a delivery change rather than a schema change.
+- **Liveness check** for student verification was specified as optional in the
+  roadmap and is not built.
