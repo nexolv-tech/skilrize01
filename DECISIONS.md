@@ -364,6 +364,62 @@ checker silently reads as a clean bill of health.
 
 ---
 
+## D22 · Entitlements are read from one resolver, never cached on the user
+
+**`professional.entitlements.for_user` is the only thing that answers "what may
+this account do", and a missing or expired subscription resolves to Free rather
+than to unlimited.**
+
+*Why one reader:* the failure every subscription system eventually has is a
+limit enforced in three places that disagree — a Pro user who is Pro on the
+proposals page and Free at the endpoint that counts them.
+
+*Why not denormalised onto `User`:* a plan copied onto the account makes every
+expiry a second write that can fail independently, and a stale "unlimited" is a
+hole nobody notices until it is audited.
+
+*Why absence means Free:* the failure mode of a bug here should be somebody
+getting something they were not charged for, not everybody getting everything.
+
+*Reversal:* if entitlement reads ever show up in profiling, cache them by user
+id with an explicit invalidation on subscribe and expiry. Do not move them onto
+the user row.
+
+---
+
+## D23 · A paywall answers with the fix, not just a refusal
+
+**A blocked action returns 402 with `code: "upgrade_required"` — deliberately
+distinct from a plain permission denial — and the client renders it as an offer
+inline rather than a red banner.**
+
+*Why a distinct code:* a paywall the user cannot act on from where they hit it
+is a paywall most of them simply leave. Conflating "your plan does not include
+this" with "you are not allowed" costs the sale and misinforms the user.
+
+*Why not just redirect to pricing:* it discards what they were trying to do.
+
+*Reversal:* none expected; the code is additive and old clients that ignore it
+still show the message.
+
+---
+
+## D24 · Seats are counted against the agency owner's plan
+
+**An agency's seat limit comes from the owner's entitlements, not the
+inviter's.**
+
+*Why:* the agency is the owner's, and it is the owner who paid. Checking the
+inviter would let an admin on a free plan grow a team past what was bought —
+the classic privilege-boundary bug where the *actor's* rights are checked
+instead of the *resource's*.
+
+*Related:* self-removal is exempt from the admin check, because leaving and
+declining an invitation are the same operation and neither should require
+permission from the team you are trying to leave.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, or a personal relationship. Nothing
@@ -405,3 +461,7 @@ surprises:
   need, so this is a delivery change rather than a schema change.
 - **Liveness check** for student verification was specified as optional in the
   roadmap and is not built.
+- **Elite advertises workspaces that are not gated.** `WorkspaceViewSet`
+  applies no entitlement check, so any account can open a shared workspace
+  while the tier copy sells it. The copy and the enforcement should agree —
+  which way is a pricing call, not an engineering one.

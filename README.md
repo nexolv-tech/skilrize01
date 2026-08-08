@@ -20,9 +20,11 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 4 · Student portals | ✅ | Verification, surface switching, leakage gate |
 | 5 · Communities & social | ✅ | Discussion, chat, events, resources, messaging, feed |
 | 6 · Search, reputation & trust | ✅ | FTS, ranking, JSS, seller levels, integrity, promotion |
-| 7–11 | ❌ | Mobile, professional layer, integrations, admin console, hardening |
+| 7 · Mobile | ❌ | Flutter parity app |
+| 8 · Professional layer | ✅ | CRM, subscriptions, retainers, agencies, workspaces |
+| 9–11 | ❌ | Integrations, admin console, hardening |
 
-**223 backend tests pass.** Lint, format, migration check, `check --deploy`,
+**254 backend tests pass.** Lint, format, migration check, `check --deploy`,
 type-check, and production build are all clean.
 
 ### The gap in the middle
@@ -33,10 +35,15 @@ contract state and nothing else. Everything built after it — portals,
 communities, search, reputation — sits on a marketplace that cannot yet
 transact for real.
 
-By phase count the project is 6 of 12. By revenue capability it is at zero
+By phase count the project is 7 of 12. By revenue capability it is at zero
 until Phase 3 lands. The state machine those payments will plug into is
 already the real one (decision D12), so this is a substitution rather than a
 rewrite.
+
+Phase 8's subscriptions inherit the same deferral. A plan change applies its
+new limits immediately and bills nothing, and both the pricing page and the
+retainer catalogue say so rather than presenting a checkout that silently
+charges zero.
 
 ---
 
@@ -122,6 +129,32 @@ The verification code goes to the **claimed** address, not the account address
 | Promoted placement, always labelled | `api/discovery/models.py` |
 | Global work showcase, published on both parties' consent | `api/discovery/models.py` |
 
+### Phase 8 — Professional layer
+
+| Delivered | Where |
+| --- | --- |
+| Free/Pro/Elite plans, one live subscription per account | `api/professional/models.py` |
+| **One entitlements reader**, never a copy cached on the user | `api/professional/entitlements.py` |
+| CRM — contacts, deals, pipeline stages, interactions, follow-ups | `api/professional/models.py` |
+| Sellable monthly retainers, scoped like any other listing | `api/professional/models.py` |
+| Agencies with per-member revenue share and seat limits | `api/professional/views.py` |
+| Shared workspaces with a separate client view | `api/professional/models.py` |
+| Pricing, CRM, teams and retainer surfaces | `web/app/(app)/{pricing,crm,teams,retainers}` |
+
+**Absence resolves to Free, never to unlimited.** A missing subscription, an
+expired one, a database the seed never ran against — all land on the free
+tier. The failure mode of a bug here should be somebody getting something
+they were not charged for, not everybody getting everything.
+
+A blocked action answers **402 with `upgrade_required`**, a distinct code from
+a plain permission denial, so the client can offer the upgrade inline. A
+paywall the user cannot act on from where they hit it is a paywall most of
+them simply leave.
+
+Seat limits are checked against the **agency owner's** plan rather than the
+inviter's — otherwise an admin on a free plan could grow a team past what was
+paid for.
+
 ### Visual layer
 
 Every listing renders deterministic vector cover art derived from its id and
@@ -194,7 +227,8 @@ SKILRIZE/
 │  ├─ contracts/            Shared spine — contracts, milestones, reviews, integrity
 │  ├─ gigs/                 Track B — gigs, packages, orders
 │  ├─ communities/          Communities, discussion, events, messaging, feed
-│  └─ discovery/            Search, showcase, promoted placement
+│  ├─ discovery/            Search, showcase, promoted placement
+│  └─ professional/         Plans, entitlements, CRM, retainers, agencies
 └─ web/                     Next.js — presentation only, enforces nothing
    ├─ app/                  Routes: marketing, (auth), (app)
    ├─ components/           Design system primitives + app chrome
@@ -214,7 +248,8 @@ explicit, greppable `Model.objects.unscoped()`.
 
 The leakage suite discovers every `ScopedModel` automatically, so a model added
 later without a scope test fails the gate rather than slipping through. It
-currently covers **10 models across four apps** and runs as its own CI step.
+currently covers **12 models across six apps** and runs as its own CI step —
+Phase 8's `RetainerPlan` was picked up by it without a line of test code.
 
 **Scope is resolved on first query, not in middleware.** This API authenticates
 with a JWT *inside* DRF, downstream of every middleware, so `request.user` at
@@ -271,6 +306,12 @@ addresses that do not exist, and content on a surface you cannot see returns
 - **Known gap:** an admin role cannot enrol 2FA through the product — they
   cannot hold a session without it, and cannot reach enrolment without a
   session. A locked-out admin currently needs a database-level fix.
+- **Open pricing question:** the Elite tier lists "team and agency
+  workspaces", but only *agencies* are gated — `WorkspaceViewSet` applies no
+  entitlement check, so any user can open a shared workspace. Erring toward
+  giving away more than was paid for is the intended direction, but the copy
+  and the enforcement should agree. Either gate workspaces to Elite or drop
+  them from the tier's feature list.
 
 ---
 
