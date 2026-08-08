@@ -133,6 +133,49 @@ def _scan_with_clamav(data: bytes, host: str, port: int) -> str:
     raise RuntimeError(f"clamav returned an unusable verdict: {verdict!r}")
 
 
+@shared_task
+def reindex_search() -> dict:
+    """Rebuild every search vector.
+
+    Belt and braces. Vectors are written on save, so this exists for the cases
+    a save hook cannot cover: a bulk `update()`, a data migration, a restored
+    backup. Cheap enough to run nightly and the only thing that makes "search
+    is stale" a non-problem rather than a class of bug report.
+    """
+    from .indexing import reindex_all
+
+    return reindex_all()
+
+
+@shared_task
+def refresh_reputation(limit: int = 500) -> int:
+    """Recompute the oldest job success scores and seller levels."""
+    from accounts.reputation import recompute_stale
+
+    return recompute_stale(limit=limit)
+
+
+@shared_task
+def assess_review_integrity(limit: int = 500) -> int:
+    """Work through unassessed reviews.
+
+    Runs behind publication rather than inside it: a fraud check that blocks a
+    review from appearing turns every false positive into a support ticket
+    about a missing review, and every slow check into a stalled request.
+    """
+    from contracts.integrity import check_unassessed
+
+    return check_unassessed(limit=limit)
+
+
+@shared_task
+def sweep_promotions() -> int:
+    """Start, stop, and expire promoted placements."""
+    from discovery.models import expire_promotions
+
+    return expire_promotions()
+
+
 @shared_task(bind=True, max_retries=5, default_retry_delay=60)
 def deliver_notification(self, notification_id: int, channel: str) -> str:
     """Send one notification on one channel, with retry."""

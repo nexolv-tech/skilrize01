@@ -274,12 +274,28 @@ class SellerProfile(TimestampedModel):
     )
     hours_per_week = models.PositiveSmallIntegerField(null=True, blank=True)
 
-    # Platform-computed. Read-only everywhere outside the jobs that write them.
+    # Platform-computed. Written only by `accounts.reputation.recompute_for`,
+    # never by a serializer, a view, or the admin.
     job_success_score = models.PositiveSmallIntegerField(null=True, blank=True)
     contracts_completed = models.PositiveIntegerField(default=0)
     on_time_delivery_rate = models.PositiveSmallIntegerField(null=True, blank=True)
     response_time_minutes = models.PositiveIntegerField(null=True, blank=True)
     repeat_client_rate = models.PositiveSmallIntegerField(null=True, blank=True)
+    average_rating = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True)
+    #: Denormalised onto the profile because search ranks and filters by it on
+    #: every query; deriving it per row would make the ladder a subquery.
+    level = models.CharField(
+        max_length=12,
+        choices=[
+            ("new", "New seller"),
+            ("level_one", "Level 1"),
+            ("level_two", "Level 2"),
+            ("top_rated", "Top Rated"),
+        ],
+        default="new",
+        db_index=True,
+    )
+    reputation_updated_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
     def __str__(self) -> str:
         return f"Seller profile for {self.user.email}"

@@ -190,6 +190,22 @@ class Contract(ScopedModel):
         self.ended_at = timezone.now()
         self.save(update_fields=["status", "ended_at", "updated_at"])
 
+        # A completed contract is the single event that moves a reputation, so
+        # it recomputes immediately rather than waiting for the nightly sweep —
+        # a seller who just finished their third job should see the level they
+        # earned, not tomorrow's version of it.
+        #
+        # Wrapped because reputation is derived data: failing to recompute it
+        # must never undo the completion that triggered it.
+        try:
+            from accounts.reputation import recompute_for
+
+            recompute_for(self.freelancer)
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception("reputation_refresh_failed contract=%s", self.pk)
+
 
 class Milestone(TimestampedModel):
     """One funded, delivered, and released stage of a contract.
@@ -356,6 +372,22 @@ class Review(TimestampedModel):
         CLIENT = "client", "Client reviewing freelancer"
         FREELANCER = "freelancer", "Freelancer reviewing client"
 
+    class Integrity(models.TextChoices):
+        """What the fraud checks concluded about this review.
+
+        Three states rather than a boolean, because "we have not looked yet"
+        and "we looked and it is fine" must not be the same value — otherwise
+        a backlog in the checker silently reads as a clean bill of health.
+        """
+
+        UNCHECKED = "unchecked", "Not yet assessed"
+        CLEAN = "clean", "Assessed, no concerns"
+        FLAGGED = "flagged", "Flagged for review"
+        #: Excluded from public averages and from the Job Success Score, but
+        #: never deleted — a removed review destroys the evidence the decision
+        #: was based on.
+        SUPPRESSED = "suppressed", "Excluded from scores"
+
     WINDOW_DAYS = 14
 
     contract = models.ForeignKey(Contract, on_delete=models.CASCADE, related_name="reviews")
@@ -384,6 +416,18 @@ class Review(TimestampedModel):
     published_at = models.DateTimeField(null=True, blank=True)
     #: The reviewed party may post exactly one public response.
     response = models.TextField(blank=True)
+
+    integrity_status = models.CharField(
+        max_length=12,
+        choices=Integrity.choices,
+        default=Integrity.UNCHECKED,
+        db_index=True,
+    )
+    #: Which checks fired, e.g. ["reciprocal_pair", "same_network"]. Kept as a
+    #: list rather than a single reason because reviews are rarely suspicious
+    #: for exactly one reason, and the combination is what a moderator judges.
+    integrity_signals = models.JSONField(default=list, blank=True)
+    integrity_checked_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]

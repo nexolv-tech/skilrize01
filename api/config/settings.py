@@ -30,6 +30,11 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # Full-text search: SearchVectorField, GinIndex, trigram similarity.
+    # PostgreSQL FTS is the deliberate first choice over a search cluster —
+    # it needs no second datastore to keep in sync, and the catalogue has to be
+    # very much larger before a dedicated engine earns its operational cost.
+    "django.contrib.postgres",
     # Third party
     "rest_framework",
     "rest_framework_simplejwt",
@@ -42,6 +47,7 @@ INSTALLED_APPS = [
     "contracts",
     "gigs",
     "communities",
+    "discovery",
 ]
 
 MIDDLEWARE = [

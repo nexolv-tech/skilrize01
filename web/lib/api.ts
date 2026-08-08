@@ -1092,3 +1092,134 @@ export const messages = {
   send: (id: number | string, body: string) =>
     api.post<DirectMessage>(`/conversations/${id}/messages/`, { body }),
 };
+
+/* -------------------------------------------------------------------------- */
+/* Discovery — search, reputation, showcase, promotion                        */
+/* -------------------------------------------------------------------------- */
+
+export type SellerLevel = "new" | "level_one" | "level_two" | "top_rated";
+
+export const SELLER_LEVEL_LABEL: Record<SellerLevel, string> = {
+  new: "New seller",
+  level_one: "Level 1",
+  level_two: "Level 2",
+  top_rated: "Top Rated",
+};
+
+export interface SellerBadge {
+  handle: string;
+  display_name: string;
+  avatar_url: string | null;
+  level: SellerLevel;
+  job_success_score: number | null;
+}
+
+export interface FacetOption {
+  value: string;
+  label: string;
+  count: number;
+}
+
+/** Every search response carries its own facet counts, so filters stay usable. */
+export interface Faceted<T> extends Paginated<T> {
+  facets: Record<string, FacetOption[]>;
+  query: string;
+}
+
+export interface SearchGig {
+  id: number;
+  title: string;
+  slug: string;
+  seller: SellerBadge;
+  category: string | null;
+  rating_average: string | null;
+  rating_count: number;
+  starting_price: string | null;
+  /** Disclosed in the payload, not just styled in the UI. */
+  is_promoted: boolean;
+  score?: number;
+}
+
+export interface SearchProject {
+  id: number;
+  title: string;
+  description: string;
+  category: string | null;
+  project_type: string;
+  experience_level: string;
+  budget_display: string;
+  proposal_count: number;
+  published_at: string;
+  score?: number;
+}
+
+export interface SellerReputation {
+  handle: string;
+  display_name: string;
+  level: SellerLevel;
+  job_success_score: number | null;
+  contracts_completed: number;
+  on_time_delivery_rate: number | null;
+  repeat_client_rate: number | null;
+  average_rating: string | null;
+  review_count: number;
+  updated_at: string | null;
+}
+
+export interface ShowcasePiece {
+  id: number;
+  contract: number;
+  title: string;
+  summary: string;
+  seller: SellerBadge;
+  cover_url: string | null;
+  category_name: string | null;
+  skills: string[];
+  rating_at_publication: number | null;
+  seller_approved: boolean;
+  client_approved: boolean;
+  awaiting: "seller" | "client" | null;
+  published_at: string | null;
+  created_at: string;
+}
+
+export interface Promotion {
+  id: number;
+  gig: number;
+  gig_title: string;
+  daily_budget: string;
+  total_budget: string;
+  spent: string;
+  starts_at: string;
+  ends_at: string | null;
+  status: string;
+  impressions: number;
+  clicks: number;
+  click_through_rate: number;
+  is_live: boolean;
+  created_at: string;
+}
+
+export const discovery = {
+  searchGigs: (filters: Record<string, string | undefined> = {}) =>
+    api.get<Faceted<SearchGig>>(`/search/gigs/${toQuery(filters)}`),
+  searchProjects: (filters: Record<string, string | undefined> = {}) =>
+    api.get<Faceted<SearchProject>>(`/search/projects/${toQuery(filters)}`),
+  /** Fire-and-forget: a failed click count must never break navigation. */
+  recordClick: (gigId: number) =>
+    api.post<void>(`/gigs/${gigId}/click/`).catch(() => undefined),
+
+  reputation: (handle: string) => api.get<SellerReputation>(`/sellers/${handle}/reputation/`),
+
+  showcase: (filters: Record<string, string | undefined> = {}) =>
+    api.get<Paginated<ShowcasePiece>>(`/showcase/${toQuery(filters)}`),
+  showcaseConsent: (contractId: number) =>
+    api.get<ShowcasePiece>(`/showcase/contracts/${contractId}/`),
+  approveShowcase: (contractId: number, body: { approved: boolean; title?: string; summary?: string }) =>
+    api.post<ShowcasePiece>(`/showcase/contracts/${contractId}/`, body),
+
+  promotions: () => api.get<Promotion[]>("/promotions/"),
+  promote: (body: { gig: number; daily_budget: string; total_budget: string; ends_at?: string }) =>
+    api.post<Promotion>("/promotions/", body),
+  pausePromotion: (id: number) => api.post<Promotion>(`/promotions/${id}/pause/`),
+};

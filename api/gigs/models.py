@@ -26,6 +26,8 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVectorField
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils import timezone
@@ -83,11 +85,28 @@ class Gig(ScopedModel):
 
     published_at = models.DateTimeField(null=True, blank=True)
 
+    #: Maintained by `gigs.indexing.reindex`, called on save and by the
+    #: backfill task. Stored rather than computed per query: building the
+    #: vector at query time means a sequential scan over every row, which is
+    #: exactly what the GIN index below exists to avoid.
+    search_vector = SearchVectorField(null=True, editable=False)
+    #: Set by an active `discovery.Promotion`. Denormalised because ranking
+    #: reads it on every row of every search.
+    is_promoted = models.BooleanField(default=False, db_index=True)
+
     class Meta:
         ordering = ["-published_at", "-created_at"]
         indexes = [
             models.Index(fields=["status", "-published_at"]),
             models.Index(fields=["visibility", "university", "status"]),
+            GinIndex(fields=["search_vector"], name="gig_search_vector_gin"),
+            # Trigram index for the misspelling fallback. Without it every
+            # fuzzy search is a full scan.
+            GinIndex(
+                name="gig_title_trigram",
+                fields=["title"],
+                opclasses=["gin_trgm_ops"],
+            ),
         ]
 
     def __str__(self) -> str:
@@ -103,7 +122,20 @@ class Gig(ScopedModel):
             while Gig.objects.unscoped().filter(slug=self.slug).exclude(pk=self.pk).exists():
                 suffix += 1
                 self.slug = f"{base[:210]}-{suffix}"
-        return super().save(*args, **kwargs)
+
+        result = super().save(*args, **kwargs)
+
+        # Reindex after the row exists, because the vector is built by Postgres
+        # from the stored row. Skipped when the caller passed `update_fields`
+        # that cannot affect the text — the hot path here is a counter bump on
+        # every impression, and rebuilding a vector for that would be absurd.
+        indexed_fields = {"title", "description", "tags", "category"}
+        touched = kwargs.get("update_fields")
+        if touched is None or indexed_fields & set(touched):
+            from core.indexing import reindex_gig
+
+            reindex_gig(self.pk)
+        return result
 
     @property
     def is_orderable(self) -> bool:

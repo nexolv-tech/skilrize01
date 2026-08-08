@@ -63,6 +63,11 @@ TAXONOMY: dict[str, tuple[str, str, list[str]]] = {
     ),
 }
 
+#: Shared by every demo account. Must satisfy the live password policy —
+#: 12 characters with all four character classes and no runs or walks — because
+#: the seed sets it through the same hasher every real password goes through.
+DEMO_PASSWORD = "Demo-Account9-Pass"  # noqa: S105 — local demo fixture
+
 SKILLS = [
     "React",
     "Next.js",
@@ -157,7 +162,7 @@ class Command(BaseCommand):
                 },
             )
             if created:
-                user.set_password("Demo-Account9-Pass")
+                user.set_password(DEMO_PASSWORD)
                 user.save()
                 SellerProfile.objects.get_or_create(user=user)
             return user
@@ -224,7 +229,10 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                "Demo data ready. Sign in as client@skilrize.dev / demo-password-1234"
+                # Read from the constant rather than repeated as a literal, so
+                # this line cannot drift out of step with the password actually
+                # set — which is exactly what happened when the policy changed.
+                f"Demo data ready. Sign in as client@skilrize.dev / {DEMO_PASSWORD}"
             )
         )
 

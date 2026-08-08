@@ -14,6 +14,8 @@ enforced at the data layer rather than remembered per-view.
 from __future__ import annotations
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVectorField
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils import timezone
@@ -173,15 +175,37 @@ class Project(ScopedModel):
     published_at = models.DateTimeField(null=True, blank=True)
     closed_at = models.DateTimeField(null=True, blank=True)
 
+    #: See the note on `gigs.Gig.search_vector` — same reasoning, same upkeep.
+    search_vector = SearchVectorField(null=True, editable=False)
+
     class Meta:
         ordering = ["-published_at", "-created_at"]
         indexes = [
             models.Index(fields=["status", "-published_at"]),
             models.Index(fields=["visibility", "university", "status"]),
+            GinIndex(fields=["search_vector"], name="project_search_vector_gin"),
+            GinIndex(
+                name="project_title_trigram",
+                fields=["title"],
+                opclasses=["gin_trgm_ops"],
+            ),
         ]
 
     def __str__(self) -> str:
         return self.title
+
+    def save(self, *args, **kwargs):
+        result = super().save(*args, **kwargs)
+        # See the note on `gigs.Gig.save` — same reasoning: the vector is built
+        # by Postgres from the stored row, and a counter bump must not trigger
+        # a rebuild.
+        indexed_fields = {"title", "description", "category", "experience_level"}
+        touched = kwargs.get("update_fields")
+        if touched is None or indexed_fields & set(touched):
+            from core.indexing import reindex_project
+
+            reindex_project(self.pk)
+        return result
 
     @property
     def is_open(self) -> bool:
