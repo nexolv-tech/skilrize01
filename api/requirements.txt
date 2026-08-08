@@ -12,7 +12,7 @@ django-celery-beat==2.9.0
 argon2-cffi==25.1.0
 # AES-GCM for field-level encryption of OTP secrets and identity data
 # — report Section 7.3.
-cryptography==46.0.4
+cryptography==50.0.0
 # TOTP second factor — report Section 6.4.
 pyotp==2.9.0
 # Renders the enrolment QR server-side. Generating it here rather than shipping
@@ -21,11 +21,11 @@ pyotp==2.9.0
 qrcode==8.2
 # Server-side image re-encoding strips EXIF/GPS and destroys polyglot payloads
 # — report Section 7.2.
-pillow==12.1.0
+pillow==12.3.0
 
 python-decouple==3.8
 
 # Dev / CI
 ruff==0.15.0
-pytest==8.4.2
+pytest==9.0.3
 pytest-django==4.11.1
