@@ -24,7 +24,7 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 8 · Professional layer | ✅ | CRM, subscriptions, retainers, agencies, workspaces |
 | 9–11 | ❌ | Integrations, admin console, hardening |
 
-**254 backend tests pass.** Lint, format, migration check, `check --deploy`,
+**255 backend tests pass.** Lint, format, migration check, `check --deploy`,
 type-check, and production build are all clean.
 
 ### The gap in the middle
@@ -323,8 +323,15 @@ addresses that do not exist, and content on a surface you cannot see returns
 
 - `eslint` is pinned to 9.x: `eslint-config-next@16` bundles an
   `eslint-plugin-react` that calls APIs removed in ESLint 10.
-- SMS and push providers are not connected. The queue contract and retry
-  behaviour are in place; the send call is a log line until a provider is added.
+- Email is real locally: the default backend writes each message as a `.log`
+  file into `api/.mail/` rather than to a real inbox, so signup confirmations,
+  password resets, and campus verification links can be opened and clicked
+  without an SMTP account. Point `EMAIL_BACKEND` at real SMTP for anything
+  beyond a laptop — see `.env.example`.
+- SMS and push are not connected — no backend fills the file-based role email
+  has. The OTP is logged (`accounts.views: phone_otp user=... code=...`)
+  rather than sent, so phone verification is testable but not usable by
+  someone who cannot read the server's own log.
 - Group chat is polled, not pushed. The read model is what a socket would need,
   so adding one is a delivery change rather than a schema change.
 - Escrow is regulated activity. Per Section 18.7, legal review is required

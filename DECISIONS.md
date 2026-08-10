@@ -488,6 +488,62 @@ third-party exception.
 
 ---
 
+## D28 · Two-factor setup is idempotent while enrolment is pending
+
+**`POST /auth/2fa/setup/` returns the same secret on every call until the
+authenticator confirms it. It no longer mints a fresh one per request.**
+
+*The failure this closes:* a user would scan a QR, type the six-digit code
+their app showed, and be told it was wrong. The client starts enrolment from a
+`useEffect`, React runs effects twice under StrictMode in development, and the
+second call to setup silently replaced the secret behind the QR the first call
+had already rendered — so the code was correct for a secret the server had
+already discarded. It was not only a development artefact: a remount, a
+back-navigation, or a second click on "set up" reproduced it in production too.
+Found because a real account hit it and every scan failed.
+
+*Why rotating on every call felt safe and was not:* the reasoning had been
+"never let a secret sit still, in case it leaked before enrolment." But an
+unconfirmed secret is reachable only by the session that just requested it —
+there is nothing yet to leak it *to*. The actual risk boundary is
+`two_factor_confirm`, which is where the secret goes from provisional to real;
+rotating before that point protects nothing and breaks the one flow it exists
+to support.
+
+*Verified live, not only by the added test* (`test_setup_reuses_the_pending_
+secret_across_calls`): signed up an account through the real HTTP API, called
+setup twice, confirmed with the code from the first response's secret, and the
+account enrolled. Repeated once more end-to-end after the fix to prove the
+exact scanned-QR-then-typed-code path a user takes now succeeds.
+
+---
+
+## D29 · Local email is a file, not a console line
+
+**`EMAIL_BACKEND` defaults to Django's file-based backend, writing each message
+into `api/.mail/` as an openable `.log` file, rather than to the console.**
+
+*Why the console backend was worse than it looked:* it is the Django default
+and reads as the obvious dev choice, but it only helps if you are watching the
+exact terminal the request landed in. A signup that reaches the server through
+a background process — or simply a second terminal — sends the confirmation
+link somewhere nobody is looking. Reported as "the email is not sending", which
+was true in effect if not in mechanism: nothing was broken, but nothing
+reachable had received it either.
+
+*Why not fix it by promising it "sends":* it does not, and claiming otherwise
+until a real SMTP account is configured would be the more dishonest failure.
+The file backend is the answer that tells the truth about what happens locally
+while still making the link something a person can actually click.
+
+*Not touched:* SMS. Phone verification still logs its OTP
+(`accounts.views: phone_otp user=... code=...`) rather than sending one,
+because no equivalent "write it somewhere openable" backend exists for SMS the
+way `filebased.EmailBackend` does for mail — wiring a real provider is Twilio-
+or-equivalent work, not a local-dev convenience fix.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, or a personal relationship. Nothing
@@ -533,3 +589,11 @@ surprises:
   applies no entitlement check, so any account can open a shared workspace
   while the tier copy sells it. The copy and the enforcement should agree —
   which way is a pricing call, not an engineering one.
+- **A "coming in a future phase" UI label is a debt the moment the phase
+  ships.** The dashboard's campus card read "Arriving in Phase 4" as a
+  disabled button well after Phase 4's verification flow was live at
+  `/settings` — found only because a real account went looking for it and hit
+  a dead end. Fixed here by linking through, but the general failure mode is
+  worth naming: nothing in the build re-checks a phase-gated label against
+  what has actually shipped, so the next one will drift the same way unless
+  someone happens to notice.
