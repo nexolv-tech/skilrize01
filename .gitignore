@@ -23,6 +23,10 @@ out/
 # Local storage (uploads land here in dev)
 api/.storage/
 
+# Filebased email backend — verification links and OTP codes in dev, real
+# credentials for whoever reads them, never something to commit
+api/.mail/
+
 # Editors / OS
 .vscode/
 .idea/

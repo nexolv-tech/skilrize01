@@ -315,6 +315,18 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 EMAIL_BACKEND = config("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="SkilRize <no-reply@skilrize.com>")
+# Only read by the file-based backend, which is the practical local choice:
+# verification links and OTPs land as files you can open, rather than scrolling
+# past in a terminal that may not even be the one you are watching.
+EMAIL_FILE_PATH = BASE_DIR / config("EMAIL_FILE_PATH", default=".mail")
+
+# SMTP, used when EMAIL_BACKEND points at it. Nothing here has a default that
+# could accidentally send from a developer machine.
+EMAIL_HOST = config("EMAIL_HOST", default="")
+EMAIL_PORT = config("EMAIL_PORT", default=587, cast=int)
+EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
+EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=True, cast=bool)
 
 
 # --- Async -----------------------------------------------------------------
