@@ -23,6 +23,108 @@ import { useRouter } from "next/navigation";
 import { Icon, Money, cn, type IconName } from "@/components/ui";
 
 /* -------------------------------------------------------------------------- */
+/* Hero media                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The hero backdrop: a still photograph with a video laid over it.
+ *
+ * Three things this has to get right, none of them optional.
+ *
+ * **The photograph is always rendered**, underneath. It is the first paint, it
+ * covers the seconds before the video has buffered, and it is the whole
+ * backdrop for anyone the video never loads for.
+ *
+ * **Reduced motion is honoured before the download, not after it.** Hiding the
+ * video in CSS would still pull four megabytes over the wire for somebody who
+ * asked the operating system for less movement. The element is not rendered at
+ * all until we have checked, which is also why the check lives in an effect —
+ * `matchMedia` does not exist during the server render.
+ *
+ * **It can be stopped.** WCAG 2.2.2 requires a control for anything that moves
+ * for more than five seconds, and a looping hero moves forever.
+ */
+export function HeroMedia({
+  poster,
+  video,
+  alt = "",
+}: {
+  poster: string;
+  video: string;
+  alt?: string;
+}) {
+  const [motionOk, setMotionOk] = React.useState(false);
+  const [playing, setPlaying] = React.useState(true);
+  const ref = React.useRef<HTMLVideoElement>(null);
+
+  React.useEffect(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const apply = () => setMotionOk(!query.matches);
+    apply();
+    query.addEventListener("change", apply);
+    return () => query.removeEventListener("change", apply);
+  }, []);
+
+  function toggle() {
+    const element = ref.current;
+    if (!element) return;
+    if (element.paused) {
+      void element.play();
+      setPlaying(true);
+    } else {
+      element.pause();
+      setPlaying(false);
+    }
+  }
+
+  return (
+    <>
+      <Image src={poster} alt={alt} fill priority sizes="100vw" className="-z-30 object-cover" />
+
+      {motionOk && (
+        <>
+          <video
+            ref={ref}
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            aria-hidden
+            className="absolute inset-0 -z-20 size-full object-cover"
+          >
+            <source src={video} type="video/mp4" />
+          </video>
+
+          <button
+            type="button"
+            onClick={toggle}
+            aria-label={playing ? "Pause background video" : "Play background video"}
+            className={cn(
+              "absolute bottom-24 right-5 z-10 grid size-11 cursor-pointer place-items-center",
+              "rounded-full border border-white/25 bg-black/40 text-white backdrop-blur-md",
+              "transition-colors duration-200 hover:bg-black/60",
+              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
+            )}
+          >
+            {playing ? (
+              <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-hidden>
+                <rect x="6" y="5" width="4" height="14" rx="1" />
+                <rect x="14" y="5" width="4" height="14" rx="1" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-hidden>
+                <path d="M8 5.5v13l11-6.5z" />
+              </svg>
+            )}
+          </button>
+        </>
+      )}
+    </>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /* Track                                                                      */
 /* -------------------------------------------------------------------------- */
 

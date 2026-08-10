@@ -23,6 +23,7 @@ import Link from "next/link";
 
 import {
   CategoryTile,
+  HeroMedia,
   HeroSearch,
   PhotoFigure,
   ScrollRow,
@@ -139,14 +140,7 @@ export default function LandingPage() {
         {/* Hero — full-bleed photograph, the way the category does it       */}
         {/* ================================================================ */}
         <section className="relative isolate overflow-hidden">
-          <Image
-            src="/img/hero.jpg"
-            alt=""
-            fill
-            priority
-            sizes="100vw"
-            className="-z-20 object-cover object-center"
-          />
+          <HeroMedia poster="/img/hero.jpg" video="/img/hero.mp4" />
           {/* Two scrims, not one. The horizontal ramp buys contrast for the
               copy column and then gets out of the way, so the right half of the
               frame still reads as a photograph — a single flat overlay dark
@@ -165,9 +159,9 @@ export default function LandingPage() {
           <div className="mx-auto flex min-h-[34rem] max-w-7xl items-center px-5 py-20 sm:min-h-[38rem] sm:py-28">
             <div className="max-w-2xl">
               <h1 className="display-1 text-white">
-                Hire in an afternoon.
+                Find the right talent.
                 <br />
-                <span className="italic text-brand-300">Or hire for a year.</span>
+                <span className="italic text-brand-300">Or become it.</span>
               </h1>
 
               <p className="mt-6 max-w-xl text-[17px] leading-relaxed text-white/75">
