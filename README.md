@@ -24,7 +24,7 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 8 · Professional layer | ✅ | CRM, subscriptions, retainers, agencies, workspaces |
 | 9–11 | ❌ | Integrations, admin console, hardening |
 
-**255 backend tests pass.** Lint, format, migration check, `check --deploy`,
+**256 backend tests pass.** Lint, format, migration check, `check --deploy`,
 type-check, and production build are all clean.
 
 ### The gap in the middle

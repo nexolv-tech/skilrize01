@@ -544,6 +544,50 @@ or-equivalent work, not a local-dev convenience fix.
 
 ---
 
+## D30 · Sort by an aggregate, never by a raw to-many field
+
+**`?sort=price` on gig search orders by `Min("packages__price")` — an
+annotated aggregate — never by the raw related field `packages__price`.**
+
+*What ordering by the raw field actually did:* a gig carries several
+packages, so `.order_by("packages__price")` joins the packages table again for
+ordering purposes. Postgres requires an ORDER BY column used with SELECT
+DISTINCT to appear in the select list, so Django pulls that package price into
+the row tuple — and a gig with three packages then produces three
+distinguishable rows sharing one id, which `.distinct()` has nothing left to
+collapse.
+
+*Why it was worse than a visible duplicate:* DRF's paginator sizes the page by
+calling `.count()`, and Django's count optimisation for this exact query shape
+reports the *true* distinct-gig count — 2, say — while the row fetch for
+`results` still runs the undeduplicated query underneath it. The paginator
+then slices `[0:2]` against the 4-row set the count didn't describe, not a
+2-row one. Where in sort order the duplicate rows land decides what happens:
+sometimes a duplicate id, sometimes a legitimate gig silently missing from a
+results page whose own `count` field said it should be there. Confirmed live,
+both ways, before writing the fix.
+
+*Why `Min()` and not restructuring the join:* it is an aggregate, so Django
+groups by every other selected column instead of adding the related field to
+the row. One row per gig comes back regardless of how many packages it has,
+and the count Django reports matches the rows it actually returns.
+
+*The general rule this sets:* never order a queryset by a field reached
+through a to-many relation. If the sort needs a value from the many side,
+aggregate it into an annotation first — `Min`, `Max`, `Count`, whichever the
+sort means — and order by that.
+
+*Caught by:* a real user's browser reporting a duplicate React key, not by the
+test suite — there was no test for `sort=price` at all before this. The
+regression test added deliberately prices the multi-package gig at the cheap
+end, because a naive version priced in the middle and passed against the
+unfixed code by accident: the truncation happened to land after the
+duplicate rather than before it, so nothing looked wrong. Asserting the exact
+returned id set, not just "no duplicate in what came back," is what makes the
+test catch the missing-result half of the bug too.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, or a personal relationship. Nothing
