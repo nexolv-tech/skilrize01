@@ -769,6 +769,30 @@ def test_sessions_are_listed_and_revocable(signed_in, user):
 
 
 @pytest.mark.django_db
+def test_setup_reuses_the_pending_secret_across_calls(signed_in, user):
+    """Enrolment must survive the endpoint being called more than once.
+
+    The client begins enrolment from an effect, and React runs effects twice in
+    development. When setup minted a fresh secret per call, the second one
+    replaced the secret behind the QR the first had already rendered — so a
+    correctly scanned code was rejected as invalid. Any remount or second click
+    did the same thing in production.
+    """
+    first = signed_in.post("/api/v1/auth/2fa/setup/")
+    second = signed_in.post("/api/v1/auth/2fa/setup/")
+    assert first.status_code == second.status_code == 200
+    assert first.data["secret"] == second.data["secret"]
+
+    # The code from the QR the user actually scanned still enrols them.
+    code = pyotp.TOTP(first.data["secret"]).now()
+    confirmed = signed_in.post("/api/v1/auth/2fa/confirm/", {"code": code}, format="json")
+    assert confirmed.status_code == 200
+
+    user.refresh_from_db()
+    assert user.has_two_factor
+
+
+@pytest.mark.django_db
 def test_two_factor_enrolment_then_challenge_on_login(client, signed_in, user):
     setup = signed_in.post("/api/v1/auth/2fa/setup/")
     assert setup.status_code == 200

@@ -989,7 +989,23 @@ def revoke_all_sessions(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def two_factor_setup(request):
-    """Begin enrolment. Returns the secret and its provisioning URI."""
+    """Begin enrolment. Returns the secret and its provisioning URI.
+
+    **Idempotent while enrolment is pending.** An earlier version minted a fresh
+    secret on every call, which quietly broke the feature: the client starts
+    enrolment from an effect, React runs effects twice in development, and the
+    second call overwrote the secret behind the QR code the first had already
+    rendered. The user scanned a valid QR, typed the code their authenticator
+    showed, and was told it was wrong — because the server had thrown that
+    secret away.
+
+    It was never only a development problem. Any second call — a remount, a
+    back-navigation, a second click on "set up" — invalidated a QR the user may
+    already have scanned. Rotating an *unconfirmed* secret protects nothing:
+    it is reachable only by the session that just created it, and it becomes
+    real only once `two_factor_confirm` proves the authenticator holds it. So
+    the secret is minted once and reused until enrolment completes.
+    """
     device, _ = TwoFactorDevice.objects.get_or_create(
         user=request.user, defaults={"secret": pyotp.random_base32()}
     )
@@ -999,8 +1015,11 @@ def two_factor_setup(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    device.secret = pyotp.random_base32()
-    device.save(update_fields=["secret", "updated_at"])
+    # Only if a previous attempt somehow left the row without one.
+    if not device.secret:
+        device.secret = pyotp.random_base32()
+        device.save(update_fields=["secret", "updated_at"])
+
     return Response(
         {
             # The QR is the path everyone actually uses; the secret is the
