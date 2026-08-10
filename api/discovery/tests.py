@@ -154,6 +154,64 @@ def test_price_bands_are_fixed_not_derived(category):
     assert bands["50000-"] == 1
 
 
+@pytest.mark.django_db
+def test_sorting_by_price_does_not_duplicate_a_gig_with_several_packages(category):
+    """A gig appeared once per package rather than once, total — and worse,
+    legitimate *other* gigs could go missing along with it.
+
+    `?sort=price` used to order by the raw related field — `packages__price`
+    — which joins the packages table a second time. Postgres requires an
+    ORDER BY column used with SELECT DISTINCT to appear in the select list, so
+    that price rode along in the row, and a gig with three packages produced
+    three rows sharing one id.
+
+    That alone would just be a visible duplicate. What made it worse: DRF's
+    paginator calls `.count()` to size the page, and Django's `.count()`
+    optimisation for a queryset like this reports the *true* number of
+    distinct gigs — 2 here — while the actual row fetch still returns the
+    undeduplicated 4-row set. The paginator then slices `[0:2]` against that
+    4-row set, not the 2-row one the count implied. Put the multi-package
+    gig's three prices at the *cheapest* end and the slice never reaches the
+    single-package gig at all: two rows come back, both the same id, and the
+    other gig vanishes from a results page that claimed to hold it.
+
+    Prices are chosen so a test that only checked "no duplicate key" would
+    have passed anyway, by accident, if the truncation happened to land after
+    the duplicate rather than before it — the way an earlier version of this
+    test did. Asserting the exact id set closes that gap.
+    """
+    seller = make_user("seller@example.com")
+    layered = make_gig(seller, "I will do a three-tier gig", price=1000, category=category)
+    Package.objects.create(
+        gig=layered,
+        tier=Package.Tier.STANDARD,
+        name="Standard",
+        price=Decimal("2000"),
+        delivery_days=5,
+        revisions=2,
+    )
+    Package.objects.create(
+        gig=layered,
+        tier=Package.Tier.PREMIUM,
+        name="Premium",
+        price=Decimal("3000"),
+        delivery_days=7,
+        revisions=3,
+    )
+    single = make_gig(seller, "I will do a single-tier gig", price=50000, category=category)
+
+    client = sign_in(make_user("buyer@example.com"))
+    response = client.get("/api/v1/search/gigs/?sort=price")
+
+    assert response.data["count"] == 2
+    ids = [row["id"] for row in response.data["results"]]
+    assert set(ids) == {single.pk, layered.pk}, f"got {ids}"
+    assert len(ids) == len(set(ids)), f"duplicate id in {ids}"
+    # The cheapest package decides where a multi-tier gig sorts, not an
+    # arbitrary one of its three price rows.
+    assert ids == [layered.pk, single.pk]
+
+
 # --- Ranking and promotion --------------------------------------------------
 
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from django.db.models import F, Q
+from django.db.models import F, Min, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -112,7 +112,21 @@ def search_gigs(request):
     elif sort == "rating":
         ranked = ranked.order_by(F("rating_average").desc(nulls_last=True), "-id")
     elif sort == "price":
-        ranked = ranked.order_by("packages__price", "-id")
+        # Not `.order_by("packages__price", ...)`. A gig carries several
+        # packages, so ordering by the raw related field joins `packages` a
+        # second time — and because Postgres requires an ORDER BY column used
+        # with SELECT DISTINCT to appear in the select list, that package
+        # price rides along in the row tuple. A gig with three packages then
+        # produces three distinguishable rows, all with the same id, and
+        # `.distinct()` has nothing left to collapse: the API returned the
+        # same gig two or three times, once per package, which is what
+        # actually showed up as a duplicate React key on the results page.
+        #
+        # `Min()` sidesteps the join-then-order-by shape entirely: it is an
+        # aggregate, so Django groups by every other selected column instead
+        # of adding the related field to the row, and one row per gig comes
+        # back regardless of how many packages it has.
+        ranked = ranked.annotate(sort_price=Min("packages__price")).order_by("sort_price", "-id")
 
     paginator = StandardPagination()
     page = paginator.paginate_queryset(ranked, request)
