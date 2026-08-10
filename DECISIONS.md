@@ -588,6 +588,52 @@ test catch the missing-result half of the bug too.
 
 ---
 
+## D31 · Two phases added: hire-after-trial, then proof-of-work challenges
+
+**The roadmap grows from 12 phases (0–11) to 14 (0–13). Phase 12 is a paid
+trial task that converts into a full contract's first milestone. Phase 13 is
+timed, scored skill challenges that badge onto a profile. Trial is sequenced
+first.**
+
+*What each one is:* a trial lets a client buy a small, cheap deliverable —
+say Rs 5,000 against a Rs 150,000 project — before committing to the whole
+engagement, with the trial fee credited toward the first milestone if they
+proceed. Challenges are periodic, timed briefs — "build this dashboard from
+this Figma file in 24 hours" — graded by a mix of automated checks (tests,
+Lighthouse) and human review, with the result ("Top 8%, React Dashboard
+Challenge") attached to the freelancer's profile as evidence rather than
+claim.
+
+*Why trial is Phase 12 and challenges is Phase 13, not the order they were
+proposed in:* trial needs nothing this codebase does not already have. It is
+a small order riding the same `Contract` spine that already unifies gigs and
+projects (decision, Phase 2) — no new infrastructure category, just a new
+shape of order and a conversion path. Challenges need a new infrastructure
+category entirely: something has to execute freelancer-submitted code to run
+Lighthouse and unit tests against it, which is a sandboxing problem on the
+order of the escrow work, not a UI feature. Building the cheaper, lower-risk
+one first is the same reasoning that put Phase 2 before Phase 3.
+
+*What trial cannot do until Phase 3 exists:* "the trial fee automatically
+becomes part of the first milestone" is a ledger operation — crediting one
+payment against another — and there is no ledger yet (D-gap in Phase 3).
+The trial-then-convert *workflow* — order, approve, invite to a full
+contract — can ship on the current contract state machine. Automatically
+applying the fee cannot honestly ship before Phase 3 does; until then it is
+a manual adjustment, and the product should say so rather than imply an
+automation that is not real, the same call made for Phase 8's subscriptions
+elsewhere in this log.
+
+*What challenges depend on that does not exist yet:* the reputation
+weighting to make a badge mean something is more credible once Phase 6's
+Job Success Score has real transaction history behind it, which itself
+waits on Phase 3. A challenge system launched before that has nothing to
+calibrate "top 8%" against except the challenge pool itself — workable, but
+worth knowing the number is provisional in exactly the way search ranking's
+weights already are (D20).
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, or a personal relationship. Nothing

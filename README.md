@@ -23,6 +23,8 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 7 · Mobile | ❌ | Flutter parity app |
 | 8 · Professional layer | ✅ | CRM, subscriptions, retainers, agencies, workspaces |
 | 9–11 | ❌ | Integrations, admin console, hardening |
+| 12 · Hire after trial | ❌ | A paid trial task that converts into the first milestone of a full contract |
+| 13 · Proof-of-work challenges | ❌ | Timed skill challenges, scored and badged onto a profile |
 
 **256 backend tests pass.** Lint, format, migration check, `check --deploy`,
 type-check, and production build are all clean.
@@ -35,7 +37,7 @@ contract state and nothing else. Everything built after it — portals,
 communities, search, reputation — sits on a marketplace that cannot yet
 transact for real.
 
-By phase count the project is 7 of 12. By revenue capability it is at zero
+By phase count the project is 7 of 14. By revenue capability it is at zero
 until Phase 3 lands. The state machine those payments will plug into is
 already the real one (decision D12), so this is a substitution rather than a
 rewrite.
