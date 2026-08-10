@@ -121,7 +121,8 @@ export function StudentVerificationCard() {
   const verified = user.is_verified_student;
 
   return (
-    <Card>
+    // Anchored so the dashboard's campus card can link straight here.
+    <Card as="section" id="student" className="scroll-mt-24">
       <CardHeader
         title="Student verification"
         description="Verify with your university email to unlock your campus marketplace — a private portal only your university can see."

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 
 import { PageHeading } from "@/components/shell";
 import {
@@ -343,10 +344,15 @@ function StudentPortalCard() {
           Verify with your university email and student ID to reach a private marketplace only your
           university can see — plus peer messaging and communities.
         </p>
-        <Button size="sm" variant="secondary" className="mt-4" disabled>
-          <Icon name="lock" className="size-3.5" />
-          Arriving in Phase 4
-        </Button>
+        {/* This was a disabled "Arriving in Phase 4" button long after Phase 4
+            shipped — the verification flow it advertises has been live and
+            reachable at /settings the whole time. */}
+        <Link href="/settings#student" className="mt-4 inline-block">
+          <Button size="sm" variant="secondary">
+            Start verification
+            <Icon name="arrowRight" className="size-3.5" />
+          </Button>
+        </Link>
       </div>
     </Card>
   );

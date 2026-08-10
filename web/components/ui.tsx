@@ -279,13 +279,16 @@ export function Card({
   className,
   children,
   as: Tag = "div",
+  id,
 }: {
   className?: string;
   children: React.ReactNode;
   as?: React.ElementType;
+  /** For deep links — a card is often the target of an anchor from elsewhere. */
+  id?: string;
 }) {
   return (
-    <Tag className={cn("rounded-lg border border-line bg-raised shadow-e1", className)}>
+    <Tag id={id} className={cn("rounded-lg border border-line bg-raised shadow-e1", className)}>
       {children}
     </Tag>
   );
