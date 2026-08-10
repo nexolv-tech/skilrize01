@@ -2,9 +2,30 @@ import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
+import { Instrument_Serif } from "next/font/google";
 
 import { SessionProvider, themeBootstrap } from "@/lib/session";
 import "./globals.css";
+
+/**
+ * Display face for marketing headlines only.
+ *
+ * Every marketplace at this size sets its headlines in a grotesque sans, which
+ * is why they are hard to tell apart with the logo covered. A high-contrast
+ * serif is the cheapest real differentiation available — it reads as considered
+ * rather than transactional, and it never competes with the interface, because
+ * it is not allowed anywhere near it.
+ *
+ * Self-hosted at build time by `next/font`, so it costs no third-party request
+ * and needs no exception in the content-security policy.
+ */
+const displaySerif = Instrument_Serif({
+  subsets: ["latin"],
+  weight: "400",
+  style: ["normal", "italic"],
+  variable: "--font-display",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: {
@@ -32,7 +53,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   return (
-    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${GeistSans.variable} ${GeistMono.variable} ${displaySerif.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         {/* Runs before first paint so the correct theme is already applied and
             the page never flashes white on the way to dark.

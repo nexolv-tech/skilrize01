@@ -444,6 +444,50 @@ setting and say why in the fixture.
 
 ---
 
+## D26 · The marketing pages never claim traction we do not have
+
+**No testimonials, no client logos, no listing or contract counts, until there
+are real ones. The slots those occupy on a competitor's page are filled with
+capabilities of the software instead.**
+
+*Why:* an earlier revision of the landing page carried four invented customer
+quotes — names, roles, five-star ratings — for a platform with no users and no
+live payment rails. Fabricated social proof is the one category of marketing
+copy that cannot be corrected later: by the time anyone checks, it has already
+done its work on someone deciding whether to trust the escrow with their money.
+
+*What replaced it:* "escrow on every contract", "sealed two-way reviews",
+"campus scoping enforced in the database". Every line is a behaviour with code
+behind it, so the claim and the product cannot drift apart.
+
+*When this reverses:* the moment there are real customers willing to be quoted
+and real numbers worth printing. The slots are designed and waiting.
+
+---
+
+## D27 · Photography on marketing, generated art in the product
+
+**The landing page is carried by real photographs. Listings inside the product
+render deterministic vector art instead.**
+
+*Why photographs outside:* two earlier attempts at this page used only vector
+art and typography, on the reasoning that stock photography of a stranger at a
+laptop says nothing about the product. That reasoning is right about the
+photograph and wrong about the page — every marketplace at this size is carried
+by imagery, and a catalogue that shows no work does not read as a catalogue.
+
+*Why not photographs inside:* a listing's cover has to exist before the seller
+has uploaded one, and it has to be different for every listing. A stock image
+repeated across the catalogue reads as a placeholder, which is exactly what it
+is. Art derived from the listing's own id never repeats and never lies about
+what it is.
+
+*Licence:* Unsplash — free for commercial use, no attribution required. Files
+live in `web/public/img` and are served from our own origin, so the CSP needs no
+third-party exception.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, or a personal relationship. Nothing

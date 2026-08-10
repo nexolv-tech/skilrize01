@@ -101,7 +101,15 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
       {...rest}
     >
       {loading && <Spinner className="size-4" />}
-      <span className={cn(loading && "opacity-90")}>{children}</span>
+      {/* Flex, not the default block: buttons are routinely given an icon and a
+          label together, and inside a block box the icon baseline-aligns to the
+          text and drops below the optical centre — visible as an arrow sitting
+          a few pixels low, or wrapping outright once the label is long enough.
+          Laying the children out as flex items also gives them the same gap the
+          spinner already gets. */}
+      <span className={cn("inline-flex items-center gap-2", loading && "opacity-90")}>
+        {children}
+      </span>
     </button>
   );
 });

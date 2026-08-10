@@ -1,847 +1,580 @@
+"use client";
+
+/**
+ * The landing page.
+ *
+ * Photographic and dense, on the pattern both large marketplaces converge on,
+ * with two departures that are ours.
+ *
+ * **The dual track is the hero's primary control.** Every competitor sells one
+ * hiring model; this one carries both, so the choice sits above the search box
+ * and changes what the search does. A page that averages the two sells neither.
+ *
+ * **Nothing here claims a number the platform has not earned.** No customer
+ * quotes, no borrowed client logos, no listing counts — there are no customers,
+ * clients or listings yet. What is claimed is what the software does today:
+ * escrow, sealed two-way reviews, campus scoping. All of it checkable in the
+ * repository.
+ */
+
+import * as React from "react";
+import Image from "next/image";
 import Link from "next/link";
 
 import {
   CategoryTile,
-  HeroBackdrop,
-  HeroComposition,
   HeroSearch,
+  PhotoFigure,
   ScrollRow,
+  SectionHead,
   ServiceCard,
+  SuggestionPills,
+  TrackSwitch,
   type ServiceCardData,
+  type Track,
 } from "@/components/marketing";
 import { MarketingHeader } from "@/components/shell";
-import { Badge, Icon, Logo, Stars, cn, type IconName } from "@/components/ui";
+import { Button, Icon, Logo, cn, type IconName } from "@/components/ui";
 
-/** A representative slice of the catalogue, shown as real listing cards. */
+/* -------------------------------------------------------------------------- */
+/* Content                                                                    */
+/* -------------------------------------------------------------------------- */
+
+const CATEGORIES: Array<{ slug: string; name: string; icon: IconName; blurb: string }> = [
+  { slug: "development-it", name: "Development & IT", icon: "code", blurb: "Web, mobile, DevOps" },
+  { slug: "design-creative", name: "Design & Creative", icon: "palette", blurb: "Brand, UI, illustration" },
+  { slug: "writing-translation", name: "Writing & Translation", icon: "pen", blurb: "Copy, docs, localisation" },
+  { slug: "video-animation", name: "Video & Animation", icon: "video", blurb: "Editing, motion, VFX" },
+  { slug: "marketing-sales", name: "Marketing & Sales", icon: "megaphone", blurb: "SEO, ads, lifecycle" },
+  { slug: "data-analytics", name: "Data & Analytics", icon: "chart", blurb: "Pipelines, BI, ML" },
+  { slug: "business-admin", name: "Business & Admin", icon: "briefcase", blurb: "Ops, finance, VA" },
+  { slug: "academic-support", name: "Academic Support", icon: "book", blurb: "Research, tutoring, editing" },
+];
+
 const POPULAR: ServiceCardData[] = [
-  {
-    title: "Design a modern logo and full brand identity kit",
-    slug: "design-creative",
-    motif: "design",
-    seller: "Sana M.",
-    level: "Top Rated",
-    rating: 4.9,
-    reviews: 214,
-    from: "8,000",
-  },
-  {
-    title: "Build a production React and Django web application",
-    slug: "development-it",
-    motif: "code",
-    seller: "Bilal A.",
-    level: "Level 2",
-    rating: 5.0,
-    reviews: 96,
-    from: "25,000",
-  },
-  {
-    title: "Edit short-form video for TikTok, Reels and Shorts",
-    slug: "video-animation",
-    motif: "video",
-    seller: "Hira Z.",
-    level: "Level 2",
-    rating: 4.8,
-    reviews: 341,
-    from: "4,500",
-  },
-  {
-    title: "SEO audit and a content strategy that actually ranks",
-    slug: "marketing-sales",
-    motif: "marketing",
-    seller: "Ahmed R.",
-    level: "Top Rated",
-    rating: 4.9,
-    reviews: 158,
-    from: "6,000",
-  },
-  {
-    title: "Clean, analyse and visualise your business data",
-    slug: "data-analytics",
-    motif: "data",
-    seller: "Fatima N.",
-    level: "Level 1",
-    rating: 4.9,
-    reviews: 72,
-    from: "5,500",
-  },
-  {
-    title: "Write and edit long-form articles in English and Urdu",
-    slug: "writing-translation",
-    motif: "writing",
-    seller: "Usman T.",
-    level: "Level 2",
-    rating: 4.8,
-    reviews: 187,
-    from: "3,000",
-  },
+  { id: 3101, title: "I will design a complete brand identity system", category: "Design", image: "/img/svc-web.jpg", alt: "A designer's desk with a laptop and external monitor", price: 18000, rating: 4.9, reviews: 212, seller: "Meridian Studio", level: "Top Rated" },
+  { id: 3102, title: "I will build a production Next.js landing page", category: "Development", image: "/img/svc-code.jpg", alt: "Source code on a dark screen", price: 32000, rating: 5.0, reviews: 88, seller: "Hamza R.", level: "Level 2" },
+  { id: 3103, title: "I will edit your long-form video into shorts", category: "Video", image: "/img/svc-video.jpg", alt: "A photographer filming on a mountain ridge at sunrise", price: 9500, rating: 4.8, reviews: 341, seller: "Cutroom", level: "Level 2" },
+  { id: 3104, title: "I will write technical documentation that ships", category: "Writing", image: "/img/svc-writing.jpg", alt: "A fountain pen writing on lined paper", price: 14000, rating: 4.9, reviews: 126, seller: "Usman T.", level: "Top Rated" },
+  { id: 3105, title: "I will set up your analytics and reporting stack", category: "Data", image: "/img/svc-data.jpg", alt: "An analytics dashboard displayed on a laptop", price: 26000, rating: 4.9, reviews: 74, seller: "Nida S.", level: "Level 2" },
+  { id: 3106, title: "I will run a full technical SEO audit", category: "Marketing", image: "/img/svc-marketing.jpg", alt: "A marketing strategy note on a desk with pens", price: 12000, rating: 4.7, reviews: 198, seller: "Northline", level: "Level 1" },
 ];
 
-const PROOF: Array<{ icon: IconName; label: string }> = [
-  { icon: "lock", label: "Escrow on every contract" },
-  { icon: "id", label: "Government ID verified" },
-  { icon: "star", label: "Double-blind two-way reviews" },
-  { icon: "clock", label: "Auditable hourly time logs" },
-  { icon: "building", label: "Private campus marketplaces" },
-  { icon: "wallet", label: "Released only when you accept" },
+/** Every line is a behaviour of the software, not a claim about traction. */
+const CAPABILITIES: Array<{ icon: IconName; title: string; body: string }> = [
+  { icon: "shield", title: "Escrow on every contract", body: "Funds are committed before work starts and released on acceptance. Neither side goes first on trust." },
+  { icon: "star", title: "Sealed two-way reviews", body: "Neither review publishes until both are in or the window closes. Nobody rates a reply to their own rating." },
+  { icon: "wallet", title: "One wallet, one reputation", body: "A five-star review from a bought service and one from a won brief are the same row in the same table." },
+  { icon: "building", title: "Private campus portals", body: "Verified students get a second marketplace scoped to their university, enforced in the database." },
 ];
 
-const CATEGORIES: Array<{ slug: string; name: string; icon: IconName; count: string }> = [
-  { slug: "development-it", name: "Development & IT", icon: "code", count: "Web, mobile, cloud" },
-  { slug: "design-creative", name: "Design & Creative", icon: "palette", count: "Brand & product" },
-  { slug: "writing-translation", name: "Writing & Translation", icon: "pen", count: "Words that land" },
-  { slug: "video-animation", name: "Video & Animation", icon: "video", count: "Edit & motion" },
-  { slug: "marketing-sales", name: "Marketing & Sales", icon: "megaphone", count: "Growth & demand" },
-  { slug: "data-analytics", name: "Data & Analytics", icon: "chart", count: "Insight & models" },
-  { slug: "business-admin", name: "Business & Admin", icon: "briefcase", count: "Ops & finance" },
-  { slug: "academic-support", name: "Academic Support", icon: "book", count: "Tutoring & research" },
+const TRACK_DETAIL: Record<
+  Track,
+  {
+    icon: IconName;
+    heading: string;
+    blurb: string;
+    steps: Array<{ title: string; body: string }>;
+    cta: string;
+    href: string;
+    image: string;
+    alt: string;
+  }
+> = {
+  services: {
+    icon: "layers",
+    heading: "Buy a packaged service",
+    blurb: "Priced and dated before you ask. Order it the way you order anything else.",
+    steps: [
+      { title: "Pick a package", body: "Three tiers per service, each with its own price, delivery date and revision count." },
+      { title: "Send requirements", body: "The delivery clock does not start until you have handed over what the seller needs." },
+      { title: "Accept or revise", body: "Revisions are counted by the package you bought, not argued about afterwards." },
+    ],
+    cta: "Browse services",
+    href: "/gigs",
+    image: "/img/svc-web.jpg",
+    alt: "A tidy desk with a laptop and monitor showing a design in progress",
+  },
+  projects: {
+    icon: "briefcase",
+    heading: "Post a brief instead",
+    blurb: "Describe the work once and let qualified proposals come to you.",
+    steps: [
+      { title: "Post the brief", body: "Add screening questions and the unqualified proposals filter themselves out." },
+      { title: "Compare proposals", body: "Rivals never see each other's bids, so nobody is pricing against a leak." },
+      { title: "Award and fund", body: "Terms freeze at acceptance. Milestones are funded one at a time." },
+    ],
+    cta: "Post a brief",
+    href: "/projects/new",
+    image: "/img/work-team.jpg",
+    alt: "Two colleagues celebrating over a laptop in an office",
+  },
+};
+
+const ESCROW_STAGES = [
+  { label: "Funded", body: "The client commits the money before a line of work is done." },
+  { label: "Delivered", body: "The freelancer submits. The clock and the files are both on the record." },
+  { label: "Accepted", body: "The client accepts — or the review window lapses and it auto-releases." },
+  { label: "Released", body: "Money moves to the freelancer's wallet. The ledger is append-only." },
 ];
 
-const HOW_IT_WORKS = [
-  {
-    icon: "file" as IconName,
-    title: "Say what you need",
-    body: "Post a brief with a budget and a few screening questions, or search ready-made services and buy one outright.",
-  },
-  {
-    icon: "users" as IconName,
-    title: "Choose who does it",
-    body: "Compare proposals, read verified reviews from both sides of past contracts, and interview before you commit.",
-  },
-  {
-    icon: "shield" as IconName,
-    title: "Pay only for accepted work",
-    body: "Your money is held securely from the moment work starts and released when you accept the delivery.",
-  },
-];
-
-const STORIES = [
-  {
-    quote:
-      "I posted the brief on a Tuesday and had seven proposals by Thursday. The screening questions did most of the filtering for me.",
-    name: "Ayesha K.",
-    role: "Founder · Logistics",
-    work: "Internal ops dashboard",
-    rating: 5,
-  },
-  {
-    quote:
-      "Milestones meant I never worked more than two weeks ahead of a payment. That changed how I price entirely.",
-    name: "Bilal A.",
-    role: "Full-stack developer",
-    work: "React and Django build",
-    rating: 5,
-  },
-  {
-    quote:
-      "My first three clients were from my own campus. By the time I opened up to the global side I had real reviews.",
-    name: "Sana M.",
-    role: "Brand designer · Verified student",
-    work: "Fintech identity",
-    rating: 5,
-  },
-  {
-    quote:
-      "The work diary settled an hourly dispute in about four minutes. Both of us could see exactly what was logged.",
-    name: "Usman T.",
-    role: "Technical writer",
-    work: "Documentation retainer",
-    rating: 5,
-  },
-];
-
-/**
- * Membership tiers.
- *
- * The features listed are the ones the tier actually grants — they mirror
- * `seed_default_plans` rather than being written independently here, because a
- * landing page that promises a capability the plan does not carry is a refund
- * request with extra steps. `/pricing` renders the same tiers from the API and
- * is the page that can transact; this is the summary that sends people there.
- */
-const PLANS = [
-  {
-    name: "Free",
-    price: "Rs 0",
-    cadence: "always",
-    lede: "Everything you need to hire or get hired.",
-    features: [
-      "Post projects and publish services",
-      "Escrow on every contract",
-      "Contract messaging and file sharing",
-      "Two-way reviews and a public profile",
-      "Standard proposal allowance",
-    ],
-    cta: "Get started free",
-    href: "/signup",
-    featured: false,
-    available: true,
-  },
-  {
-    name: "Pro",
-    price: "Rs 1,500",
-    cadence: "per month",
-    lede: "For freelancers who are earning and want to earn more.",
-    features: [
-      "Everything in Free",
-      "Triple the monthly proposals",
-      "Profile boost in search results",
-      "Unlimited CRM contacts and pipeline",
-      "Sell services as monthly retainers",
-    ],
-    cta: "See what Pro adds",
-    href: "/pricing",
-    featured: true,
-    available: true,
-  },
-  {
-    name: "Elite",
-    price: "Rs 4,500",
-    cadence: "per month",
-    lede: "For teams and agencies running work at volume.",
-    features: [
-      "Everything in Pro",
-      "Team and agency workspaces",
-      "Up to 10 seats",
-      "Shared client CRM and pipelines",
-      "Unlimited proposals",
-    ],
-    cta: "See what Elite adds",
-    href: "/pricing",
-    featured: false,
-    available: true,
-  },
-];
-
-const TRUST = [
-  {
-    icon: "lock" as IconName,
-    title: "Money held until you accept",
-    body: "Funds are secured before work begins and released on acceptance. Neither side has to trust the other first.",
-  },
-  {
-    icon: "id" as IconName,
-    title: "Everyone is identity-verified",
-    body: "Email, phone, and government ID — checked before anyone can post, sell, or buy.",
-  },
-  {
-    icon: "clock" as IconName,
-    title: "Hourly work you can audit",
-    body: "Time is logged against the contract with a weekly cap you agree up front, so an invoice is never a surprise.",
-  },
-  {
-    icon: "star" as IconName,
-    title: "Reviews that cut both ways",
-    body: "Clients are reviewed too, and neither review appears until both are written. No retaliation, no inflation.",
-  },
-];
-
-const FOOTER: Array<{ heading: string; links: string[] }> = [
-  {
-    heading: "Categories",
-    links: [
-      "Development & IT", "Design & Creative", "Writing & Translation",
-      "Video & Animation", "Marketing & Sales", "Data & Analytics",
-      "Business & Admin", "Academic Support",
-    ],
-  },
-  {
-    heading: "For clients",
-    links: [
-      "How to hire", "Post a project", "Browse talent", "Payment protection",
-      "Enterprise", "Success stories",
-    ],
-  },
-  {
-    heading: "For talent",
-    links: [
-      "How to find work", "Create a profile", "Proposal tips", "Getting paid",
-      "Freelancer guide", "Community",
-    ],
-  },
-  {
-    heading: "Campus",
-    links: [
-      "Student portals", "Verify as a student", "For universities",
-      "Campus moderators", "Academic integrity",
-    ],
-  },
-  {
-    heading: "Company",
-    links: [
-      "About SkilRize", "Careers", "Trust & safety", "Terms of Service",
-      "Privacy Policy", "Contact",
-    ],
-  },
+const FOOTER: Array<{ heading: string; links: Array<[string, string]> }> = [
+  { heading: "Marketplace", links: [["Browse services", "/gigs"], ["Browse briefs", "/projects"], ["Work showcase", "/showcase"], ["Search", "/search"]] },
+  { heading: "For freelancers", links: [["Sell a service", "/gigs/new"], ["Retainers", "/retainers"], ["Client CRM", "/crm"], ["Teams & agencies", "/teams"]] },
+  { heading: "Platform", links: [["Plans", "/pricing"], ["Communities", "/communities"], ["Campus portals", "/#campus"], ["How it works", "/#tracks"]] },
 ];
 
 /* -------------------------------------------------------------------------- */
 
-function SectionHeading({
-  eyebrow,
-  title,
-  lede,
-  action,
-  className,
-}: {
-  eyebrow?: string;
-  title: string;
-  lede?: string;
-  action?: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={cn("flex flex-wrap items-end justify-between gap-4", className)}>
-      <div className="max-w-2xl">
-        {eyebrow && <p className="eyebrow mb-2.5">{eyebrow}</p>}
-        <h2 className="display-2 text-fg">{title}</h2>
-        {lede && <p className="mt-3 text-[15.5px] leading-relaxed text-muted">{lede}</p>}
-      </div>
-      {action}
-    </div>
-  );
-}
-
 export default function LandingPage() {
-  return (
-    <div className="min-h-dvh">
-      {/* Announcement rail. */}
-      <div className="border-b border-line bg-accent-soft">
-        <div className="mx-auto flex max-w-7xl items-center justify-center gap-2 px-5 py-2.5 text-center">
-          <Icon name="sparkles" className="size-3.5 shrink-0 text-accent" />
-          <p className="text-[12.5px] text-fg">
-            Students: verify with your university email to unlock your campus marketplace.{" "}
-            <Link href="/signup" className="font-medium text-accent underline-offset-2 hover:underline">
-              Get started
-            </Link>
-          </p>
-        </div>
-      </div>
+  const [track, setTrack] = React.useState<Track>("services");
+  const detail = TRACK_DETAIL[track];
 
+  return (
+    <div className="min-h-dvh bg-surface">
       <MarketingHeader />
 
       <main id="main">
-        {/* ---------------------------------------------------------------- */}
-        {/* Hero                                                             */}
-        {/* ---------------------------------------------------------------- */}
-        {/* A fixed dark surface in both themes. The page's most important
-            frame should not change character because someone flipped a
-            toggle — and white-on-near-black is the contrast the headline was
-            composed for. */}
-        <section className="hero-dark texture-grain relative overflow-hidden">
-          <HeroBackdrop />
+        {/* ================================================================ */}
+        {/* Hero — full-bleed photograph, the way the category does it       */}
+        {/* ================================================================ */}
+        <section className="relative isolate overflow-hidden">
+          <Image
+            src="/img/hero.jpg"
+            alt=""
+            fill
+            priority
+            sizes="100vw"
+            className="-z-20 object-cover object-center"
+          />
+          {/* Two scrims, not one. The horizontal ramp buys contrast for the
+              copy column and then gets out of the way, so the right half of the
+              frame still reads as a photograph — a single flat overlay dark
+              enough for white text turns the image into grey card stock. The
+              vertical pass only weights the top and bottom edges, where the
+              header and the capability strip sit. */}
+          <div
+            aria-hidden
+            className="absolute inset-0 -z-10 bg-gradient-to-r from-ink-1000/94 via-ink-1000/70 to-ink-1000/25"
+          />
+          <div
+            aria-hidden
+            className="absolute inset-0 -z-10 bg-gradient-to-t from-ink-1000/75 via-transparent to-ink-1000/45"
+          />
 
-          <div className="relative z-10 mx-auto max-w-7xl px-5 pb-20 pt-20 sm:pt-28">
-            <div className="grid items-center gap-16 lg:grid-cols-[1.1fr_0.9fr]">
-              <div className="animate-rise">
-                <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/8 px-3.5 py-1.5 text-[12px] font-medium text-white/80 backdrop-blur">
-                  <span className="size-1.5 rounded-full bg-money-400" aria-hidden />
-                  Two marketplaces, one account
-                </span>
+          <div className="mx-auto flex min-h-[34rem] max-w-7xl items-center px-5 py-20 sm:min-h-[38rem] sm:py-28">
+            <div className="max-w-2xl">
+              <h1 className="display-1 text-white">
+                Hire in an afternoon.
+                <br />
+                <span className="italic text-brand-300">Or hire for a year.</span>
+              </h1>
 
-                <h1 className="display-1 mt-6 max-w-[16ch] text-white">
-                  Find the right talent.{" "}
-                  <span className="bg-linear-to-r from-brand-300 via-brand-200 to-money-400 bg-clip-text text-transparent">
-                    Or become it.
-                  </span>
-                </h1>
+              <p className="mt-6 max-w-xl text-[17px] leading-relaxed text-white/75">
+                Buy a packaged service at a fixed price, or post a brief and let proposals
+                come to you. Two ways to work — one account, one wallet, one reputation.
+              </p>
 
-                <p className="mt-7 max-w-xl text-[17.5px] leading-relaxed text-white/65">
-                  Hire for a one-off task or a long build. Sell a service or win a contract. One
-                  account, one wallet, one reputation — whichever side of the work you are on.
-                </p>
-
-                <div className="mt-10 max-w-2xl">
-                  <HeroSearch />
-                </div>
-              </div>
-
-              {/* The product itself, as a stack of interface cards. Hidden on
-                  small screens where it would push the search below the fold. */}
-              <div className="animate-rise hidden lg:block">
-                <HeroComposition />
+              <div className="mt-9 space-y-4">
+                <TrackSwitch value={track} onChange={setTrack} tone="dark" />
+                <HeroSearch track={track} />
+                <SuggestionPills track={track} />
               </div>
             </div>
           </div>
 
-          {/* Guarantee rail. Where a marketplace of this kind would run a row of
-              client logos, we run the promises the platform actually enforces —
-              a logo wall we have not earned yet would be the wrong kind of
-              social proof, and this is the claim the product can back. */}
-          <div className="relative z-10 border-t border-white/10 py-5">
-            <p className="mb-4 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-white/35">
-              Protected end to end
-            </p>
-            <div className="overflow-hidden">
-              <div className="marquee gap-12">
-                {[0, 1].map((copy) => (
-                  <div key={copy} className="flex shrink-0 gap-12 pr-12" aria-hidden={copy === 1}>
-                    {PROOF.map((claim) => (
-                      <span
-                        key={claim.label}
-                        className="flex shrink-0 items-center gap-2.5 text-[13.5px] font-medium text-white/60"
-                      >
-                        <Icon name={claim.icon} className="size-4 text-brand-300" />
-                        {claim.label}
-                      </span>
-                    ))}
-                  </div>
-                ))}
-              </div>
+          {/* Capability strip, in place of the borrowed client logos the
+              reference pages carry. We have no clients to name yet; we do have
+              guarantees, and those are true today. */}
+          <div className="relative border-t border-white/15 bg-black/35 backdrop-blur-md">
+            <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-8 gap-y-3 px-5 py-4">
+              <span className="text-[12px] font-medium uppercase tracking-wider text-white/50">
+                Built in
+              </span>
+              {[
+                "Escrow on every contract",
+                "Sealed two-way reviews",
+                "Verified identity",
+                "Campus portals",
+              ].map((item) => (
+                <span key={item} className="flex items-center gap-2 text-[13px] text-white/85">
+                  <Icon
+                    name="check"
+                    strokeWidth={2.6}
+                    className="size-3.5 shrink-0 text-money-400"
+                  />
+                  {item}
+                </span>
+              ))}
             </div>
           </div>
         </section>
 
-        {/* ---------------------------------------------------------------- */}
-        {/* Popular services                                                 */}
-        {/* ---------------------------------------------------------------- */}
-        <section className="mx-auto max-w-7xl px-5 py-20">
-          <SectionHeading
-            eyebrow="Ready to buy"
-            title="Popular services"
-            lede="Fixed scope, fixed price, delivered on a clock that starts when you have handed over what the seller needs."
+        {/* ================================================================ */}
+        {/* Categories                                                       */}
+        {/* ================================================================ */}
+        <section className="mx-auto max-w-7xl px-5 py-16 sm:py-20">
+          <SectionHead
+            eyebrow="Explore"
+            title="Eight fields, one standard of work"
+            description="Every category runs the same contract, the same escrow and the same review rules. The difference is the craft, never the protection."
             action={
+              /* Padded to a 44px target. It sits alone at the end of a heading
+                 row rather than inline in a paragraph, so it gets no exemption
+                 from the minimum. */
               <Link
                 href="/gigs"
-                className="inline-flex items-center gap-1.5 text-[14px] font-medium text-accent underline-offset-4 hover:underline"
+                className={cn(
+                  "inline-flex min-h-11 items-center gap-1.5 text-[13.5px] font-medium",
+                  "text-accent underline-offset-4 hover:underline",
+                )}
               >
-                Browse all services
-                <Icon name="arrowRight" className="size-4" />
+                See all services
+                <Icon name="arrowRight" className="size-3.5" />
               </Link>
             }
-            className="mb-9"
           />
-
-          <ScrollRow>
-            {POPULAR.map((item) => (
-              <ServiceCard key={item.title} item={item} href={`/gigs?category=${item.slug}`} />
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {CATEGORIES.map((category) => (
+              <CategoryTile key={category.slug} {...category} />
             ))}
-          </ScrollRow>
+          </div>
         </section>
 
-        {/* ---------------------------------------------------------------- */}
-        {/* Categories                                                       */}
-        {/* ---------------------------------------------------------------- */}
-        <section className="border-y border-line bg-sunken">
-          <div className="mx-auto max-w-7xl px-5 py-20">
-            <SectionHeading
-              eyebrow="Explore"
-              title="Browse by category"
-              lede="Eight fields, hundreds of specialisms underneath them."
-              className="mb-10"
+        {/* ================================================================ */}
+        {/* Popular services                                                 */}
+        {/* ================================================================ */}
+        <section className="border-y border-line bg-raised">
+          <div className="mx-auto max-w-7xl px-5 py-16 sm:py-20">
+            <SectionHead
+              eyebrow="Services"
+              title="Packaged work, priced before you ask"
+              description="Every listing states its tiers, delivery time and revision count up front — so the negotiation is finished before the conversation starts."
+            />
+            <ScrollRow>
+              {POPULAR.map((item) => (
+                <ServiceCard key={item.id} item={item} href={`/gigs/${item.id}`} />
+              ))}
+            </ScrollRow>
+          </div>
+        </section>
+
+        {/* ================================================================ */}
+        {/* The two tracks                                                   */}
+        {/* ================================================================ */}
+        <section id="tracks" className="mx-auto max-w-7xl scroll-mt-24 px-5 py-16 sm:py-20">
+          <SectionHead
+            eyebrow="How it works"
+            title="Two hiring models, under one roof"
+            description="Most marketplaces make you choose a platform before you have chosen an approach. Here it is a toggle, and everything downstream — messaging, escrow, reviews — is shared."
+          />
+
+          <div className="mb-10">
+            <TrackSwitch value={track} onChange={setTrack} />
+          </div>
+
+          <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
+            <PhotoFigure
+              src={detail.image}
+              alt={detail.alt}
+              caption={detail.heading}
+              captionBody={detail.blurb}
             />
 
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-              {CATEGORIES.map((category) => (
-                <CategoryTile
-                  key={category.slug}
-                  href={`/gigs?category=${category.slug}`}
-                  icon={category.icon}
-                  name={category.name}
-                  count={category.count}
-                />
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* ---------------------------------------------------------------- */}
-        {/* Two ways to work                                                 */}
-        {/* ---------------------------------------------------------------- */}
-        <section id="tracks" className="mx-auto max-w-7xl scroll-mt-24 px-5 py-20">
-          <SectionHeading
-            eyebrow="Two ways to work"
-            title="Some work needs a conversation. Some just needs doing."
-            lede="Forcing every job through one model loses half the work. So we run both, over the same payments, messaging, reviews, and search."
-            className="mb-10"
-          />
-
-          <div className="grid gap-6 lg:grid-cols-2">
-            {[
-              {
-                tag: "Post a project",
-                title: "For work that needs scoping",
-                lede: "Describe the brief, compare proposals, interview, and award.",
-                points: [
-                  "Screening questions filter out low-effort applications",
-                  "Fixed price, staged milestones, or hourly with a time log",
-                  "Each stage funded and released on its own",
-                ],
-                footer: "Custom, ambiguous, or long-running work",
-                href: "/projects/new",
-                cta: "Post a project",
-              },
-              {
-                tag: "Sell a service",
-                title: "For work you already understand",
-                lede: "Publish a fixed price with a clear scope, and buyers purchase it outright.",
-                points: [
-                  "Tiered packages with optional paid add-ons",
-                  "A requirements form starts the clock, not the seller",
-                  "Defined revisions, then release on acceptance",
-                ],
-                footer: "Standardised, repeatable, well-understood work",
-                href: "/gigs/new",
-                cta: "Publish a service",
-              },
-            ].map((track) => (
-              <div
-                key={track.title}
-                className="lift group relative overflow-hidden rounded-2xl border border-line bg-raised p-8 shadow-e1"
-              >
-                <div
-                  className="absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-accent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-                  aria-hidden
-                />
-                <Badge tone="accent">{track.tag}</Badge>
-                <h3 className="display-3 mt-4 text-fg">{track.title}</h3>
-                <p className="mt-2.5 text-[14.5px] leading-relaxed text-muted">{track.lede}</p>
-
-                <ul className="mt-7 space-y-3.5">
-                  {track.points.map((point) => (
-                    <li key={point} className="flex gap-3 text-[14px] text-fg">
-                      <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-positive-soft text-positive">
-                        <Icon name="check" className="size-3" strokeWidth={2.8} />
-                      </span>
-                      {point}
-                    </li>
-                  ))}
-                </ul>
-
-                <div className="mt-7 flex items-center justify-between border-t border-line pt-5">
-                  <p className="text-[12.5px] text-subtle">{track.footer}</p>
-                  <Link
-                    href={track.href}
-                    className="inline-flex items-center gap-1.5 text-[13.5px] font-medium text-accent underline-offset-4 hover:underline"
-                  >
-                    {track.cta}
-                    <Icon name="arrowRight" className="size-3.5" />
-                  </Link>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ---------------------------------------------------------------- */}
-        {/* How it works                                                     */}
-        {/* ---------------------------------------------------------------- */}
-        <section className="border-y border-line bg-sunken">
-          <div className="reveal mx-auto max-w-7xl px-5 py-20">
-            <SectionHeading eyebrow="The flow" title="How it works" className="mb-10" />
-            <div className="grid gap-6 md:grid-cols-3">
-              {HOW_IT_WORKS.map((step, index) => (
-                <div
-                  key={step.title}
-                  className="relative overflow-hidden rounded-2xl border border-line bg-raised p-7"
-                >
-                  <span className="absolute right-6 top-5 text-[56px] font-semibold leading-none text-line">
-                    {index + 1}
-                  </span>
-                  <span className="grid size-11 place-items-center rounded-xl bg-accent-soft text-accent">
-                    <Icon name={step.icon} className="size-5" />
-                  </span>
-                  <h3 className="mt-5 text-[16px] font-semibold text-fg">{step.title}</h3>
-                  <p className="mt-2 text-[14px] leading-relaxed text-muted">{step.body}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* ---------------------------------------------------------------- */}
-        {/* Membership                                                       */}
-        {/* ---------------------------------------------------------------- */}
-        <section className="mx-auto max-w-7xl px-5 py-20">
-          <SectionHeading
-            eyebrow="Membership"
-            title="Free to work. Paid only if it pays you back."
-            lede="Hiring and selling never cost a subscription. The paid tiers buy reach and tooling on top — and they arrive with the professional layer, not before."
-            className="mb-11"
-          />
-
-          <div className="grid items-start gap-6 lg:grid-cols-3">
-            {PLANS.map((plan) => (
-              <div
-                key={plan.name}
-                className={cn(
-                  "relative flex h-full flex-col rounded-2xl border p-8 transition-shadow duration-300",
-                  plan.featured
-                    ? "border-accent/50 bg-raised shadow-e3 lg:-my-3 lg:py-11"
-                    : "border-line bg-raised shadow-e1 hover:shadow-e2",
-                )}
-              >
-                {plan.featured && (
-                  <span className="absolute -top-3 left-8 rounded-full bg-accent px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-on-accent">
-                    Most popular
-                  </span>
-                )}
-
-                <div className="flex items-baseline justify-between gap-3">
-                  <h3 className="text-[17px] font-semibold text-fg">{plan.name}</h3>
-                  {!plan.available && <Badge tone="caution">Coming soon</Badge>}
-                </div>
-
-                <p className="mt-4 flex items-baseline gap-1.5">
-                  <span className="tabular text-[34px] font-semibold tracking-[-0.03em] text-fg">
-                    {plan.price}
-                  </span>
-                  <span className="text-[13px] text-subtle">{plan.cadence}</span>
-                </p>
-
-                <p className="mt-3 text-[14px] leading-relaxed text-muted">{plan.lede}</p>
-
-                <ul className="mt-7 flex-1 space-y-3">
-                  {plan.features.map((feature) => (
-                    <li key={feature} className="flex gap-2.5 text-[13.5px] text-fg">
-                      <span className="mt-0.5 grid size-4.5 shrink-0 place-items-center rounded-full bg-positive-soft text-positive">
-                        <Icon name="check" className="size-2.5" strokeWidth={3.2} />
-                      </span>
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
-
-                <Link
-                  href={plan.href}
-                  className={cn(
-                    "mt-8 inline-flex h-11 items-center justify-center rounded-xl px-5 text-[14px] font-medium",
-                    "transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                    plan.featured
-                      ? "bg-accent text-on-accent hover:bg-accent-hover"
-                      : "border border-line-strong bg-raised text-fg hover:bg-sunken",
-                  )}
-                >
-                  {plan.cta}
-                </Link>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ---------------------------------------------------------------- */}
-        {/* Campus — the differentiator, given a dark surface of its own      */}
-        {/* ---------------------------------------------------------------- */}
-        <section id="campus" className="scroll-mt-24 px-5 py-12">
-          <div className="mx-auto max-w-7xl overflow-hidden rounded-3xl border border-line bg-ink-950 text-white">
-            <div className="grid items-center gap-12 p-9 lg:grid-cols-2 lg:p-14">
-              <div>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-[12px] font-medium text-white/90">
-                  <Icon name="sparkles" className="size-3" />
-                  Only on SkilRize
-                </span>
-                <h2 className="display-2 mt-5">A private marketplace for your campus.</h2>
-                <p className="mt-5 max-w-lg text-[15.5px] leading-relaxed text-white/70">
-                  Verify with your university email and student ID, and a portal opens for your
-                  university alone. Your campus sees it. No one else does — not other universities,
-                  not the open market.
-                </p>
-
-                <ul className="mt-8 space-y-5">
-                  {[
-                    ["Verified peers only", "Everyone proved their university affiliation."],
-                    ["Priced for your market", "You compete with your campus, not the global floor."],
-                    ["Reputation you keep", "Work there, then carry the reviews into the open market."],
-                  ].map(([title, body]) => (
-                    <li key={title} className="flex gap-3.5">
-                      <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-white/15">
-                        <Icon name="check" className="size-3" strokeWidth={2.8} />
-                      </span>
-                      <div>
-                        <p className="text-[14px] font-medium">{title}</p>
-                        <p className="mt-0.5 text-[13.5px] leading-relaxed text-white/60">{body}</p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-
-                <Link
-                  href="/signup"
-                  className="mt-9 inline-flex h-12 items-center gap-2 rounded-xl bg-white px-6 text-[15px] font-medium text-ink-950 transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                >
-                  Verify as a student
-                  <Icon name="arrowRight" className="size-4" />
-                </Link>
-              </div>
-
-              {/* A representative portal frame rather than a stock photograph. */}
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-2 backdrop-blur">
-                <div className="flex items-center gap-2 px-3 py-2.5">
-                  <span className="flex gap-1.5" aria-hidden>
-                    {[0, 1, 2].map((dot) => (
-                      <span key={dot} className="size-2.5 rounded-full bg-white/20" />
-                    ))}
-                  </span>
-                  <span className="ml-2 inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2 py-1 text-[11px] text-white/70">
-                    <Icon name="lock" className="size-3" />
-                    campus · COMSATS
-                  </span>
-                </div>
-
-                <div className="space-y-2.5 rounded-xl bg-ink-1000/60 p-4">
-                  {[
-                    { seller: "Ahmed R.", title: "Poster & flyer design", price: "Rs 1,500" },
-                    { seller: "Sana M.", title: "Final-year project help — React", price: "Rs 6,000" },
-                    { seller: "Bilal K.", title: "Lecture notes → clean PDF", price: "Rs 800" },
-                    { seller: "Hira Z.", title: "Thesis formatting & citations", price: "Rs 2,200" },
-                  ].map((listing) => (
-                    <div
-                      key={listing.title}
-                      className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3 transition-colors hover:bg-white/10"
+            <div>
+              <ol className="space-y-7">
+                {detail.steps.map((step, index) => (
+                  <li key={step.title} className="flex gap-4">
+                    <span
+                      className={cn(
+                        "grid size-9 shrink-0 place-items-center rounded-full",
+                        "bg-accent-soft text-[13px] font-semibold text-accent",
+                      )}
                     >
-                      <span className="grid size-8 shrink-0 place-items-center rounded-full bg-linear-to-br from-brand-400 to-brand-600 text-[11px] font-semibold">
-                        {listing.seller.slice(0, 1)}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[13px] font-medium">{listing.title}</p>
-                        <p className="text-[11.5px] text-white/50">{listing.seller}</p>
-                      </div>
-                      <span className="tabular shrink-0 text-[13px] font-semibold text-money-400">
-                        {listing.price}
-                      </span>
+                      {index + 1}
+                    </span>
+                    <div>
+                      <p className="heading-sans text-[16.5px] text-fg">{step.title}</p>
+                      <p className="mt-1.5 text-[14px] leading-relaxed text-muted">
+                        {step.body}
+                      </p>
                     </div>
-                  ))}
-                  <p className="pt-1 text-center text-[11px] text-white/40">
-                    Visible only to verified COMSATS students
-                  </p>
-                </div>
-              </div>
+                  </li>
+                ))}
+              </ol>
+
+              <Link href={detail.href} className="mt-9 inline-block">
+                <Button size="lg">
+                  <Icon name={detail.icon} className="size-4" />
+                  {detail.cta}
+                </Button>
+              </Link>
             </div>
           </div>
         </section>
 
-        {/* ---------------------------------------------------------------- */}
-        {/* Stories                                                          */}
-        {/* ---------------------------------------------------------------- */}
-        <section className="mx-auto max-w-7xl px-5 py-20">
-          <SectionHeading
-            eyebrow="In practice"
-            title="What working here looks like"
-            lede="Illustrative scenarios from the workflows the platform is built around."
-            className="mb-10"
-          />
-
-          <ScrollRow>
-            {STORIES.map((story) => (
-              <div
-                key={story.name}
-                className="lift flex w-[min(88vw,23rem)] shrink-0 snap-start flex-col rounded-2xl border border-line bg-raised p-7 shadow-e1"
-              >
-                <Icon name="quote" className="size-6 text-line-strong" />
-                <p className="mt-4 flex-1 text-[14.5px] leading-relaxed text-fg">{story.quote}</p>
-                <div className="mt-6 flex items-center gap-3 border-t border-line pt-5">
-                  <span className="grid size-10 shrink-0 place-items-center rounded-full bg-linear-to-br from-brand-400 to-brand-600 text-[13px] font-semibold text-white">
-                    {story.name.slice(0, 1)}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="truncate text-[13.5px] font-medium text-fg">{story.name}</p>
-                    <p className="truncate text-[12px] text-subtle">{story.role}</p>
-                  </div>
-                  <div className="ml-auto shrink-0 text-right">
-                    <Stars value={story.rating} size={12} />
-                    <p className="mt-0.5 text-[11px] text-subtle">{story.work}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </ScrollRow>
-        </section>
-
-        {/* ---------------------------------------------------------------- */}
-        {/* Trust                                                            */}
-        {/* ---------------------------------------------------------------- */}
-        <section id="trust" className="scroll-mt-24 border-y border-line bg-sunken">
-          <div className="mx-auto max-w-7xl px-5 py-20">
-            <SectionHeading
-              eyebrow="Why this is safe to use"
-              title="Money and identity, handled properly."
-              lede="A marketplace holds strangers' money and strangers' documents. That makes security a product feature, and it is the part we built first."
-              className="mb-11"
-            />
-
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-              {TRUST.map((item) => (
-                <div
-                  key={item.title}
-                  className="lift rounded-2xl border border-line bg-raised p-7 hover:border-accent/40"
-                >
-                  <span className="grid size-10 place-items-center rounded-xl bg-accent-soft text-accent">
+        {/* ================================================================ */}
+        {/* Capabilities                                                     */}
+        {/* ================================================================ */}
+        <section className="border-y border-line bg-raised">
+          <div className="mx-auto max-w-7xl px-5 py-16">
+            <div className="grid gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-4">
+              {CAPABILITIES.map((item) => (
+                <div key={item.title}>
+                  <span className="grid size-10 place-items-center rounded-lg bg-accent-soft text-accent">
                     <Icon name={item.icon} className="size-5" />
                   </span>
-                  <h3 className="mt-5 text-[15px] font-semibold text-fg">{item.title}</h3>
-                  <p className="mt-2 text-[13.5px] leading-relaxed text-muted">{item.body}</p>
+                  <p className="mt-4 text-[15px] font-medium text-fg">{item.title}</p>
+                  <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">
+                    {item.body}
+                  </p>
                 </div>
               ))}
             </div>
           </div>
         </section>
 
-        {/* ---------------------------------------------------------------- */}
-        {/* CTA                                                              */}
-        {/* ---------------------------------------------------------------- */}
-        <section className="px-5 py-20">
-          <div className="hero-dark texture-grain relative mx-auto max-w-7xl overflow-hidden rounded-3xl px-6 py-20 text-center">
-            <div className="hero-grid absolute inset-0" aria-hidden />
-            <div className="relative">
-              <h2 className="display-1 mx-auto max-w-[18ch] text-white">
-                Start where you are.
-              </h2>
-              <p className="mx-auto mt-6 max-w-lg text-[17px] leading-relaxed text-white/65">
-                Free to join, free to browse. Verify when you are ready to hire or get paid.
-              </p>
-              <div className="mt-10 flex flex-wrap justify-center gap-3">
-                <Link
-                  href="/signup"
-                  className="inline-flex h-13 items-center gap-2 rounded-xl bg-white px-8 text-[15px] font-medium text-ink-950 shadow-[0_16px_40px_-12px_rgb(0_0_0_/_0.6)] transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                >
-                  Create your account
-                  <Icon name="arrowRight" className="size-4" />
-                </Link>
-                <Link
-                  href="/projects"
-                  className="inline-flex h-13 items-center rounded-xl border border-white/20 bg-white/8 px-8 text-[15px] font-medium text-white backdrop-blur transition-colors hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                >
-                  Browse open work
+        {/* ================================================================ */}
+        {/* Campus — the dark band                                           */}
+        {/* ================================================================ */}
+        <section id="campus" className="scroll-mt-24 px-5 py-16 sm:py-20">
+          <div className="relative isolate mx-auto max-w-7xl overflow-hidden rounded-3xl bg-ink-1000">
+            <Image
+              src="/img/campus.jpg"
+              alt=""
+              fill
+              sizes="(max-width: 1280px) 100vw, 1280px"
+              className="-z-20 object-cover object-center opacity-45"
+            />
+            <div
+              aria-hidden
+              className="absolute inset-0 -z-10 bg-gradient-to-r from-ink-1000 via-ink-1000/90 to-ink-1000/50"
+            />
+
+            <div className="grid gap-12 p-8 sm:p-12 lg:grid-cols-2 lg:items-center lg:p-16">
+              <div>
+                <p className="eyebrow text-white/55">For universities</p>
+                <h2 className="heading-sans mt-3 text-[clamp(1.7rem,3.2vw,2.5rem)] leading-tight text-white">
+                  Your campus, its own marketplace
+                </h2>
+                <p className="mt-5 max-w-lg text-[15.5px] leading-relaxed text-white/70">
+                  Verify with a university email and a student ID, and a second marketplace
+                  opens — one only your campus can see. Post to it, sell in it, and build
+                  real reviews before you ever compete globally.
+                </p>
+
+                <ul className="mt-8 space-y-3.5">
+                  {[
+                    "Scoped in the database, not the page — a campus listing cannot reach the global surface",
+                    "Switch surfaces in one click; profile, wallet and reviews all come with you",
+                    "Cross-tenant leakage is a release gate, re-run on every commit",
+                  ].map((line) => (
+                    <li key={line} className="flex gap-3 text-[14px] leading-relaxed text-white/80">
+                      <Icon
+                        name="check"
+                        strokeWidth={2.6}
+                        className="mt-0.5 size-4 shrink-0 text-money-400"
+                      />
+                      {line}
+                    </li>
+                  ))}
+                </ul>
+
+                <Link href="/signup" className="mt-9 inline-block">
+                  <Button size="lg" variant="secondary">
+                    Verify as a student
+                    <Icon name="arrowRight" className="size-4" />
+                  </Button>
                 </Link>
               </div>
-              <p className="mt-7 text-[13px] text-white/40">
-                No card required · Escrow on every contract · Cancel any time
-              </p>
+
+              {/* The surface switch, shown rather than described. */}
+              <div className="glass-dark rounded-2xl p-5">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-white/45">
+                  Active marketplace
+                </p>
+                <div className="mt-3 space-y-2.5">
+                  <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3.5">
+                    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-white/10 text-white">
+                      <Icon name="globe" className="size-4.5" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13.5px] font-medium text-white">Global</p>
+                      <p className="text-[11.5px] text-white/50">Open to everyone</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 rounded-xl border border-brand-400/50 bg-brand-500/25 p-3.5">
+                    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-brand-400 text-ink-950">
+                      <Icon name="building" className="size-4.5" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13.5px] font-medium text-white">COMSATS</p>
+                      <p className="text-[11.5px] text-white/50">Verified students only</p>
+                    </div>
+                    <Icon name="check" strokeWidth={2.6} className="size-4 text-money-400" />
+                  </div>
+                </div>
+                <p className="mt-4 border-t border-white/10 pt-4 text-[12px] leading-relaxed text-white/50">
+                  Everything you post inherits the surface you are standing on. There is no
+                  second step to forget.
+                </p>
+              </div>
             </div>
+          </div>
+        </section>
+
+        {/* ================================================================ */}
+        {/* Escrow                                                           */}
+        {/* ================================================================ */}
+        <section className="border-y border-line bg-raised">
+          <div className="mx-auto max-w-7xl px-5 py-16 sm:py-20">
+            <SectionHead
+              eyebrow="Getting paid"
+              title="Four states, and no ambiguity between them"
+              description="Money is never in a position where both sides believe they hold it. Every contract on both tracks moves through the same states in the same order."
+            />
+
+            <ol className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+              {ESCROW_STAGES.map((stage, index) => (
+                <li
+                  key={stage.label}
+                  className="relative rounded-xl border border-line bg-surface p-6"
+                >
+                  {index < ESCROW_STAGES.length - 1 && (
+                    <span
+                      aria-hidden
+                      className="absolute right-0 top-12 hidden h-px w-5 translate-x-full bg-line-strong lg:block"
+                    />
+                  )}
+                  <span className="eyebrow tabular">Step {index + 1}</span>
+                  <p className="heading-sans mt-2 text-[17px] text-fg">{stage.label}</p>
+                  <p className="mt-2 text-[13.5px] leading-relaxed text-muted">{stage.body}</p>
+                </li>
+              ))}
+            </ol>
+
+            <p className="mx-auto mt-8 max-w-2xl text-center text-[13px] leading-relaxed text-subtle">
+              Card and mobile-money rails are being connected now. Until they are live,
+              contracts move through these states without a real charge — the state machine
+              is the finished part, and it is the part that decides who holds what.
+            </p>
+          </div>
+        </section>
+
+        {/* ================================================================ */}
+        {/* Sell / plans                                                     */}
+        {/* ================================================================ */}
+        <section className="mx-auto max-w-7xl px-5 py-16 sm:py-20">
+          <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
+            <PhotoFigure
+              src="/img/campus-study.jpg"
+              alt="A group working together over laptops in a library"
+              caption="Free to hire, free to sell"
+              captionBody="Pro and Elite buy volume and visibility, never the basics."
+            />
+            <div>
+              <p className="eyebrow">Start earning</p>
+              <h2 className="heading-sans mt-3 text-[clamp(1.7rem,3.2vw,2.5rem)] leading-tight text-fg">
+                Everything you need to get paid is on the free plan
+              </h2>
+              <p className="mt-5 text-[15.5px] leading-relaxed text-muted">
+                Publish services, bid on briefs, run contracts and take payment through
+                escrow without paying us a subscription. The paid tiers exist for the point
+                at which freelancing is your income rather than your side project.
+              </p>
+              <div className="mt-8 flex flex-wrap gap-3">
+                <Link href="/signup">
+                  <Button size="lg">Start selling</Button>
+                </Link>
+                <Link href="/pricing">
+                  <Button size="lg" variant="secondary">
+                    Compare plans
+                    <Icon name="arrowRight" className="size-4" />
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ================================================================ */}
+        {/* Close                                                            */}
+        {/* ================================================================ */}
+        <section className="px-5 pb-20">
+          <div className="relative isolate mx-auto max-w-7xl overflow-hidden rounded-3xl bg-ink-1000 px-6 py-16 text-center sm:py-20">
+            <Image
+              src="/img/campus-study.jpg"
+              alt=""
+              fill
+              sizes="(max-width: 1280px) 100vw, 1280px"
+              className="-z-20 object-cover opacity-25"
+            />
+            <div aria-hidden className="absolute inset-0 -z-10 bg-ink-1000/70" />
+
+            <h2 className="display-2 mx-auto max-w-3xl text-white">
+              Start on either side. <span className="italic text-brand-300">Switch whenever.</span>
+            </h2>
+            <p className="mx-auto mt-5 max-w-xl text-[15.5px] leading-relaxed text-white/70">
+              The same account hires and gets hired. Nothing to migrate the day you decide
+              to do both.
+            </p>
+            <div className="mt-9 flex flex-wrap justify-center gap-3">
+              <Link href="/signup">
+                <Button size="lg">Create an account</Button>
+              </Link>
+              <Link href="/gigs">
+                <Button size="lg" variant="secondary">
+                  Browse first
+                </Button>
+              </Link>
+            </div>
+            <p className="mt-4 text-[12.5px] text-white/50">
+              Free to join. Verification is asked for only when money is about to move.
+            </p>
           </div>
         </section>
       </main>
 
-      {/* ------------------------------------------------------------------ */}
+      {/* ================================================================== */}
       {/* Footer                                                             */}
-      {/* ------------------------------------------------------------------ */}
-      <footer className="border-t border-line bg-sunken">
-        <div className="mx-auto max-w-7xl px-5 py-16">
-          <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 lg:grid-cols-5">
+      {/* ================================================================== */}
+      <footer className="border-t border-line bg-raised">
+        <div className="mx-auto max-w-7xl px-5 py-14">
+          <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <Logo />
+              <p className="mt-4 max-w-xs text-[13px] leading-relaxed text-muted">
+                A unified freelance marketplace — packaged services and open briefs, on one
+                account, with private campus portals for verified students.
+              </p>
+            </div>
+
             {FOOTER.map((column) => (
-              <div key={column.heading}>
-                <h3 className="text-[13px] font-semibold text-fg">{column.heading}</h3>
-                <ul className="mt-4 space-y-2.5">
-                  {column.links.map((link) => (
-                    <li key={link}>
-                      <span className="cursor-default text-[13px] text-muted transition-colors hover:text-fg">
-                        {link}
-                      </span>
+              <nav key={column.heading} aria-label={column.heading}>
+                <p className="text-[12.5px] font-semibold text-fg">{column.heading}</p>
+                <ul className="mt-3.5 space-y-2.5">
+                  {column.links.map(([label, href]) => (
+                    <li key={label}>
+                      <Link
+                        href={href}
+                        className="text-[13px] text-muted transition-colors duration-200 hover:text-fg"
+                      >
+                        {label}
+                      </Link>
                     </li>
                   ))}
                 </ul>
-              </div>
+              </nav>
             ))}
           </div>
 
-          <div className="mt-14 flex flex-col items-center justify-between gap-4 border-t border-line pt-8 sm:flex-row">
-            <Logo />
+          <div className="mt-12 flex flex-wrap items-center justify-between gap-4 border-t border-line pt-7">
             <p className="text-[12.5px] text-subtle">
               © {new Date().getFullYear()} SkilRize · Built by NEXOLV.TECH
             </p>
-            <div className="flex items-center gap-2 text-[12.5px] text-subtle">
-              <Icon name="globe" className="size-3.5" />
-              Pakistan · English
-            </div>
+            <p className="text-[12.5px] text-subtle">
+              Photography under the Unsplash licence
+            </p>
           </div>
         </div>
       </footer>

@@ -1,188 +1,262 @@
 "use client";
 
 /**
- * Interactive pieces of the marketing pages.
+ * Marketing surfaces.
  *
- * Kept as a small client island so the landing page itself stays a server
- * component — category and brief pages are the primary organic search-engine
- * landing surface, and forfeiting server rendering there would cost the main
- * acquisition channel.
+ * Photography carries this page, the way it carries every marketplace at this
+ * size — a catalogue that shows no work does not read as a catalogue. Images
+ * live in `web/public/img`, are served from our own origin (the CSP allows
+ * `img-src 'self'` and nothing else), and go through `next/image` so each one
+ * ships as AVIF/WebP at the size actually requested, lazily, in a box whose
+ * height is reserved before it loads.
+ *
+ * The organising idea underneath: this platform carries two hiring models that
+ * the competitors carry one of each, so the choice between them is the hero's
+ * primary control rather than a line of copy further down.
  */
 
 import * as React from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { CoverArt, type Motif } from "@/components/artwork";
-import { Icon, Stars, cn, type IconName } from "@/components/ui";
+import { Icon, Money, cn, type IconName } from "@/components/ui";
 
-/**
- * The hero backdrop.
- *
- * Set `NEXT_PUBLIC_HERO_VIDEO` to a file in `public/` and this plays it —
- * muted, looping, inline, with `poster` covering the gap before the first
- * frame. With no video configured it falls back to an animated gradient field,
- * which is the default rather than a placeholder: it costs no download, cannot
- * be blocked by an autoplay policy, and respects reduced-motion for free.
- */
-export function HeroBackdrop() {
-  const video = process.env.NEXT_PUBLIC_HERO_VIDEO;
-  const poster = process.env.NEXT_PUBLIC_HERO_POSTER;
+/* -------------------------------------------------------------------------- */
+/* Track                                                                      */
+/* -------------------------------------------------------------------------- */
 
-  if (!video) {
-    // The `.hero-dark` surface underneath already carries the colour field;
-    // this only adds the masked grid that gives it a sense of scale.
-    return <div className="hero-grid absolute inset-0" aria-hidden />;
-  }
+export type Track = "services" | "projects";
 
-  return (
-    <>
-      <video
-        className="absolute inset-0 size-full object-cover opacity-45"
-        src={video}
-        poster={poster}
-        autoPlay
-        muted
-        loop
-        playsInline
-        // Decorative: it carries no information the copy does not.
-        aria-hidden
-        tabIndex={-1}
-      />
-      {/* Scrim, so headline contrast never depends on what the footage shows.
-          The hero copy is white on near-black, and that has to hold whatever
-          frame the video happens to be paused on. */}
-      <div
-        className="absolute inset-0 bg-linear-to-br from-ink-1000/92 via-ink-1000/75 to-ink-950/92"
-        aria-hidden
-      />
-      <div className="hero-grid absolute inset-0" aria-hidden />
-    </>
-  );
-}
-
-type Intent = "hire" | "work";
-
-const SUGGESTIONS: Record<Intent, string[]> = {
-  hire: ["Web development", "Logo design", "Video editing", "SEO", "Data analysis"],
-  work: ["React", "Figma", "Copywriting", "Python", "Motion graphics"],
+export const TRACKS: Record<
+  Track,
+  { label: string; placeholder: string; action: string; suggestions: string[] }
+> = {
+  services: {
+    label: "Buy a service",
+    placeholder: "Try “logo design” or “landing page”",
+    action: "Search",
+    suggestions: ["Logo design", "Landing page", "Video editing", "SEO audit"],
+  },
+  projects: {
+    label: "Post a brief",
+    placeholder: "Describe what you need built",
+    action: "Get proposals",
+    suggestions: ["Mobile app", "Data pipeline", "Brand identity", "Tech writing"],
+  },
 };
 
 /**
- * The hero search, on the dark hero surface.
- *
- * Built against `white/x` rather than the semantic tokens on purpose: this sits
- * on a fixed near-black panel that does not flip with the theme, so resolving
- * `--fg` here would make the control invert into illegibility in light mode.
- * A surface that is deliberately one colour in both themes has to be styled
- * that way too.
+ * The track switch. A tablist rather than links: it re-renders the search and
+ * the suggestions beside it, so it is a control, not navigation. Roving
+ * `tabIndex` keeps it to one tab stop with arrow keys inside.
  */
-export function HeroSearch() {
-  const router = useRouter();
-  const [intent, setIntent] = React.useState<Intent>("hire");
-  const [query, setQuery] = React.useState("");
+export function TrackSwitch({
+  value,
+  onChange,
+  tone = "light",
+}: {
+  value: Track;
+  onChange: (next: Track) => void;
+  tone?: "light" | "dark";
+}) {
+  const order: Track[] = ["services", "projects"];
 
-  function submit(term: string) {
-    const trimmed = term.trim();
-    // "Hire" browses ready-made services; "work" browses open briefs. The two
-    // intents genuinely want different catalogues, so they route apart.
-    const base = intent === "hire" ? "/gigs" : "/projects";
-    router.push(trimmed ? `${base}?q=${encodeURIComponent(trimmed)}` : base);
+  return (
+    <div
+      role="tablist"
+      aria-label="How you want to hire"
+      className={cn(
+        "inline-flex rounded-full p-1",
+        tone === "dark"
+          ? "border border-white/20 bg-black/35 backdrop-blur-md"
+          : "border border-line bg-raised shadow-e1",
+      )}
+    >
+      {order.map((track) => {
+        const active = track === value;
+        return (
+          <button
+            key={track}
+            role="tab"
+            type="button"
+            aria-selected={active}
+            tabIndex={active ? 0 : -1}
+            onClick={() => onChange(track)}
+            onKeyDown={(event) => {
+              if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+              event.preventDefault();
+              onChange(order[(order.indexOf(value) + 1) % order.length]!);
+            }}
+            className={cn(
+              /* 44px, not the 40px this would otherwise want to be: it is the
+                 first control on the page and the smallest reliable touch
+                 target. */
+              "min-h-11 cursor-pointer rounded-full px-5 text-[13.5px] font-medium",
+              "transition-colors duration-200",
+              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
+              active
+                ? "bg-white text-ink-900 shadow-e1"
+                : tone === "dark"
+                  ? "text-white/70 hover:text-white"
+                  : "text-muted hover:text-fg",
+            )}
+          >
+            {TRACKS[track].label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The hero search. Submits into whichever surface the track points at. */
+export function HeroSearch({ track }: { track: Track }) {
+  const router = useRouter();
+  const [query, setQuery] = React.useState("");
+  const config = TRACKS[track];
+
+  function submit(event: React.FormEvent) {
+    event.preventDefault();
+    const term = query.trim();
+    if (track === "projects") {
+      router.push(term ? `/projects?q=${encodeURIComponent(term)}` : "/projects/new");
+      return;
+    }
+    router.push(term ? `/search?q=${encodeURIComponent(term)}` : "/gigs");
   }
 
   return (
-    <div className="w-full">
-      <div
-        role="tablist"
-        aria-label="What brings you here"
-        className="inline-flex items-center gap-1 rounded-full border border-white/12 bg-white/8 p-1 backdrop-blur"
+    <form
+      onSubmit={submit}
+      role="search"
+      className="flex items-center gap-2 rounded-xl bg-white p-2 shadow-e3"
+    >
+      <Icon name="search" className="ml-2.5 size-5 shrink-0 text-ink-400" />
+      <label htmlFor="hero-search" className="sr-only">
+        {config.action}
+      </label>
+      <input
+        id="hero-search"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder={config.placeholder}
+        className={cn(
+          "h-12 min-w-0 flex-1 bg-transparent text-[15px] text-ink-900",
+          "placeholder:text-ink-400 focus:outline-none",
+        )}
+      />
+      {/* Icon-only on phones. At 375px a worded button leaves the input about
+          nine characters wide, which is narrower than the placeholder asking
+          the question — the label is the first thing that should give way. */}
+      <button
+        type="submit"
+        aria-label={config.action}
+        className={cn(
+          "grid h-12 shrink-0 cursor-pointer place-items-center rounded-lg bg-ink-900",
+          "w-12 text-white transition-colors duration-200 hover:bg-ink-800 sm:w-auto sm:px-6",
+          "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+        )}
       >
-        {(
-          [
-            { value: "hire", label: "I want to hire", icon: "briefcase" },
-            { value: "work", label: "I want to work", icon: "user" },
-          ] as const
-        ).map((option) => {
-          const active = option.value === intent;
-          return (
-            <button
-              key={option.value}
-              role="tab"
-              type="button"
-              aria-selected={active}
-              onClick={() => setIntent(option.value)}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[13.5px] font-medium",
-                "transition-colors duration-200",
-                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
-                active ? "bg-white text-ink-950" : "text-white/70 hover:text-white",
-              )}
-            >
-              <Icon name={option.icon} className="size-3.5" />
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
+        <Icon name="arrowRight" className="size-5 sm:hidden" />
+        <span className="hidden text-[14px] font-medium sm:inline">{config.action}</span>
+      </button>
+    </form>
+  );
+}
 
-      <form
-        role="search"
-        className="mt-5"
-        onSubmit={(event) => {
-          event.preventDefault();
-          submit(query);
-        }}
-      >
-        <label htmlFor="hero-search" className="sr-only">
-          {intent === "hire" ? "Search for a service" : "Search for work"}
-        </label>
-        <div
+/** The pill rail under the hero search, mirroring the reference marketplaces. */
+export function SuggestionPills({ track }: { track: Track }) {
+  return (
+    <div className="flex flex-wrap gap-2.5">
+      {TRACKS[track].suggestions.map((term) => (
+        <Link
+          key={term}
+          href={
+            track === "projects"
+              ? `/projects?q=${encodeURIComponent(term)}`
+              : `/search?q=${encodeURIComponent(term)}`
+          }
           className={cn(
-            "flex items-center gap-2 rounded-2xl bg-white p-2 shadow-[0_24px_60px_-12px_rgb(0_0_0_/_0.6)]",
-            "ring-1 ring-white/20 transition-shadow duration-300",
-            "focus-within:ring-2 focus-within:ring-brand-400",
+            "inline-flex min-h-11 items-center gap-2 rounded-full border border-white/30",
+            "bg-white/10 px-4 text-[13px] text-white backdrop-blur-md",
+            "transition-colors duration-200 hover:bg-white/20",
+            "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
           )}
         >
-          <Icon name="search" className="ml-3 size-5 shrink-0 text-ink-500" />
-          <input
-            id="hero-search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={
-              intent === "hire"
-                ? "What do you need done?"
-                : "What kind of work are you looking for?"
-            }
-            className="h-13 min-w-0 flex-1 bg-transparent text-[16px] text-ink-950 outline-none placeholder:text-ink-400"
-          />
-          <button
-            type="submit"
-            className={cn(
-              "inline-flex h-13 shrink-0 items-center gap-2 rounded-xl bg-ink-950 px-7",
-              "text-[15px] font-medium text-white transition-colors duration-150",
-              "hover:bg-ink-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400",
-            )}
-          >
-            <Icon name="search" className="size-4 sm:hidden" />
-            <span className="hidden sm:inline">Search</span>
-          </button>
-        </div>
-      </form>
+          {term}
+          <Icon name="arrowRight" className="size-3.5" />
+        </Link>
+      ))}
+    </div>
+  );
+}
 
-      <div className="mt-5 flex flex-wrap items-center gap-2">
-        <span className="text-[12.5px] text-white/50">Popular:</span>
-        {SUGGESTIONS[intent].map((term) => (
+/* -------------------------------------------------------------------------- */
+/* Blocks                                                                     */
+/* -------------------------------------------------------------------------- */
+
+export function SectionHead({
+  eyebrow,
+  title,
+  description,
+  action,
+}: {
+  eyebrow?: string;
+  title: React.ReactNode;
+  description?: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-end justify-between gap-5 pb-8">
+      <div className="max-w-2xl space-y-2.5">
+        {eyebrow && <p className="eyebrow">{eyebrow}</p>}
+        <h2 className="heading-sans text-[clamp(1.6rem,3vw,2.3rem)] leading-tight text-fg">
+          {title}
+        </h2>
+        {description && (
+          <p className="text-[15px] leading-relaxed text-muted">{description}</p>
+        )}
+      </div>
+      {action}
+    </div>
+  );
+}
+
+/** A horizontally scrollable rail with keyboard-reachable arrows. */
+export function ScrollRow({ children }: { children: React.ReactNode }) {
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  function nudge(direction: 1 | -1) {
+    ref.current?.scrollBy({ left: direction * 340, behavior: "smooth" });
+  }
+
+  return (
+    <div className="relative">
+      <div
+        ref={ref}
+        className="no-bar -mx-5 flex snap-x snap-mandatory gap-5 overflow-x-auto px-5 pb-2"
+      >
+        {children}
+      </div>
+      <div className="mt-6 flex justify-end gap-2">
+        {([-1, 1] as const).map((direction) => (
           <button
-            key={term}
+            key={direction}
             type="button"
-            onClick={() => submit(term)}
+            onClick={() => nudge(direction)}
+            aria-label={direction === -1 ? "Scroll left" : "Scroll right"}
             className={cn(
-              "rounded-full border border-white/15 px-3.5 py-1.5 text-[12.5px] text-white/75 backdrop-blur",
-              "transition-colors duration-150 hover:border-white/40 hover:bg-white/10 hover:text-white",
-              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
+              "grid size-11 cursor-pointer place-items-center rounded-full border border-line",
+              "bg-raised text-muted transition-colors duration-200",
+              "hover:border-line-strong hover:text-fg",
+              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
             )}
           >
-            {term}
+            <Icon
+              name="chevronLeft"
+              className={cn("size-4", direction === 1 && "rotate-180")}
+            />
           </button>
         ))}
       </div>
@@ -190,239 +264,153 @@ export function HeroSearch() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Carousel                                                                   */
-/* -------------------------------------------------------------------------- */
-
 /**
- * A horizontally scrollable row that keeps keyboard and touch behaviour intact
- * — no custom drag handling, just a scroll container with snap points and
- * buttons that nudge it.
- *
- * The arrows sit beside the section heading rather than floating over the
- * content: overlaid arrows have to cover a card to be reachable, and on a
- * touch device they cover it for no benefit at all.
+ * Category tiles stay iconographic while service cards carry photographs.
+ * That split is deliberate and both reference marketplaces make it: a category
+ * is an abstraction and any single photo misrepresents it, whereas a service is
+ * a specific piece of work and a photo is the most honest thing you can show.
  */
-export function ScrollRow({
-  children,
-  controls = "below",
-}: {
-  children: React.ReactNode;
-  controls?: "below" | "none";
-}) {
-  const ref = React.useRef<HTMLDivElement>(null);
-
-  const nudge = (direction: 1 | -1) => {
-    ref.current?.scrollBy({ left: direction * 340, behavior: "smooth" });
-  };
-
-  return (
-    <div className="relative">
-      <div
-        ref={ref}
-        className="no-bar flex snap-x snap-mandatory gap-5 overflow-x-auto pb-2"
-      >
-        {children}
-      </div>
-      {controls === "below" && (
-        <div className="mt-4 flex justify-end gap-2">
-          {([-1, 1] as const).map((direction) => (
-            <button
-              key={direction}
-              type="button"
-              onClick={() => nudge(direction)}
-              aria-label={direction === -1 ? "Scroll left" : "Scroll right"}
-              className="grid size-9 place-items-center rounded-full border border-line bg-raised text-muted transition-colors hover:border-line-strong hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-            >
-              <Icon
-                name="chevronLeft"
-                className={cn("size-4", direction === 1 && "rotate-180")}
-              />
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Cards                                                                      */
-/* -------------------------------------------------------------------------- */
-
 export function CategoryTile({
-  href,
-  icon,
+  slug,
   name,
-  count,
+  icon,
+  blurb,
 }: {
-  href: string;
-  icon: IconName;
+  slug: string;
   name: string;
-  count: string;
+  icon: IconName;
+  blurb: string;
 }) {
   return (
     <Link
-      href={href}
+      href={`/gigs?category=${slug}`}
       className={cn(
-        "lift group flex flex-col gap-4 rounded-xl border border-line bg-raised p-5",
-        "hover:border-accent/40",
-        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+        "lift group flex flex-col justify-between gap-7 rounded-xl border border-line",
+        "bg-raised p-5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
       )}
     >
-      <span className="grid size-11 place-items-center rounded-xl bg-accent-soft text-accent transition-colors duration-200 group-hover:bg-accent group-hover:text-on-accent">
+      <span
+        aria-hidden
+        className={cn(
+          "grid size-11 place-items-center rounded-lg bg-accent-soft text-accent",
+          "transition-colors duration-200 group-hover:bg-accent group-hover:text-on-accent",
+        )}
+      >
         <Icon name={icon} className="size-5" />
       </span>
       <span>
         <span className="block text-[14.5px] font-medium text-fg">{name}</span>
-        <span className="mt-1 block text-[12.5px] text-subtle">{count}</span>
+        <span className="mt-0.5 block text-[12.5px] text-subtle">{blurb}</span>
       </span>
     </Link>
   );
 }
 
 export interface ServiceCardData {
+  id: number;
   title: string;
-  slug: string;
-  motif: Motif;
-  seller: string;
-  level: string;
+  category: string;
+  image: string;
+  alt: string;
+  price: number;
   rating: number;
   reviews: number;
-  from: string;
+  seller: string;
+  level: string;
 }
 
-/**
- * A catalogue listing as it appears in a browse row.
- *
- * The shape mirrors the real gig card used inside the app rather than being a
- * marketing-only invention — what a visitor sees on the landing page is what
- * they get after signing up, which is the cheapest kind of trust to earn.
- */
 export function ServiceCard({ item, href }: { item: ServiceCardData; href: string }) {
   return (
     <Link
       href={href}
       className={cn(
-        "lift group flex w-[min(82vw,20.5rem)] shrink-0 snap-start flex-col overflow-hidden",
-        "rounded-2xl border border-line bg-raised shadow-e1 hover:border-accent/40",
+        "lift group flex w-[19.5rem] shrink-0 snap-start flex-col overflow-hidden rounded-xl",
+        "border border-line bg-raised",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
       )}
     >
       <div className="relative aspect-[16/10] overflow-hidden bg-sunken">
-        <CoverArt
-          seed={item.title}
-          motif={item.motif}
-          rounded={false}
-          className="transition-transform duration-[700ms] ease-out group-hover:scale-[1.07]"
+        <Image
+          src={item.image}
+          alt={item.alt}
+          fill
+          sizes="320px"
+          className="object-cover transition-transform duration-500 group-hover:scale-[1.04]"
         />
-        {/* Base scrim: the artwork palette is seeded per listing, so a chip
-            placed on it needs its own contrast floor rather than trusting
-            whatever colour happened to land underneath. */}
-        <div
-          className="absolute inset-x-0 bottom-0 h-20 bg-linear-to-t from-black/55 to-transparent"
-          aria-hidden
-        />
-        <span className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full bg-black/45 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
+        <span className="absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
           {item.level}
         </span>
       </div>
 
-      <div className="flex flex-1 flex-col p-5">
-        <div className="flex items-center gap-2">
-          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-linear-to-br from-brand-400 to-brand-600 text-[11px] font-semibold text-white">
-            {item.seller.slice(0, 1)}
-          </span>
-          <span className="truncate text-[13px] font-medium text-fg">{item.seller}</span>
-          <span className="ml-auto flex shrink-0 items-center gap-1">
-            <Icon name="star" className="size-3.5 fill-warn-500 text-warn-500" strokeWidth={0} />
-            <span className="text-[12.5px] font-semibold text-fg">{item.rating.toFixed(1)}</span>
-            <span className="text-[12px] text-subtle">({item.reviews})</span>
-          </span>
-        </div>
-
-        <p className="mt-3.5 line-clamp-2 min-h-[2.8em] text-[15px] font-medium leading-snug text-fg transition-colors group-hover:text-accent">
+      <div className="flex flex-1 flex-col p-4">
+        <p className="text-[11px] font-medium uppercase tracking-wider text-subtle">
+          {item.category}
+        </p>
+        <p className="mt-1.5 line-clamp-2 text-[14.5px] font-medium leading-snug text-fg">
           {item.title}
         </p>
 
-        <div className="mt-auto flex items-baseline justify-between border-t border-line pt-4">
-          <span className="text-[11px] uppercase tracking-[0.06em] text-subtle">Starting at</span>
-          <span className="tabular text-[17px] font-semibold text-fg">Rs {item.from}</span>
+        <div className="mt-2 flex items-center gap-1.5 text-[12px]">
+          <Icon name="star" className="size-3.5 text-warn-500" />
+          <span className="tabular font-medium text-fg">{item.rating.toFixed(1)}</span>
+          <span className="text-subtle">({item.reviews})</span>
+        </div>
+
+        <div className="mt-auto flex items-end justify-between gap-3 border-t border-line pt-3.5">
+          <span className="truncate text-[12px] text-muted">{item.seller}</span>
+          <span className="text-right">
+            <span className="block text-[10.5px] uppercase tracking-wide text-subtle">
+              From
+            </span>
+            <Money amount={item.price} className="text-[15px] font-semibold text-fg" />
+          </span>
         </div>
       </div>
     </Link>
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Hero composition                                                           */
-/* -------------------------------------------------------------------------- */
-
-/**
- * The product, drawn rather than photographed.
- *
- * Marketplaces of this kind normally anchor a hero on stock photography of
- * someone at a laptop, which says nothing and licenses badly. This shows the
- * three moments that actually distinguish the platform — a listing, money held
- * in escrow, and a release — as a stack of real interface cards. It ships as
- * markup, so it is theme-aware, sharp at any density, and costs no download.
- */
-export function HeroComposition() {
+/** A photograph with a caption card overlapping it, used to anchor a band. */
+export function PhotoFigure({
+  src,
+  alt,
+  caption,
+  captionBody,
+  priority = false,
+  className,
+}: {
+  src: string;
+  alt: string;
+  caption?: string;
+  captionBody?: string;
+  priority?: boolean;
+  className?: string;
+}) {
   return (
-    <div className="relative w-full select-none" aria-hidden>
-      {/* Listing — the widest card, and the entry point of the story. */}
-      <div className="glass-dark rounded-2xl p-4 text-white">
-        <div className="flex items-center gap-3">
-          <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-linear-to-br from-brand-400 to-brand-600 text-[14px] font-semibold">
-            S
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[14px] font-medium">React &amp; Django web app</p>
-            <p className="text-[12px] text-white/55">Sana M. · Top Rated Seller</p>
-          </div>
-          <span className="tabular shrink-0 text-[15px] font-semibold">Rs 45,000</span>
-        </div>
-        <div className="mt-3.5 flex items-center gap-1.5 border-t border-white/10 pt-3.5">
-          <Stars value={5} size={12} />
-          <span className="text-[12px] text-white/65">5.0 · 128 reviews</span>
-          <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-money-500/15 px-2 py-0.5 text-[11px] font-medium text-money-400">
-            <Icon name="check" className="size-3" strokeWidth={3} />
-            ID verified
-          </span>
-        </div>
+    <figure className={cn("relative", className)}>
+      <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-sunken">
+        <Image
+          src={src}
+          alt={alt}
+          fill
+          priority={priority}
+          sizes="(max-width: 1024px) 100vw, 560px"
+          className="object-cover"
+        />
       </div>
-
-      {/* Escrow — offset right, the middle beat. */}
-      <div className="glass-dark ml-auto mt-4 w-[88%] rounded-2xl p-4 text-white">
-        <div className="flex items-center gap-3">
-          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-brand-500/25 text-brand-200">
-            <Icon name="lock" className="size-4" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-medium">Milestone 2 funded</p>
-            <p className="text-[11.5px] text-white/50">Held in escrow until you accept</p>
-          </div>
-          <span className="tabular text-[14px] font-semibold">Rs 15,000</span>
-        </div>
-        <div className="mt-3.5 h-1.5 overflow-hidden rounded-full bg-white/10">
-          <div className="h-full w-2/3 rounded-full bg-linear-to-r from-brand-400 to-brand-200" />
-        </div>
-        <p className="mt-2 text-[11px] text-white/45">2 of 3 milestones complete</p>
-      </div>
-
-      {/* Release — offset left, the payoff. */}
-      <div className="glass-dark mt-4 w-[76%] rounded-2xl p-4 text-white">
-        <div className="flex items-center gap-3">
-          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-money-500/20 text-money-400">
-            <Icon name="wallet" className="size-4" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-medium">Payment released</p>
-            <p className="text-[11.5px] text-white/50">Cleared to your wallet</p>
-          </div>
-          <span className="tabular text-[14px] font-semibold text-money-400">+ Rs 15,000</span>
-        </div>
-      </div>
-    </div>
+      {caption && (
+        <figcaption
+          className={cn(
+            "absolute -bottom-5 left-5 right-10 rounded-xl border border-line bg-raised",
+            "p-4 shadow-e3 sm:right-16",
+          )}
+        >
+          <p className="text-[13.5px] font-semibold text-fg">{caption}</p>
+          {captionBody && (
+            <p className="mt-1 text-[12.5px] leading-relaxed text-muted">{captionBody}</p>
+          )}
+        </figcaption>
+      )}
+    </figure>
   );
 }

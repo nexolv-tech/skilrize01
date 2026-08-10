@@ -157,14 +157,31 @@ paid for.
 
 ### Visual layer
 
-Every listing renders deterministic vector cover art derived from its id and
-category (`web/components/artwork.tsx`), so the catalogue looks like a real
-product from the first listing, with no stock photography and no network
-requests. A seller's uploaded cover replaces it automatically.
+**Marketing pages use photography.** The landing page is built on ten photos in
+`web/public/img`, served from our own origin — the CSP allows `img-src 'self'`
+and nothing else — and rendered through `next/image`, so each one ships as
+AVIF/WebP at the requested size, lazily, in a box whose height is reserved
+before it loads. All ten are under the
+[Unsplash licence](https://unsplash.com/license): free for commercial use, no
+attribution required. Replacing one is a file swap; the paths are listed in
+`web/app/page.tsx`.
 
-The hero is a full-bleed dark panel built from layered colour rather than
-photography. To use real footage, drop it in `web/public/` and set
-`NEXT_PUBLIC_HERO_VIDEO` — see `web/public/README.md`.
+**Application pages do not.** Every listing without a seller-uploaded cover
+renders deterministic vector art derived from its id and category
+(`web/components/artwork.tsx`), so a catalogue with two listings in it still
+looks like a product. A seller's own image replaces it automatically.
+
+Headlines are set in Instrument Serif, self-hosted at build time by
+`next/font`. It is confined to marketing display type — the application chrome
+is Geist throughout, because a display serif under about 20px stops being
+elegant and starts being hard to read.
+
+**Nothing on the marketing pages claims traction the platform has not earned.**
+No customer quotes, no borrowed client logos, no listing counts. An earlier
+revision of the landing page carried four invented testimonials, complete with
+names and five-star ratings, for a platform with no users and no payment rails;
+they are gone. What replaced them is a list of things the software actually
+does, each of which is checkable in this repository.
 
 ---
 

@@ -19,6 +19,8 @@
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", Roboto, Arial, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  /* Marketing headlines only. Never used inside the application chrome. */
+  --font-display: var(--font-display), ui-serif, Georgia, "Times New Roman", serif;
 
   /* Brand — electric indigo. */
   --color-brand-50: #f1f0ff;
@@ -227,29 +229,53 @@
 
 @layer utilities {
   /*
-   * Display type. The marketing surfaces need a scale the app chrome does not:
-   * tighter tracking as size grows, so a 4rem headline reads as one shape
-   * rather than a row of separate words.
+   * Editorial display scale.
+   *
+   * Set in the serif, at 400. A high-contrast serif at large sizes needs the
+   * opposite treatment to a grotesque: near-normal tracking rather than tight,
+   * because its thin strokes and generous counters already bind the line
+   * together. Tightening it the way you would a sans closes the counters and
+   * turns an elegant line into a smudge.
    */
   .display-1 {
-    font-size: clamp(2.6rem, 6vw, 4.5rem);
-    line-height: 1.02;
-    letter-spacing: -0.04em;
-    font-weight: 600;
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: clamp(2.9rem, 6.4vw, 5.4rem);
+    line-height: 0.98;
+    letter-spacing: -0.018em;
   }
 
   .display-2 {
-    font-size: clamp(1.9rem, 3.8vw, 2.9rem);
-    line-height: 1.08;
-    letter-spacing: -0.032em;
-    font-weight: 600;
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: clamp(2.1rem, 4.2vw, 3.4rem);
+    line-height: 1.05;
+    letter-spacing: -0.014em;
   }
 
   .display-3 {
-    font-size: clamp(1.4rem, 2.4vw, 1.85rem);
-    line-height: 1.18;
-    letter-spacing: -0.026em;
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: clamp(1.5rem, 2.6vw, 2.1rem);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+  }
+
+  /* The one phrase per headline allowed to carry the italic. */
+  .display-accent {
+    font-style: italic;
+    color: var(--accent);
+  }
+
+  /*
+   * Sans headings, for anywhere the serif would be wrong — dense UI-adjacent
+   * blocks, card titles, and any heading under about 20px, where a display
+   * serif stops being elegant and starts being hard to read.
+   */
+  .heading-sans {
+    font-family: var(--font-sans);
     font-weight: 600;
+    letter-spacing: -0.022em;
   }
 
   /* Section eyebrow — small, wide, quiet. */
@@ -340,6 +366,71 @@
     box-shadow:
       inset 0 1px 0 0 rgb(255 255 255 / 0.1),
       0 20px 50px rgb(0 0 0 / 0.45);
+  }
+
+  /*
+   * The light hero wash.
+   *
+   * The reference marketplaces both anchor on a full-bleed photograph of a
+   * person at a laptop. We have no licence for one, and a stock stranger says
+   * nothing about the product anyway — so the hero is light and typographic
+   * instead, and the colour is kept to a whisper at the edges where it frames
+   * the type without ever competing with it.
+   */
+  .wash-hero {
+    background-image:
+      radial-gradient(52rem 34rem at 12% -14%, rgb(91 65 236 / 0.1), transparent 62%),
+      radial-gradient(44rem 30rem at 92% -6%, rgb(16 185 129 / 0.07), transparent 60%),
+      radial-gradient(38rem 26rem at 66% 104%, rgb(115 89 247 / 0.08), transparent 62%);
+  }
+
+  .dark .wash-hero {
+    background-image:
+      radial-gradient(52rem 34rem at 12% -14%, rgb(115 89 247 / 0.2), transparent 62%),
+      radial-gradient(44rem 30rem at 92% -6%, rgb(16 185 129 / 0.1), transparent 60%),
+      radial-gradient(38rem 26rem at 66% 104%, rgb(91 65 236 / 0.18), transparent 62%);
+  }
+
+  /*
+   * Dot field. A dot reads quieter than a ruled grid at the same opacity, which
+   * matters on a hero whose whole job is to stay out of the headline's way.
+   */
+  .dot-field {
+    background-image: radial-gradient(currentColor 1px, transparent 1px);
+    background-size: 26px 26px;
+    color: var(--line-strong);
+    opacity: 0.5;
+    mask-image: radial-gradient(ellipse 78% 62% at 50% 34%, #000 12%, transparent 76%);
+  }
+
+  /*
+   * The single dark moment on the page.
+   *
+   * Used once, for the campus band. A page that goes dark repeatedly stops
+   * being dramatic and starts being striped; spending the contrast in one place
+   * is what makes the differentiator read as the differentiator.
+   */
+  .spotlight {
+    position: relative;
+    isolation: isolate;
+    background-color: #0a0b12;
+    background-image:
+      radial-gradient(44rem 30rem at 12% 0%, rgb(91 65 236 / 0.5), transparent 62%),
+      radial-gradient(38rem 28rem at 86% 100%, rgb(16 185 129 / 0.24), transparent 60%),
+      radial-gradient(30rem 24rem at 60% 34%, rgb(115 89 247 / 0.22), transparent 64%);
+  }
+
+  /* Catches light along a card's top edge without drawing a visible border. */
+  .hairline {
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.7),
+      var(--elevation-1);
+  }
+
+  .dark .hairline {
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.06),
+      var(--elevation-1);
   }
 
   /* Hero backdrop: a soft indigo aurora over a fine grid. */

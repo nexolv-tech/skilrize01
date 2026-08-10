@@ -464,24 +464,14 @@ export function PageHeading({
 }
 
 /**
- * The category strip under the marketing header.
+ * The marketing header.
  *
- * Every catalogue marketplace carries one, for a reason worth stating: the
- * eight top-level fields are the site's real information architecture, and
- * putting them one click from every page is what stops the search box from
- * being the only way in.
+ * Deliberately without the category strip a catalogue marketplace usually
+ * carries under it. The landing page devotes a whole section to the eight
+ * fields a screen further down, and a sticky strip repeating them sat directly
+ * on top of the hero — two rows of chrome before any content, listing what the
+ * page was about to list anyway.
  */
-const BROWSE = [
-  ["development-it", "Development & IT"],
-  ["design-creative", "Design & Creative"],
-  ["writing-translation", "Writing & Translation"],
-  ["video-animation", "Video & Animation"],
-  ["marketing-sales", "Marketing & Sales"],
-  ["data-analytics", "Data & Analytics"],
-  ["business-admin", "Business & Admin"],
-  ["academic-support", "Academic Support"],
-] as const;
-
 export function MarketingHeader() {
   const { user, loading } = useSession();
 
@@ -492,19 +482,27 @@ export function MarketingHeader() {
           <Logo />
         </Link>
         <nav className="ml-10 hidden items-center gap-7 lg:flex" aria-label="Main">
-          {[
-            ["#tracks", "How it works"],
-            ["#campus", "Campus"],
-            ["#trust", "Trust"],
-          ].map(([href, label]) => (
-            <a
+          {/* Anchors are absolute rather than bare fragments: these must still
+              land on the right section when the header is rendered above a page
+              that is not the landing page. */}
+          {([
+            ["/#tracks", "How it works"],
+            ["/#campus", "Campus"],
+          ] satisfies Array<[string, string]>).map(([href, label]) => (
+            <Link
               key={href}
               href={href}
               className="text-[13.5px] text-muted transition-colors duration-150 hover:text-fg"
             >
               {label}
-            </a>
+            </Link>
           ))}
+          <Link
+            href="/gigs"
+            className="text-[13.5px] text-muted transition-colors duration-150 hover:text-fg"
+          >
+            Browse
+          </Link>
           {/* A route rather than an anchor: pricing is its own page, and it has
               to be reachable from every marketing surface, not just the one
               with a matching section on it. */}
@@ -538,21 +536,6 @@ export function MarketingHeader() {
         </div>
       </div>
 
-      {/* Scrolls horizontally rather than wrapping or collapsing into a menu:
-          eight items is too many for a header row and too few to hide. */}
-      <nav aria-label="Browse categories" className="border-t border-line/60">
-        <div className="no-bar mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4">
-          {BROWSE.map(([slug, label]) => (
-            <Link
-              key={slug}
-              href={`/gigs?category=${slug}`}
-              className="whitespace-nowrap rounded-md px-3 py-2.5 text-[13px] text-muted transition-colors duration-150 hover:bg-sunken hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-            >
-              {label}
-            </Link>
-          ))}
-        </div>
-      </nav>
     </header>
   );
 }
