@@ -634,6 +634,67 @@ weights already are (D20).
 
 ---
 
+## D32 · Production deployment infrastructure (`deploy/`)
+
+**A complete, standalone production path exists now: gunicorn + whitenoise
+instead of the dev servers, a Caddy reverse proxy with automatic HTTPS, a
+real ClamAV sidecar, off-server backups to Backblaze B2, and a one-command
+deploy script. Target is a single Oracle Cloud "Always Free" ARM instance,
+but nothing here is Oracle-specific.**
+
+*Why a standalone compose file instead of an override merged with the dev
+one:* the dev `docker-compose.yml`'s env defaults
+(`SECRET_KEY:-dev-only-change-me`) exist specifically to make local setup
+painless, and Compose's list-merge semantics for keys like `ports:` make it
+easy to accidentally keep a host port published that production means to
+remove. `deploy/docker-compose.prod.yml` duplicates some structure, but
+nothing in it can silently inherit a dev default — every secret is
+`${VAR:?message}`, which fails the deploy loudly instead of booting with a
+placeholder.
+
+*Why two domains, not one path-split:* the app already treats the API as a
+separate CORS origin — `web/proxy.ts` reads `NEXT_PUBLIC_API_URL` as a full
+origin, and the CSP's `connect-src` names it explicitly. `api.<domain>` as
+its own Caddy site block matches that design instead of fighting it with a
+path rewrite that would also require touching CORS, CSRF, and CSP.
+
+*Caught by actually booting the stack, not by reading the YAML* — three bugs
+that config validation and `docker compose config` both missed entirely,
+because none of them are syntax errors:
+
+1. **Volume collision.** The prod compose file was first named `skilrize`,
+   same as the dev one. Compose project names prefix volume names, so both
+   stacks pointed at the same Postgres volume. A prod container started
+   against a database already initialized with the *dev* stack's
+   credentials failed to authenticate with its own. Renamed the prod project
+   to `skilrize-prod`.
+2. **Startup race.** `worker` depended only on `db`/`redis`/`clamav` being
+   healthy, not on `api` having finished `migrate`. On a genuinely fresh
+   database, Celery Beat queried `django_celery_beat`'s tables before `api`
+   had created them and crashed. Fixed by giving `api` a real healthcheck
+   (gunicorn only starts serving after `migrate` and `collectstatic`
+   succeed in its command chain) and making `worker` and `caddy` both wait
+   on `api: condition: service_healthy` instead of just "container started."
+3. **Self-inflicted version of D25.** That healthcheck, once added, failed
+   for the same underlying reason 144 CI tests failed in D25:
+   `SECURE_SSL_REDIRECT` is correctly on whenever `DEBUG` is off, and the
+   healthcheck talks to gunicorn directly over plain HTTP instead of through
+   Caddy, so Django 301'd it to `https://` and there was nothing on the
+   other end to follow it to. Caddy normally prevents this by setting
+   `X-Forwarded-Proto: https` on every request it proxies — the healthcheck
+   has to fake that header itself, plus a `Host` header matching
+   `ALLOWED_HOSTS`, since it never passes through the proxy that would
+   normally supply both.
+
+*The general lesson this sets, again:* D25 already established "verify
+against CI's exact environment, not local" for the test suite. This extends
+the same rule to infrastructure — `docker compose config` proves the YAML
+parses, not that the stack boots. All three bugs above only surfaced once
+the full stack was actually brought up fresh, end to end, with `DEBUG=False`
+and no dev fallbacks available to paper over a missing value.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, or a personal relationship. Nothing

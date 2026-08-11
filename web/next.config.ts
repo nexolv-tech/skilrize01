@@ -38,6 +38,9 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Production Docker image runs the standalone server output (a pruned
+  // node_modules + server.js), not `next start` against the full build.
+  output: "standalone",
   // Next 16.3 writes AGENTS.md and CLAUDE.md into the app directory on every
   // dev start. This repository documents itself in README.md and DECISIONS.md;
   // generated files that reappear after every `npm run dev` are noise in a

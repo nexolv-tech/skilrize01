@@ -1,0 +1,163 @@
+# Production stack. Deliberately NOT an override merged with the repo's
+# docker-compose.yml — that file's env defaults (SECRET_KEY=dev-only-change-me
+# etc.) exist specifically to make local setup painless, and Compose's list
+# merge semantics for things like `ports:` make it easy to accidentally keep
+# a host port published that this file means to remove. A standalone file is
+# more to maintain in parallel, but nothing here can silently inherit a dev
+# default.
+#
+# Run every command from the repo root:
+#   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/production.env up -d --build
+#
+# `--env-file` is required (not optional) — it's what fills in ${DOMAIN},
+# ${POSTGRES_PASSWORD}, etc. below. `deploy.sh` always passes it for you.
+#
+# Project name is `skilrize-prod`, not `skilrize` — the repo's dev
+# docker-compose.yml also names its project `skilrize`, and Compose project
+# names double as volume-name prefixes. Sharing a name would mean this stack's
+# Postgres volume IS the dev stack's Postgres volume, so a container built
+# from this file could boot against a database already initialized with the
+# dev stack's credentials instead of the ones in production.env.
+
+name: skilrize-prod
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in deploy/production.env}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in deploy/production.env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deploy/production.env}
+    volumes: ["db-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      retries: 10
+    # No `ports:` here on purpose — Postgres is reachable only from other
+    # containers on this stack's private network, never from the host or the
+    # internet, so there is nothing for the firewall to have to protect.
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes: ["redis-data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  clamav:
+    image: clamav/clamav:1.4
+    restart: unless-stopped
+    volumes: ["clamav-data:/var/lib/clamav"]
+    # First boot downloads the full virus definition database (freshclam runs
+    # automatically inside this image) before clamd will answer — that's
+    # minutes, not seconds, hence the long start_period.
+    healthcheck:
+      test: ["CMD-SHELL", "echo PING | nc -w 3 127.0.0.1 3310 | grep -q PONG"]
+      interval: 30s
+      retries: 10
+      start_period: 180s
+
+  api:
+    build: ../api
+    restart: unless-stopped
+    env_file: production.env
+    environment:
+      # Internal Docker network hostnames — always these values, so they stay
+      # out of production.env rather than making the user copy them in.
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
+      API_DOMAIN: ${API_DOMAIN:?Set API_DOMAIN in deploy/production.env}
+    volumes:
+      - api-storage:/app/.storage
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      clamav: {condition: service_healthy}
+    healthcheck:
+      # No curl/wget in the slim Python image, but python is guaranteed to be
+      # there. Two things this has to fake because it talks to gunicorn
+      # directly instead of through Caddy:
+      #   - Host header: ALLOWED_HOSTS is correctly locked to API_DOMAIN
+      #     only, so a request claiming to be "localhost" gets a 400 from
+      #     Django's own host check.
+      #   - X-Forwarded-Proto: SECURE_SSL_REDIRECT is on whenever DEBUG is
+      #     off (correctly — see settings.py), and normally Caddy sets this
+      #     header so Django knows the original request was already HTTPS.
+      #     Without it, Django 301s every plain-HTTP request to https://,
+      #     which this healthcheck (deliberately going straight to gunicorn
+      #     on plain HTTP) can't follow — the exact SECURE_SSL_REDIRECT class
+      #     of bug D25 in DECISIONS.md hit in CI, this time self-inflicted.
+      # This also doubles as the signal `worker` waits on below, since
+      # gunicorn only starts serving *after* migrate/collectstatic succeed in
+      # the command chain — a fresh database's tables reliably exist by the
+      # time this passes.
+      test: ["CMD", "python", "-c", "import os, urllib.request; urllib.request.urlopen(urllib.request.Request('http://localhost:8000/healthz', headers={'Host': os.environ['API_DOMAIN'], 'X-Forwarded-Proto': 'https'}))"]
+      interval: 10s
+      retries: 10
+      start_period: 60s
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput &&
+             gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60"
+
+  worker:
+    build: ../api
+    restart: unless-stopped
+    env_file: production.env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
+    volumes:
+      - api-storage:/app/.storage
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      clamav: {condition: service_healthy}
+      # Celery Beat queries django_celery_beat's tables on start. Without
+      # this, `worker` starts as soon as the database container itself is
+      # reachable — before `api` has actually run migrate — and crashes
+      # against a database with no tables yet on every fresh deploy.
+      api: {condition: service_healthy}
+    command: celery -A config worker -B --loglevel=info
+
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile.prod
+      args:
+        NEXT_PUBLIC_API_URL: https://${API_DOMAIN:?Set API_DOMAIN in deploy/production.env}
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in deploy/production.env}
+      API_DOMAIN: ${API_DOMAIN:?Set API_DOMAIN in deploy/production.env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api: {condition: service_healthy}
+      web: {condition: service_started}
+
+volumes:
+  db-data:
+  redis-data:
+  clamav-data:
+  api-storage:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,21 @@
+# Two site blocks, not one domain split by path — the app already talks to
+# the API as a separate CORS origin (see web/proxy.ts's NEXT_PUBLIC_API_URL
+# and api's CORS_ALLOWED_ORIGINS), so this matches that design instead of
+# fighting it with a path-based rewrite.
+#
+# Caddy issues and renews Let's Encrypt certificates for both domains
+# automatically the first time it starts, as long as DNS already points at
+# this server and ports 80/443 are reachable (see setup-firewall.sh).
+#
+# {$DOMAIN} and {$API_DOMAIN} are read from the environment — set them in
+# production.env.
+
+{$DOMAIN}, www.{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy web:3000
+}
+
+{$API_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy api:8000
+}

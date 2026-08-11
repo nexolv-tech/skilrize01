@@ -243,6 +243,32 @@ cd api && DEBUG=False SECRET_KEY=ci-secret-key FILE_SIGNING_KEY=ci-file-signing-
 
 ---
 
+## Deployment
+
+`deploy/` holds a complete production path: gunicorn + whitenoise instead of
+the dev servers, a Caddy reverse proxy with automatic HTTPS, a real ClamAV
+sidecar, nightly off-server backups, and a one-command deploy script. Written
+for a single Oracle Cloud "Always Free" ARM instance, but nothing in it is
+Oracle-specific — any VPS running Docker works.
+
+**[deploy/README.md](deploy/README.md) is the full step-by-step runbook.**
+Everything below is what exists, not how to use it.
+
+| Piece | File |
+| --- | --- |
+| Reverse proxy, automatic HTTPS | `deploy/Caddyfile` |
+| Production stack (own project, own volumes — never shares state with the dev `docker-compose.yml`) | `deploy/docker-compose.prod.yml` |
+| Secrets template (copy to `production.env`, gitignored, never commit the real one) | `deploy/production.env.example` |
+| OS firewall — the other half is a manual step in Oracle's console, documented at the top of the script | `deploy/setup-firewall.sh` |
+| Nightly DB + upload backups to Backblaze B2 | `deploy/backup.sh`, `deploy/crontab.example` |
+| The only command that should ever update the live site | `deploy/deploy.sh` |
+
+Payments (Phase 3) are not part of this — the infrastructure above gets a
+live, reachable site with working auth, email, uploads, and 2FA. Don't
+advertise it as open for business until Phase 3 ships; see D32.
+
+---
+
 ## Architecture
 
 ```

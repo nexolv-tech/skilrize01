@@ -25,6 +25,13 @@ pillow==12.3.0
 
 python-decouple==3.8
 
+# Production WSGI server — runserver is single-threaded and explicitly unsafe
+# for real traffic.
+gunicorn==26.0.0
+# Serves STATIC_ROOT straight from the Django process with cache-busting
+# hashes and gzip, so production needs no separate static file server.
+whitenoise==6.12.0
+
 # Dev / CI
 ruff==0.15.0
 pytest==9.0.3

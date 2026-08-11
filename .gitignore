@@ -19,6 +19,10 @@ out/
 .env
 .env.*
 !.env.example
+# Real production secrets — only production.env.example belongs in git
+deploy/production.env
+# Local backup output on the server before/after upload to B2
+deploy/backups/
 
 # Local storage (uploads land here in dev)
 api/.storage/

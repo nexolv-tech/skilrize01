@@ -1,0 +1,6 @@
+# Install with: crontab -e   (as the user that owns the repo checkout)
+# then paste the line below, fixing the path to match where you cloned the repo.
+#
+# Runs the backup every night at 3:10am server time. Output is appended to a
+# log file so cron failures aren't just silently swallowed.
+10 3 * * * /home/ubuntu/skilrize/deploy/backup.sh >> /home/ubuntu/skilrize/deploy/backup.log 2>&1
