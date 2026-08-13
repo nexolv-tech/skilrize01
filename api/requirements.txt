@@ -24,6 +24,10 @@ qrcode==8.2
 pillow==12.3.0
 
 python-decouple==3.8
+# Outbound calls to third-party integration APIs (Zoom, Google, GitHub,
+# Figma, Notion) — Phase 10. First HTTP client in this codebase; every prior
+# outbound call (ClamAV, Lighthouse) went over a raw socket or a CLI.
+requests==2.32.5
 
 # Production WSGI server — runserver is single-threaded and explicitly unsafe
 # for real traffic.

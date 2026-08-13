@@ -22,6 +22,7 @@ import {
   cn,
   type IconName,
 } from "@/components/ui";
+import { ActivityFeedPanel, MeetingsPanel } from "@/components/integrations";
 import { TwoFactorRequiredPrompt } from "@/components/two-factor";
 import {
   contracts,
@@ -702,6 +703,10 @@ export default function ContractDetailPage() {
           {contract.status === "completed" && (
             <ReviewPanel contract={contract} onSubmitted={load} />
           )}
+
+          {/* Integrations */}
+          <MeetingsPanel contractId={contract.id} />
+          <ActivityFeedPanel contractId={contract.id} />
 
           {/* Activity */}
           <Card>

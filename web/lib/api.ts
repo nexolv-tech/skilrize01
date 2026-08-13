@@ -1581,6 +1581,90 @@ export const challenges = {
 };
 
 /* -------------------------------------------------------------------------- */
+/* Integrations (Phase 10)                                                    */
+/* -------------------------------------------------------------------------- */
+
+export type IntegrationProvider = "zoom" | "google_meet" | "github" | "figma" | "notion";
+export type MeetingProvider = "zoom" | "google_meet";
+export type ActivityProvider = "github" | "figma" | "notion";
+
+export interface ProviderStatus {
+  provider: IntegrationProvider;
+  label: string;
+  is_enabled: boolean;
+  is_connected: boolean;
+  external_label: string;
+}
+
+export interface IntegrationConnection {
+  id: number;
+  provider: IntegrationProvider;
+  external_label: string;
+  expires_at: string | null;
+  is_expired: boolean;
+  created_at: string;
+}
+
+export interface Meeting {
+  id: number;
+  contract: number;
+  provider: MeetingProvider;
+  topic: string;
+  start_time: string;
+  duration_minutes: number;
+  join_url: string;
+  status: "scheduled" | "cancelled";
+  scheduled_by: number;
+  scheduled_by_handle: string;
+  created_at: string;
+}
+
+export interface ActivityEvent {
+  id: number;
+  event_type: string;
+  summary: string;
+  actor_label: string;
+  occurred_at: string;
+  external_url: string;
+}
+
+export interface ActivitySource {
+  id: number;
+  contract: number;
+  provider: ActivityProvider;
+  external_ref: string;
+  added_by: number;
+  added_by_handle: string;
+  last_synced_at: string | null;
+  recent_events: ActivityEvent[];
+  created_at: string;
+}
+
+export const integrations = {
+  providers: () => api.get<ProviderStatus[]>("/integrations/providers/"),
+  authorize: (provider: IntegrationProvider) =>
+    api.get<{ authorize_url: string; state: string }>(`/integrations/${provider}/authorize/`),
+  connect: (provider: IntegrationProvider, code: string, state: string) =>
+    api.post<IntegrationConnection>(`/integrations/${provider}/connect/`, { code, state }),
+  disconnect: (provider: IntegrationProvider) =>
+    api.delete<void>(`/integrations/${provider}/disconnect/`),
+
+  meetings: (contractId: number) => api.get<Meeting[]>(`/contracts/${contractId}/meetings/`),
+  scheduleMeeting: (
+    contractId: number,
+    body: { provider: MeetingProvider; topic: string; start_time: string; duration_minutes?: number },
+  ) => api.post<Meeting>(`/contracts/${contractId}/meetings/`, body),
+  cancelMeeting: (meetingId: number) => api.post<Meeting>(`/meetings/${meetingId}/cancel/`),
+
+  activitySources: (contractId: number) =>
+    api.get<ActivitySource[]>(`/contracts/${contractId}/activity-sources/`),
+  addActivitySource: (contractId: number, body: { provider: ActivityProvider; external_ref: string }) =>
+    api.post<ActivitySource>(`/contracts/${contractId}/activity-sources/`, body),
+  syncActivitySource: (sourceId: number) =>
+    api.post<ActivitySource>(`/activity-sources/${sourceId}/sync/`),
+};
+
+/* -------------------------------------------------------------------------- */
 /* Admin console (Phase 9)                                                    */
 /* -------------------------------------------------------------------------- */
 

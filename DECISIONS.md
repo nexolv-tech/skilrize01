@@ -862,6 +862,62 @@ needs an admin account.
 
 ---
 
+## D36 · Phase 10 scoped to meetings + read-only activity feeds, not "integrations" in general
+
+**The roadmap carried only "Integrations, hardening" for Phase 10–11, with no
+prior scoping decision — the same blank state Phase 9 was in before D35.
+Asked what it should cover, the answer split it in two: Zoom/Google Meet
+meeting scheduling, and GitHub/Figma/Notion read-only activity feeds — "high
+perceived value, safely deferrable, doesn't block anything else." Hardening
+(Phase 11) stays unscoped; this decision covers Phase 10 only.**
+
+*Same gating pattern as Lighthouse (D33), applied to five providers instead
+of one.* No Zoom/Google/GitHub/Figma/Notion OAuth app has real credentials
+issued anywhere near this environment, so `ZOOM_ENABLED` and its four
+siblings all default to `False` in `config/settings.py`. What is real
+regardless: `integrations/providers/*.py` are genuine OAuth flows and API
+calls (Zoom Meetings v2, Google Calendar's `conferenceData`, GitHub's repo
+events timeline, Figma's file version history, Notion's page object) — not
+five stubs waiting to be written later. Flipping a flag and setting a client
+id/secret is the entire remaining step, exactly like Lighthouse and
+`api/Dockerfile`.
+
+*OAuth needed a shape decision this codebase had never made before:* nothing
+here uses Django sessions for the API — auth is JWT in HttpOnly cookies
+(`accounts/`). A provider's OAuth callback can't rely on a session either, so
+`authorize` hands the caller a signed, 10-minute `state` token (their user id
++ provider, via `django.core.signing`) instead of storing anything
+server-side, and the frontend's own `/integrations/callback/<provider>` page
+POSTs `code` + `state` back to an *authenticated* `connect` endpoint while
+the user is still signed in normally. `connect` verifies the signature and
+that the token was minted for the calling user before ever touching the
+provider — a `state` stolen off one user's redirect cannot be replayed by
+another; covered by
+`test_connect_rejects_a_state_issued_for_a_different_user`.
+
+*Meetings and activity sources attach to `contracts.Contract` by string FK
+from a new app, not the other way round* — the same shape Phase 13's
+`Participation` used to attach to `marketplace.Skill`, chosen there for the
+same reason: a feature app should reach into an existing spine, not have the
+spine reach out to every feature that might attach to it later.
+
+*Notion's activity signal is honestly coarser than GitHub's or Figma's,
+and says so in its own docstring rather than pretending otherwise.* The
+public Notion API has no per-edit timeline outside the Enterprise-only Audit
+Log API. `fetch_activity` for Notion returns at most one synthetic
+"page last edited at T" event per sync, not a real feed — a real limitation
+of the surface it wraps, not a shortcut taken while building it.
+
+*What this deliberately does not do: poll on a schedule.* A "sync now" action
+covers the immediate need, and `sweep_activity_sources`
+(`integrations/tasks.py`) is a complete, correct periodic task — but it is
+not wired to `CELERY_BEAT_SCHEDULE`, because nothing in this codebase is yet.
+`core.tasks.sweep_promotions` and `sweep_challenge_deadlines` already carry
+the identical, pre-existing gap; this is the same missing piece of
+infrastructure surfacing a third time, not a new one.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, or a personal relationship. Nothing
@@ -915,3 +971,15 @@ surprises:
   worth naming: nothing in the build re-checks a phase-gated label against
   what has actually shipped, so the next one will drift the same way unless
   someone happens to notice.
+- **No `CELERY_BEAT_SCHEDULE` exists anywhere in this codebase.**
+  `sweep_promotions`, `sweep_challenge_deadlines`, and now
+  `sweep_activity_sources` (D36) are each complete, correct periodic tasks
+  with nothing that ever calls them on a timer — `django_celery_beat` is
+  installed and configured as the scheduler, but no `PeriodicTask`/
+  `IntervalSchedule` rows exist. One piece of missing infrastructure, not
+  three separate gaps.
+- **`api/challenges` and `api/core/tasks.py` fail the CI lint step as
+  written**, discovered while verifying Phase 10 against CI-exact settings
+  (D36) — `ruff check .` reports pre-existing `E501`/`S607`/`B015` violations
+  in files this phase never touched. Not fixed here to keep the commit to its
+  own scope; flagged as a separate task.

@@ -23,17 +23,21 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 7 · Mobile | ❌ | Flutter parity app |
 | 8 · Professional layer | ✅ | CRM, subscriptions, retainers, agencies, workspaces |
 | 9 · Admin console | ✅ | Role-gated operator tooling: verification review, contract operations, users, audit log — see below |
-| 10–11 | ❌ | Integrations, hardening |
+| 10 · Integrations | ✅ | Zoom/Google Meet meeting scheduling, GitHub/Figma/Notion read-only activity feeds — every provider real, all off by default, see below |
+| 11 · Hardening | ❌ | Not started |
 | 12 · Hire after trial | ✅ | A paid trial task before the full project — see below for what "converts" does and does not mean yet |
 | 13 · Proof-of-work challenges | ✅ | Timed briefs, human-reviewed scoring, ranked badges — automated Lighthouse grading built but off by default, see below |
 
-**302 backend tests pass.** Lint, format, migration check, `check --deploy`,
-and production build are all clean. `tsc --noEmit` run standalone currently
-fails on Next's own auto-generated `.next/types/validator.ts` — a typed-routes
-quirk that appeared with this phase's nested `admin/layout.tsx` (the first
-nested layout under `(app)/`), not an error in any file this repo owns.
-`next build`'s own internal type-check, which is what actually gates a real
-build, passes clean on the identical route tree.
+**315 backend tests pass.** Migration check and production build are clean.
+Lint and format are clean on every file this session touched; `api/challenges`
+and `api/core/tasks.py` carry pre-existing lint debt from Phase 13, unrelated
+to Phase 10, tracked separately rather than folded into this commit.
+`tsc --noEmit` run standalone currently fails on Next's own auto-generated
+`.next/types/validator.ts` — a typed-routes quirk that appeared with Phase 9's
+nested `admin/layout.tsx` (the first nested layout under `(app)/`), not an
+error in any file this repo owns. `next build`'s own internal type-check,
+which is what actually gates a real build, passes clean on the identical
+route tree.
 
 ### The gap in the middle
 
@@ -43,7 +47,7 @@ contract state and nothing else. Everything built after it — portals,
 communities, search, reputation — sits on a marketplace that cannot yet
 transact for real.
 
-By phase count the project is 10 of 14. By revenue capability it is at zero
+By phase count the project is 11 of 14. By revenue capability it is at zero
 until Phase 3 lands. The state machine those payments will plug into is
 already the real one (decision D12), so this is a substitution rather than a
 rewrite.
@@ -187,6 +191,47 @@ nothing can reach. And impersonation — `AuditLog.Action.IMPERSONATE` has
 sat unused since Phase 0 for the same reason; acting *as* another user is a
 materially riskier feature than anything else in this console and deserves
 its own review, not a bolt-on. See D35.
+
+### Phase 10 — Integrations
+
+| Delivered | Where |
+| --- | --- |
+| Account-wide connect/disconnect for five providers — Zoom, Google Meet, GitHub, Figma, Notion | `api/integrations/models.py` (`IntegrationConnection`), `web/app/(app)/settings/integrations` |
+| OAuth is API-only, no server-side session — a signed, 10-minute `state` token carries the caller's id, verified on the callback rather than trusted from it | `api/integrations/views.py` (`authorize`, `connect`) |
+| Meeting scheduling on a contract — a real Zoom or Google Meet call, not a placeholder link | `api/integrations/models.py` (`Meeting`), `providers/zoom.py`, `providers/google_meet.py` |
+| Read-only activity feed on a contract — GitHub repo events, Figma file versions, a Notion page's last-edited signal | `api/integrations/models.py` (`ActivityFeedSource`, `ActivityEvent`), `providers/github.py`, `providers/figma.py`, `providers/notion.py` |
+| Contract page panels: Meetings, Linked activity | `web/components/integrations.tsx` |
+
+**Every provider is real, and every provider is off by default.** Same
+pattern as `LIGHTHOUSE_ENABLED` (D33): `ZOOM_ENABLED`, `GOOGLE_MEET_ENABLED`,
+`GITHUB_ENABLED`, `FIGMA_ENABLED`, `NOTION_ENABLED` all default to `False`
+because no OAuth app has real credentials issued in this environment yet.
+This is not five stubs — `authorize_url`, `exchange_code`, and each
+provider's action (`create_meeting` / `fetch_activity`) are genuine API v2/v3
+calls against Zoom, Google Calendar, GitHub, Figma, and Notion. The day a
+client id and secret exist for a provider, connecting it starts working with
+zero further code changes; until then, the UI shows "Not available yet," not
+a broken button.
+
+**Tokens are encrypted at rest**, the same `EncryptedTextField` treatment
+Section 7.3 already requires for OTP secrets and payout credentials
+(`core/crypto.py`) — reused rather than re-derived.
+
+**Notion's activity signal is honestly coarser than the other two.** The
+public Notion API has no per-edit timeline outside the Enterprise-only Audit
+Log API, which most connected workspaces will not carry. `fetch_activity`
+therefore returns at most one synthetic "page last edited at T" event per
+sync rather than a real feed — documented plainly in
+`providers/notion.py`'s module docstring rather than silently shipped as if
+it behaved like GitHub's.
+
+**What this deliberately does not do: poll on a schedule yet.** A "sync now"
+action exists on every activity source, and `sweep_activity_sources`
+(`integrations/tasks.py`) syncs every source with a connected party — but
+it is not wired to `CELERY_BEAT_SCHEDULE`, because nothing in this codebase
+is yet; `core.tasks.sweep_promotions` and `sweep_challenge_deadlines` carry
+the identical gap. Automatic polling is the same piece of missing
+infrastructure in all three cases, not a Phase 10 shortcut.
 
 ### Phase 12 — Hire after trial
 
@@ -375,7 +420,9 @@ SKILRIZE/
 │  ├─ gigs/                 Track B — gigs, packages, orders
 │  ├─ communities/          Communities, discussion, events, messaging, feed
 │  ├─ discovery/            Search, showcase, promoted placement
-│  └─ professional/         Plans, entitlements, CRM, retainers, agencies
+│  ├─ professional/         Plans, entitlements, CRM, retainers, agencies
+│  ├─ challenges/           Proof-of-work challenges, grading, badges
+│  └─ integrations/         Zoom/Google Meet, GitHub/Figma/Notion adapters
 └─ web/                     Next.js — presentation only, enforces nothing
    ├─ app/                  Routes: marketing, (auth), (app)
    ├─ components/           Design system primitives + app chrome

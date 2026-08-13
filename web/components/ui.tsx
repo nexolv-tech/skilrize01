@@ -520,6 +520,7 @@ const ICONS = {
   megaphone: "m3 11 18-8v18l-18-8v-2ZM3 11H2a1 1 0 0 0-1 1v0a1 1 0 0 0 1 1h1M7 12.5V20a1 1 0 0 0 1 1h2",
   chart: "M3 3v18h18M7 15l3-4 3 3 5-7",
   book: "M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5v15Z",
+  link: "M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.5 1.5M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.5-1.5",
 } as const;
 
 export type IconName = keyof typeof ICONS;

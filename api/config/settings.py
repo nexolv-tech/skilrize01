@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     "discovery",
     "professional",
     "challenges",
+    "integrations",
 ]
 
 MIDDLEWARE = [
@@ -318,6 +319,31 @@ REQUIRE_FILE_SCANNER = config("REQUIRE_FILE_SCANNER", default=not DEBUG, cast=bo
 # this off; turning it on is a Docker image change, not a code change.
 LIGHTHOUSE_ENABLED = config("LIGHTHOUSE_ENABLED", default=False, cast=bool)
 LIGHTHOUSE_TIMEOUT_SECONDS = config("LIGHTHOUSE_TIMEOUT_SECONDS", default=60, cast=int)
+
+# Third-party integrations (Phase 10). Same shape as LIGHTHOUSE_ENABLED above:
+# each provider is off by default because no OAuth app has real credentials
+# issued for this environment yet. Every adapter in `integrations.providers`
+# is a real API implementation regardless — setting the client id/secret and
+# flipping the flag is the only step left when credentials exist.
+ZOOM_ENABLED = config("ZOOM_ENABLED", default=False, cast=bool)
+ZOOM_CLIENT_ID = config("ZOOM_CLIENT_ID", default="")
+ZOOM_CLIENT_SECRET = config("ZOOM_CLIENT_SECRET", default="")
+
+GOOGLE_MEET_ENABLED = config("GOOGLE_MEET_ENABLED", default=False, cast=bool)
+GOOGLE_CLIENT_ID = config("GOOGLE_CLIENT_ID", default="")
+GOOGLE_CLIENT_SECRET = config("GOOGLE_CLIENT_SECRET", default="")
+
+GITHUB_ENABLED = config("GITHUB_ENABLED", default=False, cast=bool)
+GITHUB_CLIENT_ID = config("GITHUB_CLIENT_ID", default="")
+GITHUB_CLIENT_SECRET = config("GITHUB_CLIENT_SECRET", default="")
+
+FIGMA_ENABLED = config("FIGMA_ENABLED", default=False, cast=bool)
+FIGMA_CLIENT_ID = config("FIGMA_CLIENT_ID", default="")
+FIGMA_CLIENT_SECRET = config("FIGMA_CLIENT_SECRET", default="")
+
+NOTION_ENABLED = config("NOTION_ENABLED", default=False, cast=bool)
+NOTION_CLIENT_ID = config("NOTION_CLIENT_ID", default="")
+NOTION_CLIENT_SECRET = config("NOTION_CLIENT_SECRET", default="")
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"

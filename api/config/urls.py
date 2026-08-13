@@ -25,4 +25,5 @@ urlpatterns = [
     path("api/v1/", include("discovery.urls")),
     path("api/v1/", include("professional.urls")),
     path("api/v1/", include("challenges.urls")),
+    path("api/v1/", include("integrations.urls")),
 ]
