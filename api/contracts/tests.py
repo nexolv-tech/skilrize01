@@ -13,6 +13,7 @@ from datetime import date
 
 import pytest
 
+from accounts.models import User
 from contracts.models import Contract, ContractType, Milestone, Review, TimeEntry
 from core.scope import GLOBAL_SCOPE, use_scope
 from marketplace.models import Project, ProjectType, Proposal
@@ -548,3 +549,79 @@ def test_each_side_answers_only_its_own_sub_ratings(awarded, parties):
     # to carry a misleading value.
     assert review.clarity is None
     assert review.quality == 5
+
+
+# --- Admin console (Phase 9) -------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_admin_contract_list_is_not_scoped_to_the_caller(awarded, parties):
+    """Finance Admin needs the whole book, not their own deals — unlike the
+    party-scoped `ContractViewSet`, an admin who is neither the client nor
+    the freelancer must still see this contract."""
+    finance_admin = make_user(
+        "finance-admin@example.com", admin_role=User.AdminRole.FINANCE_ADMIN
+    )
+    response = sign_in(finance_admin).get("/api/v1/admin/contracts/")
+    assert response.status_code == 200
+    assert any(row["id"] == awarded.id for row in response.data["results"])
+
+
+@pytest.mark.django_db
+def test_non_finance_admin_cannot_reach_admin_contracts(parties):
+    client_user, freelancer = parties
+    assert sign_in(client_user).get("/api/v1/admin/contracts/").status_code == 403
+
+    moderator = make_user("moderator@example.com", admin_role=User.AdminRole.MODERATOR)
+    assert sign_in(moderator).get("/api/v1/admin/contracts/").status_code == 403
+
+
+@pytest.mark.django_db
+def test_finance_admin_can_force_fund_a_milestone(awarded, parties):
+    _, freelancer = parties
+    milestone = _activate(awarded, freelancer)
+    finance_admin = make_user(
+        "finance-admin2@example.com", admin_role=User.AdminRole.FINANCE_ADMIN
+    )
+    assert milestone.status == Milestone.Status.PENDING
+
+    response = sign_in(finance_admin).post(
+        f"/api/v1/admin/contracts/{awarded.id}/milestones/{milestone.id}/fund/",
+        {"reason": "Client paid by bank transfer, confirmed manually."},
+        format="json",
+    )
+    assert response.status_code == 200
+    milestone.refresh_from_db()
+    assert milestone.status == Milestone.Status.FUNDED
+
+
+@pytest.mark.django_db
+def test_cannot_force_fund_before_the_contract_is_active(awarded):
+    """The admin override is for *how* a milestone gets funded, not licence
+    to fund one on a contract the freelancer has not even accepted yet."""
+    finance_admin = make_user(
+        "finance-admin3@example.com", admin_role=User.AdminRole.FINANCE_ADMIN
+    )
+    milestone = awarded.milestones.first()
+
+    response = sign_in(finance_admin).post(
+        f"/api/v1/admin/contracts/{awarded.id}/milestones/{milestone.id}/fund/"
+    )
+    assert response.status_code == 400
+    milestone.refresh_from_db()
+    assert milestone.status == Milestone.Status.PENDING
+
+
+@pytest.mark.django_db
+def test_cannot_force_fund_an_already_funded_milestone(awarded, parties):
+    _, freelancer = parties
+    milestone = _activate(awarded, freelancer)
+    milestone.fund()
+    finance_admin = make_user(
+        "finance-admin4@example.com", admin_role=User.AdminRole.FINANCE_ADMIN
+    )
+
+    response = sign_in(finance_admin).post(
+        f"/api/v1/admin/contracts/{awarded.id}/milestones/{milestone.id}/fund/"
+    )
+    assert response.status_code == 400

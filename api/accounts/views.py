@@ -9,6 +9,7 @@ from django.conf import settings
 from django.contrib.auth import authenticate
 from django.core import signing
 from django.core.mail import send_mail
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -21,9 +22,11 @@ from rest_framework.throttling import ScopedRateThrottle
 from core import files as filestore
 from core.models import AuditLog, NotificationCategory, StoredFile, client_ip
 from core.notify import dispatch
+from core.pagination import StandardPagination
 
 from . import auth as tokens
 from . import devices, lockout
+from .auth import require_admin_role
 from .models import (
     ApprovedEmailDomain,
     BuyerProfile,
@@ -36,6 +39,11 @@ from .models import (
     VerificationStatus,
 )
 from .serializers import (
+    AdminAuditLogSerializer,
+    AdminRejectVerificationSerializer,
+    AdminStudentVerificationSerializer,
+    AdminSuspendUserSerializer,
+    AdminUserSerializer,
     BuyerProfileSerializer,
     LoginSerializer,
     OTPSerializer,
@@ -1102,3 +1110,200 @@ def two_factor_disable(request):
         "If this was not you, secure your account immediately.",
     )
     return Response({"detail": "Two-factor authentication disabled."})
+
+
+# --- Admin console (Phase 9) -------------------------------------------------
+#
+# Everything below is real operator tooling, not a developer convenience —
+# Django admin carried this load until now (`config/settings.py`). Two things
+# this deliberately does not cover: resolving a contract dispute (nothing in
+# the product raises one yet, so there is nothing to resolve — see
+# `contracts.views` for the same restraint) and impersonation (`AuditLog`
+# has carried an `IMPERSONATE` action choice since Phase 0 with no code that
+# ever writes it; acting *as* another user is a materially riskier feature
+# than anything else here and deserves its own review, not a bolt-on).
+
+_VERIFICATION_ROLES = (User.AdminRole.VERIFICATION_OFFICER,)
+_SUPPORT_ROLES = (User.AdminRole.SUPPORT_AGENT,)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated, require_admin_role(*_VERIFICATION_ROLES)])
+def admin_verification_queue(request):
+    """Applications awaiting a decision, oldest first — a queue, not a
+    browse list, so nothing sits unreviewed just because a newer one is
+    easier to find."""
+    status_filter = request.query_params.get("status", StudentVerification.Status.UNDER_REVIEW)
+    queryset = (
+        StudentVerification.objects.filter(status=status_filter)
+        .select_related("user", "university", "reviewed_by")
+        .order_by("created_at")
+    )
+    paginator = StandardPagination()
+    page = paginator.paginate_queryset(queryset, request)
+    return paginator.get_paginated_response(
+        AdminStudentVerificationSerializer(page, many=True).data
+    )
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated, require_admin_role(*_VERIFICATION_ROLES)])
+def admin_verification_approve(request, pk):
+    application = get_object_or_404(StudentVerification, pk=pk)
+    if not application.is_open:
+        return Response(
+            {"detail": "This application has already been decided."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    application.approve(reviewer=request.user)
+    AuditLog.record(
+        actor=request.user,
+        action=AuditLog.Action.UPDATE,
+        target=application,
+        request=request,
+        justification="Student verification approved.",
+    )
+    dispatch(
+        application.user,
+        NotificationCategory.VERIFICATION,
+        "Campus verification approved",
+        f"You now have access to {application.university.name}'s campus portal.",
+    )
+    return Response(AdminStudentVerificationSerializer(application).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated, require_admin_role(*_VERIFICATION_ROLES)])
+def admin_verification_reject(request, pk):
+    application = get_object_or_404(StudentVerification, pk=pk)
+    if not application.is_open:
+        return Response(
+            {"detail": "This application has already been decided."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    serializer = AdminRejectVerificationSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    reason = serializer.validated_data["reason"]
+
+    application.reject(reason, reviewer=request.user)
+    AuditLog.record(
+        actor=request.user,
+        action=AuditLog.Action.UPDATE,
+        target=application,
+        request=request,
+        justification=f"Student verification rejected: {reason}",
+    )
+    dispatch(
+        application.user,
+        NotificationCategory.VERIFICATION,
+        "Campus verification not approved",
+        reason,
+    )
+    return Response(AdminStudentVerificationSerializer(application).data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated, require_admin_role(*_SUPPORT_ROLES)])
+def admin_users(request):
+    query = request.query_params.get("q", "").strip()
+    queryset = User.objects.select_related("university").order_by("-created_at")
+    if query:
+        queryset = queryset.filter(
+            Q(email__icontains=query) | Q(handle__icontains=query) | Q(full_name__icontains=query)
+        )
+    paginator = StandardPagination()
+    page = paginator.paginate_queryset(queryset, request)
+    return paginator.get_paginated_response(AdminUserSerializer(page, many=True).data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated, require_admin_role(*_SUPPORT_ROLES)])
+def admin_user_detail(request, pk):
+    user = get_object_or_404(User.objects.select_related("university"), pk=pk)
+    return Response(AdminUserSerializer(user).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated, require_admin_role(*_SUPPORT_ROLES)])
+def admin_user_suspend(request, pk):
+    user = get_object_or_404(User, pk=pk)
+    # An admin account is not something a Support Agent can silence from
+    # here — that needs a Super Admin acting deliberately, not a support
+    # workflow's suspend button.
+    if user.admin_role or user.is_staff:
+        return Response(
+            {"detail": "Cannot suspend another admin account from here."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not user.is_active:
+        return Response(
+            {"detail": "This account is already suspended."}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    serializer = AdminSuspendUserSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    reason = serializer.validated_data["reason"]
+
+    user.is_active = False
+    user.save(update_fields=["is_active", "updated_at"])
+    AuditLog.record(
+        actor=request.user,
+        action=AuditLog.Action.UPDATE,
+        target=user,
+        request=request,
+        justification=f"Account suspended: {reason}",
+    )
+    dispatch(user, NotificationCategory.SECURITY, "Your account has been suspended", reason)
+    return Response(AdminUserSerializer(user).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated, require_admin_role(*_SUPPORT_ROLES)])
+def admin_user_reactivate(request, pk):
+    user = get_object_or_404(User, pk=pk)
+    if user.is_active:
+        return Response(
+            {"detail": "This account is already active."}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    user.is_active = True
+    user.save(update_fields=["is_active", "updated_at"])
+    AuditLog.record(
+        actor=request.user,
+        action=AuditLog.Action.UPDATE,
+        target=user,
+        request=request,
+        justification="Account reactivated.",
+    )
+    dispatch(
+        user,
+        NotificationCategory.SECURITY,
+        "Your account has been reactivated",
+        "You can sign in normally again.",
+    )
+    return Response(AdminUserSerializer(user).data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated, require_admin_role(User.AdminRole.SUPER_ADMIN)])
+def admin_audit_log(request):
+    """The append-only administrative log — Super Admin only. Everyone else
+    on the console acts within their own role's data; reading a record of
+    *everyone's* actions, including IP addresses, is a materially different
+    level of access than any single-purpose screen needs."""
+    queryset = AuditLog.objects.select_related("actor").order_by("-created_at")
+
+    if action := request.query_params.get("action"):
+        queryset = queryset.filter(action=action)
+    if actor_email := request.query_params.get("actor"):
+        queryset = queryset.filter(actor__email__icontains=actor_email)
+    if target_type := request.query_params.get("target_type"):
+        queryset = queryset.filter(target_type__iexact=target_type)
+    if since := request.query_params.get("since"):
+        queryset = queryset.filter(created_at__gte=since)
+
+    paginator = StandardPagination()
+    page = paginator.paginate_queryset(queryset, request)
+    return paginator.get_paginated_response(AdminAuditLogSerializer(page, many=True).data)

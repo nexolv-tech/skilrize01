@@ -267,6 +267,19 @@ function UserMenu() {
               </Link>
             ))}
           </div>
+          {user.admin_role && (
+            <div className="border-t border-line p-1">
+              <Link
+                href="/admin"
+                role="menuitem"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] text-muted transition-colors duration-150 hover:bg-sunken hover:text-fg"
+              >
+                <Icon name="shield" className="size-4" />
+                Admin console
+              </Link>
+            </div>
+          )}
           <div className="border-t border-line p-1">
             <button
               type="button"

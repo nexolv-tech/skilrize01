@@ -96,7 +96,14 @@ class ContractEventAdmin(admin.ModelAdmin):
 
 @admin.register(Trial)
 class TrialAdmin(admin.ModelAdmin):
-    list_display = ["proposal", "amount", "duration_days", "status", "contract", "converted_contract"]
+    list_display = [
+        "proposal",
+        "amount",
+        "duration_days",
+        "status",
+        "contract",
+        "converted_contract",
+    ]
     list_filter = ["status"]
     search_fields = ["proposal__project__title", "proposal__freelancer__email"]
     readonly_fields = ["contract", "converted_contract", "responded_at"]

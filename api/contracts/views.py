@@ -14,7 +14,8 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from accounts.auth import CanMoveMoney, CanTransact
+from accounts.auth import CanMoveMoney, CanTransact, require_admin_role
+from accounts.models import User
 from core import files as filestore
 from core.models import AuditLog, NotificationCategory, StoredFile
 from core.notify import dispatch
@@ -24,6 +25,8 @@ from marketplace.models import Project, Proposal
 from .models import Contract, ContractEvent, ContractType, Milestone, Review, TimeEntry
 from .permissions import IsContractParty
 from .serializers import (
+    AdminContractDetailSerializer,
+    AdminContractSerializer,
     ContractCreateSerializer,
     ContractDetailSerializer,
     ContractEventSerializer,
@@ -526,3 +529,83 @@ class ContractViewSet(viewsets.ReadOnlyModelViewSet):
     def _detail(self, contract: Contract, request) -> dict:
         contract.refresh_from_db()
         return ContractDetailSerializer(contract, context={"request": request}).data
+
+
+class AdminContractViewSet(viewsets.ReadOnlyModelViewSet):
+    """Every contract, not just ones the caller is a party to — Finance
+    Admin needs the whole book. Deliberately read-only except for one
+    action: force-funding a milestone, the same manual stand-in
+    `contracts.admin.MilestoneAdmin.mark_funded` already allows, just with
+    a reason and a proper API instead of a Django admin bulk action.
+
+    Deliberately does **not** offer a way to resolve a dispute or force a
+    release. Nothing in the product raises `Contract.Status.DISPUTED` yet —
+    the field exists, but there is no path that sets it — so a "resolve"
+    action would be UI for a state nothing can reach. Force-releasing money
+    without the client's own approval would undermine the point of escrow;
+    that is not a gap, it is deliberately not a lever this console gets.
+    """
+
+    permission_classes = [IsAuthenticated, require_admin_role(User.AdminRole.FINANCE_ADMIN)]
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        queryset = (
+            Contract.objects.unscoped()
+            .select_related("client", "freelancer", "project")
+            .prefetch_related("milestones")
+            .order_by("-created_at")
+        )
+        if state := self.request.query_params.get("status"):
+            queryset = queryset.filter(status=state)
+        return queryset
+
+    def get_serializer_class(self):
+        return AdminContractSerializer if self.action == "list" else AdminContractDetailSerializer
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="milestones/(?P<milestone_id>[^/.]+)/fund",
+    )
+    def fund_milestone(self, request, pk=None, milestone_id=None):
+        contract = self.get_object()
+        milestone = get_object_or_404(contract.milestones, pk=milestone_id)
+        # Same precondition the party-scoped `fund_milestone` enforces — an
+        # admin overriding *how* a milestone gets funded (bank transfer
+        # confirmed by hand, say) is not licence to fund one on a contract
+        # the freelancer has not even accepted yet.
+        if contract.status != Contract.Status.ACTIVE:
+            return _bad("The contract must be active before funding.")
+        if milestone.status != Milestone.Status.PENDING:
+            return _bad("This milestone is already funded.")
+
+        milestone.fund()
+        ContractEvent.log(
+            contract,
+            ContractEvent.Kind.FUNDED,
+            actor=request.user,
+            body=f"“{milestone.title}” funded by an administrator.",
+            milestone_id=milestone.id,
+            amount=str(milestone.amount),
+        )
+        AuditLog.record(
+            actor=request.user,
+            action=AuditLog.Action.UPDATE,
+            target=milestone,
+            request=request,
+            justification=(
+                request.data.get("reason", "") or "Milestone funded by admin (pre-gateway)."
+            ),
+        )
+        dispatch(
+            contract.freelancer,
+            NotificationCategory.PAYMENT,
+            "Milestone funded",
+            f"“{milestone.title}” is funded — you can safely start work.",
+            data={"contract_id": contract.id},
+        )
+        contract.refresh_from_db()
+        return Response(
+            AdminContractDetailSerializer(contract, context={"request": request}).data
+        )

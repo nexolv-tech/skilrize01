@@ -42,4 +42,29 @@ urlpatterns = [
     path("2fa/setup/", views.two_factor_setup, name="2fa-setup"),
     path("2fa/confirm/", views.two_factor_confirm, name="2fa-confirm"),
     path("2fa/disable/", views.two_factor_disable, name="2fa-disable"),
+    # Admin console (Phase 9)
+    path(
+        "admin/verifications/",
+        views.admin_verification_queue,
+        name="admin-verification-queue",
+    ),
+    path(
+        "admin/verifications/<int:pk>/approve/",
+        views.admin_verification_approve,
+        name="admin-verification-approve",
+    ),
+    path(
+        "admin/verifications/<int:pk>/reject/",
+        views.admin_verification_reject,
+        name="admin-verification-reject",
+    ),
+    path("admin/users/", views.admin_users, name="admin-users"),
+    path("admin/users/<int:pk>/", views.admin_user_detail, name="admin-user-detail"),
+    path("admin/users/<int:pk>/suspend/", views.admin_user_suspend, name="admin-user-suspend"),
+    path(
+        "admin/users/<int:pk>/reactivate/",
+        views.admin_user_reactivate,
+        name="admin-user-reactivate",
+    ),
+    path("admin/audit-log/", views.admin_audit_log, name="admin-audit-log"),
 ]

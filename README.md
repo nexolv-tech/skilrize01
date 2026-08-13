@@ -22,12 +22,18 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 6 · Search, reputation & trust | ✅ | FTS, ranking, JSS, seller levels, integrity, promotion |
 | 7 · Mobile | ❌ | Flutter parity app |
 | 8 · Professional layer | ✅ | CRM, subscriptions, retainers, agencies, workspaces |
-| 9–11 | ❌ | Integrations, admin console, hardening |
+| 9 · Admin console | ✅ | Role-gated operator tooling: verification review, contract operations, users, audit log — see below |
+| 10–11 | ❌ | Integrations, hardening |
 | 12 · Hire after trial | ✅ | A paid trial task before the full project — see below for what "converts" does and does not mean yet |
 | 13 · Proof-of-work challenges | ✅ | Timed briefs, human-reviewed scoring, ranked badges — automated Lighthouse grading built but off by default, see below |
 
-**287 backend tests pass.** Lint, format, migration check, `check --deploy`,
-type-check, and production build are all clean.
+**302 backend tests pass.** Lint, format, migration check, `check --deploy`,
+and production build are all clean. `tsc --noEmit` run standalone currently
+fails on Next's own auto-generated `.next/types/validator.ts` — a typed-routes
+quirk that appeared with this phase's nested `admin/layout.tsx` (the first
+nested layout under `(app)/`), not an error in any file this repo owns.
+`next build`'s own internal type-check, which is what actually gates a real
+build, passes clean on the identical route tree.
 
 ### The gap in the middle
 
@@ -37,7 +43,7 @@ contract state and nothing else. Everything built after it — portals,
 communities, search, reputation — sits on a marketplace that cannot yet
 transact for real.
 
-By phase count the project is 9 of 14. By revenue capability it is at zero
+By phase count the project is 10 of 14. By revenue capability it is at zero
 until Phase 3 lands. The state machine those payments will plug into is
 already the real one (decision D12), so this is a substitution rather than a
 rewrite.
@@ -156,6 +162,31 @@ them simply leave.
 Seat limits are checked against the **agency owner's** plan rather than the
 inviter's — otherwise an admin on a free plan could grow a team past what was
 paid for.
+
+### Phase 9 — Admin console
+
+| Delivered | Where |
+| --- | --- |
+| Seven admin roles (`User.AdminRole`), enforced for the first time — defined since Phase 0, never previously read anywhere | `accounts/auth.py` (`require_admin_role`) |
+| Verification review queue — approve/reject with a reason, same `StudentVerification.approve()`/`.reject()` the student-facing flow already uses | `api/accounts/views.py`, `web/app/(app)/admin/verifications` |
+| Contract operations — every contract, not scoped to the caller, plus force-funding a milestone as an audited stand-in for a gateway | `api/contracts/views.py` (`AdminContractViewSet`) |
+| User search, suspend, and reactivate — reversible, audited, and refuses to suspend another admin account | `api/accounts/views.py`, `web/app/(app)/admin/users` |
+| Audit log viewer — read-only, Super Admin only, filterable by action/actor/target | `api/accounts/views.py` (`admin_audit_log`) |
+
+**Role-gated, not just admin-gated.** A Verification Officer reaches the
+verification queue and nothing else; a Support Agent reaches user search and
+nothing else. The frontend nav only *shows* what a role covers — the actual
+boundary is `require_admin_role` on every endpoint, matching the same
+"client guard is a convenience, not the control" rule the rest of the app
+already follows. Super Admin bypasses every specific role check.
+
+**Two things this deliberately does not do.** Resolve a contract dispute —
+`Contract.Status.DISPUTED` has existed since Phase 1 with nothing in the
+product that ever sets it, so a "resolve" screen would be UI for a state
+nothing can reach. And impersonation — `AuditLog.Action.IMPERSONATE` has
+sat unused since Phase 0 for the same reason; acting *as* another user is a
+materially riskier feature than anything else in this console and deserves
+its own review, not a bolt-on. See D35.
 
 ### Phase 12 — Hire after trial
 

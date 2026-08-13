@@ -21,6 +21,7 @@ from accounts.models import (
     ApprovedEmailDomain,
     RefreshSession,
     SecurityToken,
+    StudentVerification,
     TwoFactorDevice,
     University,
     User,
@@ -1076,3 +1077,195 @@ def test_public_profile_never_exposes_contact_details(client, user):
     assert response.status_code == 200
     assert "email" not in response.data
     assert "phone_number" not in response.data
+
+
+# --- Admin console (Phase 9) -------------------------------------------------
+
+
+def _login(email: str, password: str = PASSWORD) -> APIClient:
+    api_client = APIClient()
+    api_client.post("/api/v1/auth/login/", {"email": email, "password": password}, format="json")
+    return api_client
+
+
+def _make_admin(email: str, role: str) -> User:
+    """An admin account, 2FA already enrolled and confirmed —
+    `User.requires_two_factor` is mandatory for every admin role without
+    exception, so a plain email+password login for one of these accounts
+    always comes back asking for a second factor first. Creating the device
+    directly through the ORM only skips the QR-scanning UI; `_login_admin`
+    below still completes the real two-step challenge these accounts
+    require, so the test exercises the actual enforcement, not a bypass of it."""
+    user = User.objects.create_user(email, PASSWORD, admin_role=role)
+    secret = pyotp.random_base32()
+    TwoFactorDevice.objects.create(user=user, secret=secret, confirmed_at=timezone.now())
+    user.raw_totp_secret = secret
+    return user
+
+
+def _login_admin(user: User, password: str = PASSWORD) -> APIClient:
+    """Complete the two-step login every admin account requires."""
+    api_client = APIClient()
+    first = api_client.post(
+        "/api/v1/auth/login/", {"email": user.email, "password": password}, format="json"
+    )
+    assert first.status_code == 200 and first.data.get("two_factor_required"), first.data
+    code = pyotp.TOTP(user.raw_totp_secret).now()
+    second = api_client.post(
+        "/api/v1/auth/login/2fa/",
+        {"challenge": first.data["challenge"], "code": code},
+        format="json",
+    )
+    assert second.status_code == 200, second.data
+    return api_client
+
+
+@pytest.fixture
+def verification_officer(db):
+    return _make_admin("officer@example.com", User.AdminRole.VERIFICATION_OFFICER)
+
+
+@pytest.fixture
+def support_agent(db):
+    return _make_admin("support@example.com", User.AdminRole.SUPPORT_AGENT)
+
+
+@pytest.fixture
+def super_admin(db):
+    return _make_admin("superadmin@example.com", User.AdminRole.SUPER_ADMIN)
+
+
+@pytest.fixture
+def open_verification(db, user):
+    university = University.objects.create(name="COMSATS", short_code="CUI")
+    return StudentVerification.objects.create(
+        user=user,
+        university=university,
+        university_email="student@cui.edu.pk",
+        status=StudentVerification.Status.UNDER_REVIEW,
+    )
+
+
+@pytest.mark.django_db
+def test_admin_endpoints_reject_a_plain_user(user, open_verification):
+    api_client = _login(user.email)
+    assert api_client.get("/api/v1/auth/admin/verifications/").status_code == 403
+    assert api_client.get("/api/v1/auth/admin/users/").status_code == 403
+    assert api_client.get("/api/v1/auth/admin/audit-log/").status_code == 403
+    assert api_client.get("/api/v1/admin/contracts/").status_code == 403
+
+
+@pytest.mark.django_db
+def test_super_admin_bypasses_every_role_check(super_admin, open_verification):
+    api_client = _login_admin(super_admin)
+    assert api_client.get("/api/v1/auth/admin/verifications/").status_code == 200
+    assert api_client.get("/api/v1/auth/admin/users/").status_code == 200
+    assert api_client.get("/api/v1/auth/admin/audit-log/").status_code == 200
+    assert api_client.get("/api/v1/admin/contracts/").status_code == 200
+
+
+@pytest.mark.django_db
+def test_a_role_does_not_grant_access_to_other_roles_surfaces(verification_officer):
+    """A Verification Officer can review applications but cannot browse the
+    audit log or reach contract operations — the roles are not one
+    undivided 'is an admin' switch."""
+    api_client = _login_admin(verification_officer)
+    assert api_client.get("/api/v1/auth/admin/verifications/").status_code == 200
+    assert api_client.get("/api/v1/auth/admin/audit-log/").status_code == 403
+    assert api_client.get("/api/v1/auth/admin/users/").status_code == 403
+    assert api_client.get("/api/v1/admin/contracts/").status_code == 403
+
+
+@pytest.mark.django_db
+def test_approving_a_verification_grants_the_university(
+    verification_officer, open_verification, user
+):
+    api_client = _login_admin(verification_officer)
+    response = api_client.post(f"/api/v1/auth/admin/verifications/{open_verification.id}/approve/")
+    assert response.status_code == 200
+    assert response.data["status"] == "approved"
+
+    user.refresh_from_db()
+    assert user.university_id == open_verification.university_id
+    assert user.student_verification_status == VerificationStatus.VERIFIED
+
+
+@pytest.mark.django_db
+def test_rejecting_a_verification_requires_a_reason(verification_officer, open_verification, user):
+    api_client = _login_admin(verification_officer)
+    missing_reason = api_client.post(
+        f"/api/v1/auth/admin/verifications/{open_verification.id}/reject/"
+    )
+    assert missing_reason.status_code == 400
+
+    response = api_client.post(
+        f"/api/v1/auth/admin/verifications/{open_verification.id}/reject/",
+        {"reason": "ID card photo is unreadable."},
+        format="json",
+    )
+    assert response.status_code == 200
+    assert response.data["status"] == "rejected"
+    user.refresh_from_db()
+    assert user.university_id is None
+
+
+@pytest.mark.django_db
+def test_cannot_decide_an_already_decided_verification(verification_officer, open_verification):
+    api_client = _login_admin(verification_officer)
+    api_client.post(f"/api/v1/auth/admin/verifications/{open_verification.id}/approve/")
+
+    response = api_client.post(f"/api/v1/auth/admin/verifications/{open_verification.id}/approve/")
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_support_agent_can_suspend_and_reactivate_a_user(support_agent, user):
+    api_client = _login_admin(support_agent)
+
+    suspend = api_client.post(
+        f"/api/v1/auth/admin/users/{user.id}/suspend/",
+        {"reason": "Reported for a scam attempt."},
+        format="json",
+    )
+    assert suspend.status_code == 200
+    user.refresh_from_db()
+    assert user.is_active is False
+
+    reactivate = api_client.post(f"/api/v1/auth/admin/users/{user.id}/reactivate/")
+    assert reactivate.status_code == 200
+    user.refresh_from_db()
+    assert user.is_active is True
+
+
+@pytest.mark.django_db
+def test_cannot_suspend_another_admin(support_agent, verification_officer):
+    api_client = _login_admin(support_agent)
+    response = api_client.post(
+        f"/api/v1/auth/admin/users/{verification_officer.id}/suspend/",
+        {"reason": "x"},
+        format="json",
+    )
+    assert response.status_code == 400
+    verification_officer.refresh_from_db()
+    assert verification_officer.is_active is True
+
+
+@pytest.mark.django_db
+def test_user_search_matches_email_and_handle(support_agent, user):
+    api_client = _login_admin(support_agent)
+    response = api_client.get(f"/api/v1/auth/admin/users/?q={user.handle}")
+    assert response.status_code == 200
+    assert any(row["id"] == user.id for row in response.data["results"])
+
+
+@pytest.mark.django_db
+def test_audit_log_records_admin_actions_and_is_filterable(support_agent, super_admin, user):
+    api_client = _login_admin(support_agent)
+    api_client.post(
+        f"/api/v1/auth/admin/users/{user.id}/suspend/", {"reason": "test"}, format="json"
+    )
+
+    admin_client = _login_admin(super_admin)
+    response = admin_client.get("/api/v1/auth/admin/audit-log/?action=update")
+    assert response.status_code == 200
+    assert any(row["actor_email"] == support_agent.email for row in response.data["results"])

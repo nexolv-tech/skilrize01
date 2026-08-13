@@ -6,6 +6,7 @@ from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 from core.files import signed_url
+from core.models import AuditLog
 
 from .models import (
     BuyerProfile,
@@ -336,3 +337,109 @@ class StepUpSerializer(serializers.Serializer):
 
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     code = serializers.CharField(required=False, allow_blank=True)
+
+
+# --- Admin console (Phase 9) -------------------------------------------------
+
+
+class AdminStudentVerificationSerializer(serializers.ModelSerializer):
+    """A reviewer's view of one application — unlike the student's own
+    `StudentVerificationSerializer`, this exposes who is applying and the
+    submitted document itself."""
+
+    applicant_handle = serializers.CharField(source="user.handle", read_only=True)
+    applicant_name = serializers.CharField(source="user.display_name", read_only=True)
+    applicant_email = serializers.EmailField(source="user.email", read_only=True)
+    university_name = serializers.CharField(source="university.name", read_only=True)
+    id_card_url = serializers.SerializerMethodField()
+    reviewed_by_name = serializers.CharField(
+        source="reviewed_by.display_name", read_only=True, default=None
+    )
+
+    class Meta:
+        model = StudentVerification
+        fields = [
+            "id",
+            "applicant_handle",
+            "applicant_name",
+            "applicant_email",
+            "university_name",
+            "university_email",
+            "email_verified_at",
+            "id_card_url",
+            "status",
+            "rejection_reason",
+            "reviewed_by_name",
+            "reviewed_at",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_id_card_url(self, row: StudentVerification) -> str | None:
+        card = row.id_card
+        return signed_url(card) if card and card.is_downloadable else None
+
+
+class AdminRejectVerificationSerializer(serializers.Serializer):
+    reason = serializers.CharField(max_length=500)
+
+
+class AdminUserSerializer(serializers.ModelSerializer):
+    """A support/admin view of an account — more than `PublicUserSerializer`
+    shows anyone, but still no payment instruments or documents beyond what
+    the verification queue already exposes on its own screen."""
+
+    avatar_url = serializers.SerializerMethodField()
+    university_name = serializers.CharField(source="university.name", read_only=True, default=None)
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "handle",
+            "email",
+            "full_name",
+            "display_name",
+            "avatar_url",
+            "admin_role",
+            "is_active",
+            "is_staff",
+            "email_verified",
+            "phone_verified",
+            "identity_status",
+            "is_verified_student",
+            "university_name",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_avatar_url(self, user: User) -> str | None:
+        return signed_url(user.avatar) if user.avatar and user.avatar.is_downloadable else None
+
+
+class AdminSuspendUserSerializer(serializers.Serializer):
+    reason = serializers.CharField(max_length=500)
+
+
+class AdminAuditLogSerializer(serializers.ModelSerializer):
+    """Read-only, deliberately — nothing about this log is ever editable
+    through the API, matching `core.admin.AuditLogAdmin`'s own restriction."""
+
+    actor_name = serializers.CharField(source="actor.display_name", read_only=True, default=None)
+    actor_email = serializers.EmailField(source="actor.email", read_only=True, default=None)
+
+    class Meta:
+        model = AuditLog
+        fields = [
+            "id",
+            "created_at",
+            "actor_name",
+            "actor_email",
+            "action",
+            "target_type",
+            "target_id",
+            "justification",
+            "ip_address",
+            "request_id",
+        ]
+        read_only_fields = fields

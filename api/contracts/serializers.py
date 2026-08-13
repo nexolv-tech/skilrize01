@@ -272,3 +272,56 @@ class ContractCreateSerializer(serializers.Serializer):
     contract_type = serializers.ChoiceField(choices=ContractType.choices, required=False)
     milestones = MilestoneSerializer(many=True, required=False)
     weekly_hour_limit = serializers.IntegerField(required=False, min_value=1, max_value=168)
+
+
+# --- Admin console (Phase 9) -------------------------------------------------
+
+
+class AdminContractSerializer(serializers.ModelSerializer):
+    """A Finance Admin's view — every contract, not just the caller's own,
+    so unlike `ContractListSerializer` there is no `my_role` to compute:
+    the viewer is party to none of these."""
+
+    client_name = serializers.CharField(source="client.display_name", read_only=True)
+    freelancer_name = serializers.CharField(source="freelancer.display_name", read_only=True)
+    funded_amount = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    released_amount = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = Contract
+        fields = [
+            "id",
+            "title",
+            "contract_type",
+            "status",
+            "total_amount",
+            "hourly_rate",
+            "funded_amount",
+            "released_amount",
+            "client_name",
+            "freelancer_name",
+            "created_at",
+            "delivered_at",
+            "review_deadline",
+            "ended_at",
+        ]
+        read_only_fields = fields
+
+
+class AdminContractDetailSerializer(AdminContractSerializer):
+    client = PublicUserSerializer(read_only=True)
+    freelancer = PublicUserSerializer(read_only=True)
+    milestones = MilestoneSerializer(many=True, read_only=True)
+    project_title = serializers.CharField(source="project.title", read_only=True, default=None)
+
+    class Meta(AdminContractSerializer.Meta):
+        fields = AdminContractSerializer.Meta.fields + [
+            "client",
+            "freelancer",
+            "milestones",
+            "project",
+            "project_title",
+            "visibility",
+            "started_at",
+        ]
+        read_only_fields = fields

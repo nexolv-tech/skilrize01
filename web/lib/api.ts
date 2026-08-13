@@ -1579,3 +1579,120 @@ export const challenges = {
   ) => api.post<ChallengeParticipation>(`/challenges/${slug}/submit/`, body),
   mine: () => api.get<ChallengeParticipation[]>("/challenges/mine/"),
 };
+
+/* -------------------------------------------------------------------------- */
+/* Admin console (Phase 9)                                                    */
+/* -------------------------------------------------------------------------- */
+
+export type AdminRole =
+  | ""
+  | "super_admin"
+  | "finance_admin"
+  | "moderator"
+  | "support_agent"
+  | "dispute_officer"
+  | "verification_officer"
+  | "university_moderator";
+
+export interface AdminVerification {
+  id: number;
+  applicant_handle: string;
+  applicant_name: string;
+  applicant_email: string;
+  university_name: string;
+  university_email: string;
+  email_verified_at: string | null;
+  id_card_url: string | null;
+  status: "email_pending" | "awaiting_id" | "under_review" | "approved" | "rejected";
+  rejection_reason: string;
+  reviewed_by_name: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
+
+export interface AdminUserRow {
+  id: number;
+  handle: string;
+  email: string;
+  full_name: string;
+  display_name: string;
+  avatar_url: string | null;
+  admin_role: AdminRole;
+  is_active: boolean;
+  is_staff: boolean;
+  email_verified: boolean;
+  phone_verified: boolean;
+  identity_status: string;
+  is_verified_student: boolean;
+  university_name: string | null;
+  created_at: string;
+}
+
+export interface AdminContractRow {
+  id: number;
+  title: string;
+  contract_type: string;
+  status: ContractStatus;
+  total_amount: string | null;
+  hourly_rate: string | null;
+  funded_amount: string;
+  released_amount: string;
+  client_name: string;
+  freelancer_name: string;
+  created_at: string;
+  delivered_at: string | null;
+  review_deadline: string | null;
+  ended_at: string | null;
+}
+
+export interface AdminContractDetail extends AdminContractRow {
+  client: PublicProfile;
+  freelancer: PublicProfile;
+  milestones: Milestone[];
+  project: number | null;
+  project_title: string | null;
+  visibility: string;
+  started_at: string | null;
+}
+
+export interface AuditLogEntry {
+  id: number;
+  created_at: string;
+  actor_name: string | null;
+  actor_email: string | null;
+  action: string;
+  target_type: string;
+  target_id: string;
+  justification: string;
+  ip_address: string | null;
+  request_id: string;
+}
+
+export const admin = {
+  verifications: (verificationStatus?: string) =>
+    api.get<Paginated<AdminVerification>>(
+      `/auth/admin/verifications/${toQuery({ status: verificationStatus })}`,
+    ),
+  approveVerification: (id: number) =>
+    api.post<AdminVerification>(`/auth/admin/verifications/${id}/approve/`),
+  rejectVerification: (id: number, reason: string) =>
+    api.post<AdminVerification>(`/auth/admin/verifications/${id}/reject/`, { reason }),
+
+  users: (q?: string) => api.get<Paginated<AdminUserRow>>(`/auth/admin/users/${toQuery({ q })}`),
+  user: (id: number) => api.get<AdminUserRow>(`/auth/admin/users/${id}/`),
+  suspendUser: (id: number, reason: string) =>
+    api.post<AdminUserRow>(`/auth/admin/users/${id}/suspend/`, { reason }),
+  reactivateUser: (id: number) => api.post<AdminUserRow>(`/auth/admin/users/${id}/reactivate/`),
+
+  contracts: (status?: string) =>
+    api.get<Paginated<AdminContractRow>>(`/admin/contracts/${toQuery({ status })}`),
+  contract: (id: number) => api.get<AdminContractDetail>(`/admin/contracts/${id}/`),
+  fundMilestone: (contractId: number, milestoneId: number, reason?: string) =>
+    api.post<AdminContractDetail>(
+      `/admin/contracts/${contractId}/milestones/${milestoneId}/fund/`,
+      { reason },
+    ),
+
+  auditLog: (filters: Record<string, string | undefined> = {}) =>
+    api.get<Paginated<AuditLogEntry>>(`/auth/admin/audit-log/${toQuery(filters)}`),
+};

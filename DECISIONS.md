@@ -795,6 +795,73 @@ absence of automation for the platform having simply forgotten a payment.
 
 ---
 
+## D35 · Admin console scoped to four roles, not seven
+
+**Phase 9 had no prior scoping decision — the roadmap carried only the
+placeholder "admin console," and `User.AdminRole` has defined seven values
+since Phase 0 with nothing anywhere reading them. Asked which surface to
+build first, the answer was "all of it," which here means four of the seven
+roles: Verification Officer, Support Agent, Finance Admin, Super Admin.
+Moderator, Dispute Officer, and University Moderator are not wired to
+anything yet — their surfaces are community moderation and dispute
+resolution, and dispute resolution specifically has nothing to resolve (see
+below), so building consoles for them now would be UI ahead of the feature
+it operates.**
+
+*Why this is the first thing in the codebase to actually read `admin_role`:*
+every existing admin surface is generic Django admin, which checks
+`is_staff`/`is_superuser`, not the seven-value role field. `require_admin_role`
+(`accounts/auth.py`) is a permission-class factory — Super Admin bypasses
+every check, everyone else needs the exact role an endpoint names — and nothing
+before this phase needed that distinction because nothing before this phase
+had more than one kind of admin action to gate.
+
+*The `Contract.create_from_proposal` refactor from D34 paid for itself again
+here:* `AdminContractViewSet`'s force-fund action reuses the same
+`ContractType`/`Milestone` machinery, and building it surfaced a real gap the
+party-scoped `fund_milestone` already guards against and mine initially did
+not — an admin could force-fund a milestone on a contract the freelancer had
+not even accepted yet, because I had copied the "milestone must be PENDING"
+check but not the "contract must be ACTIVE" one sitting right next to it in
+the original. Fixed before it shipped, caught by writing the test for the
+unhappy path rather than only the happy one — `test_cannot_force_fund_before_the_contract_is_active`.
+
+*Two things this deliberately does not do, both already true before this
+phase and both worth being explicit about rather than quietly working
+around:*
+
+1. **Resolve a contract dispute.** `Contract.Status.DISPUTED` has existed
+   since Phase 1's `ContractType`/`Status` enum with no code path that ever
+   sets it — there is no "raise a dispute" endpoint anywhere in the product.
+   A "resolve" screen in the admin console would be a UI control wired to a
+   state nothing can reach. `AdminContractViewSet`'s docstring says so
+   directly rather than silently omitting the action.
+2. **Impersonate a user.** `AuditLog.Action.IMPERSONATE` has been a defined
+   choice since `core.models` was first written (Phase 0) with nothing that
+   ever writes it. Signing in *as* another account is a materially different
+   risk class than anything else in this console — session-hijacking-adjacent
+   by design — and deserves a security review of its own, not a feature
+   bolted onto a Support Agent's suspend button because the enum entry was
+   sitting there unused.
+
+*A test-infrastructure trap worth naming for whoever writes the next admin
+test:* `User.requires_two_factor` is mandatory for every account with any
+`admin_role` set, without exception (documented, tested, pre-existing). That
+means a naive test fixture — `User.objects.create_user(email, password,
+admin_role=...)` followed by the ordinary one-step login helper every other
+test in this codebase uses — logs in *nothing*: the account correctly
+demands a second factor it was never enrolled in, and every test built on
+top of that fixture fails several steps downstream in a way that looks like
+a permissions bug rather than a fixture gap. `accounts.tests._make_admin`
+enrols a confirmed `TwoFactorDevice` at creation and
+`accounts.tests._login_admin` completes the real two-step challenge, so the
+test still exercises actual enforcement rather than bypassing it — but the
+failure mode this replaces (cascading "Forbidden" errors with no obvious
+cause) cost real time to trace and is worth remembering next time a fixture
+needs an admin account.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, or a personal relationship. Nothing

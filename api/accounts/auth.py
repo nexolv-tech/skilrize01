@@ -36,7 +36,7 @@ from rest_framework_simplejwt.tokens import AccessToken
 
 from core.models import AuditLog, client_ip
 
-from .models import RefreshSession, TwoFactorDevice
+from .models import RefreshSession, TwoFactorDevice, User
 
 security_log = logging.getLogger("skilrize.security")
 
@@ -377,3 +377,47 @@ class CanMoveMoney(CanTransact):
             )
 
         return True
+
+
+# --- Admin console (Phase 9) -------------------------------------------------
+#
+# `User.AdminRole` has carried these seven values since Phase 0 with nothing
+# ever reading them — the console is the first thing to actually enforce a
+# role rather than just recording one. Super Admin bypasses every specific
+# role check below; everyone else needs the exact role the endpoint names.
+
+
+class IsAdminConsoleUser(permissions.BasePermission):
+    """The front door: any admin role at all, or a Django-level staff/super
+    account. Individual endpoints narrow further with `require_admin_role`."""
+
+    message = "Admin console access only."
+
+    def has_permission(self, request, view) -> bool:
+        user = request.user
+        return bool(
+            user
+            and user.is_authenticated
+            and (user.admin_role or user.is_staff or user.is_superuser)
+        )
+
+
+def require_admin_role(*roles: str) -> type[permissions.BasePermission]:
+    """Build a permission class admitting Super Admin plus whichever of
+    `roles` is named. A fresh class per call rather than one parametrized
+    instance, because DRF's `permission_classes` list expects classes it can
+    instantiate itself, not pre-built instances.
+    """
+
+    class _RequireAdminRole(permissions.BasePermission):
+        message = f"Requires one of: {', '.join(roles)} (or Super Admin)."
+
+        def has_permission(self, request, view) -> bool:
+            user = request.user
+            if not (user and user.is_authenticated):
+                return False
+            if user.is_superuser or user.admin_role == User.AdminRole.SUPER_ADMIN:
+                return True
+            return user.admin_role in roles
+
+    return _RequireAdminRole
