@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { TwoFactorEnrol } from "@/components/two-factor";
 import { Alert, Button, Field, Icon, Input } from "@/components/ui";
 import { auth } from "@/lib/api";
 import { useAsyncAction, useSession } from "@/lib/session";
@@ -28,9 +29,22 @@ export default function LoginPage() {
     method: "totp" | "email";
     sentTo?: string;
   } | null>(null);
+  /**
+   * Set instead of `challenge` for an admin-role account that has never
+   * enrolled 2FA — mandatory for that role, so there is no session to send
+   * it to a settings page from (Phase 11, D37). Distinct state, not another
+   * `method`, because this isn't a code entry step: it's the full QR-and-
+   * confirm flow, reached from the same wall the account would otherwise
+   * be stuck behind for good.
+   */
+  const [enrolChallenge, setEnrolChallenge] = React.useState<string | null>(null);
 
   const signIn = useAsyncAction(async () => {
     const result = await auth.login({ email, password });
+    if (result.challenge && result.two_factor_enrolment_required) {
+      setEnrolChallenge(result.challenge);
+      return;
+    }
     if (result.challenge && (result.two_factor_required || result.device_verification_required)) {
       setChallenge({
         token: result.challenge,
@@ -54,6 +68,42 @@ export default function LoginPage() {
     setUser(result.user);
     router.push("/dashboard");
   });
+
+  if (enrolChallenge) {
+    return (
+      <div className="animate-rise">
+        <span className="grid size-11 place-items-center rounded-lg bg-accent-soft text-accent">
+          <Icon name="shield" className="size-5" />
+        </span>
+        <h1 className="mt-5 text-2xl font-semibold tracking-[-0.025em] text-fg">
+          Set up two-factor authentication
+        </h1>
+        <p className="mt-2 text-sm leading-relaxed text-muted">
+          Required for this account before it can sign in. Scan the code below, then enter what
+          your authenticator app shows — you&apos;ll be signed in as soon as it confirms.
+        </p>
+
+        <div className="mt-7">
+          <TwoFactorEnrol
+            setup={async () => {
+              const result = await auth.loginTwoFactorEnrolSetup(enrolChallenge);
+              return { secret: result.secret, qr: result.qr_svg };
+            }}
+            confirm={async (code) => {
+              const result = await auth.loginTwoFactorEnrolConfirm({
+                challenge: enrolChallenge,
+                code,
+              });
+              setUser(result.user);
+              return { recovery_codes: result.recovery_codes };
+            }}
+            onComplete={() => router.push("/dashboard")}
+            onCancel={() => setEnrolChallenge(null)}
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (challenge) {
     const viaEmail = challenge.method === "email";

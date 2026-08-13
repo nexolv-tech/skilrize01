@@ -14,15 +14,15 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes, throttle_classes
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
 
 from core import files as filestore
 from core.models import AuditLog, NotificationCategory, StoredFile, client_ip
 from core.notify import dispatch
 from core.pagination import StandardPagination
+from core.throttling import throttled as _throttled
 
 from . import auth as tokens
 from . import devices, lockout
@@ -67,19 +67,6 @@ security_log = logging.getLogger("skilrize.security")
 
 CHALLENGE_SALT = "skilrize.2fa.challenge"
 CHALLENGE_MAX_AGE = 300  # A partially-authenticated state should be brief.
-
-
-def _throttled(scope: str):
-    """Attach a named throttle rate to a function-based view."""
-
-    class _Scoped(ScopedRateThrottle):
-        pass
-
-    def decorator(view):
-        view.throttle_scope = scope
-        return throttle_classes([_Scoped])(view)
-
-    return decorator
 
 
 def _authenticated_response(
@@ -228,13 +215,25 @@ def login(request):
         return Response({"two_factor_required": True, "challenge": challenge})
 
     if user.requires_two_factor:
-        # Administrative roles must enrol before they can hold a session.
+        # Administrative roles must enrol before they can hold a session —
+        # but a password proven correct a moment ago is what earns the right
+        # to *do* that enrolling. Same challenge envelope as `two_factor_
+        # required` above, and deliberately the same 200 status: this is an
+        # actionable next step, not a terminal error, exactly like that
+        # branch — a 403 here makes the frontend API client throw before the
+        # login page's own code ever gets to inspect `two_factor_enrolment_
+        # required` and offer the enrolment flow. Marked `enrol` so the
+        # challenge can only ever be redeemed at `/auth/login/2fa/enrol/...`,
+        # never mistaken for a real second factor. Before Phase 11 (D37),
+        # this branch was a genuine dead end — no challenge was issued, and
+        # an admin without an authenticator already confirmed had no path
+        # back in short of a database fix.
+        challenge = signing.dumps({"uid": user.pk, "enrol": True}, salt=CHALLENGE_SALT)
         return Response(
             {
-                "detail": "Two-factor authentication is required for this account.",
-                "code": "two_factor_enrolment_required",
-            },
-            status=status.HTTP_403_FORBIDDEN,
+                "two_factor_enrolment_required": True,
+                "challenge": challenge,
+            }
         )
 
     # No authenticator enrolled, and a device this account has never used. The
@@ -994,10 +993,15 @@ def revoke_all_sessions(request):
 # --- Two-factor authentication --------------------------------------------
 
 
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
-def two_factor_setup(request):
-    """Begin enrolment. Returns the secret and its provisioning URI.
+def _begin_two_factor_enrolment(user) -> tuple[dict | None, Response | None]:
+    """Shared by the authenticated settings-page flow (`two_factor_setup`)
+    and the challenge-token flow an unauthenticated-but-password-proven
+    admin uses to enrol at login (`login_two_factor_enrol_setup`, D37) — the
+    device row, the idempotency rule, and the error case are identical
+    either way; only how `user` gets resolved differs between the two
+    callers.
+
+    Returns `(data, None)` on success or `(None, error_response)`.
 
     **Idempotent while enrolment is pending.** An earlier version minted a fresh
     secret on every call, which quietly broke the feature: the client starts
@@ -1010,15 +1014,15 @@ def two_factor_setup(request):
     It was never only a development problem. Any second call — a remount, a
     back-navigation, a second click on "set up" — invalidated a QR the user may
     already have scanned. Rotating an *unconfirmed* secret protects nothing:
-    it is reachable only by the session that just created it, and it becomes
-    real only once `two_factor_confirm` proves the authenticator holds it. So
+    it is reachable only by the session (or challenge) that just created it, and
+    it becomes real only once confirmation proves the authenticator holds it. So
     the secret is minted once and reused until enrolment completes.
     """
     device, _ = TwoFactorDevice.objects.get_or_create(
-        user=request.user, defaults={"secret": pyotp.random_base32()}
+        user=user, defaults={"secret": pyotp.random_base32()}
     )
     if device.confirmed_at:
-        return Response(
+        return None, Response(
             {"detail": "Two-factor authentication is already enabled.", "code": "already_enabled"},
             status=status.HTTP_400_BAD_REQUEST,
         )
@@ -1028,16 +1032,45 @@ def two_factor_setup(request):
         device.secret = pyotp.random_base32()
         device.save(update_fields=["secret", "updated_at"])
 
-    return Response(
-        {
-            # The QR is the path everyone actually uses; the secret is the
-            # fallback for authenticators that cannot scan, and is shown behind
-            # a disclosure rather than printed next to the code.
-            "qr_svg": tokens.provisioning_qr(device),
-            "secret": device.secret,
-            "otpauth_url": tokens.provisioning_uri(device),
-        }
-    )
+    return {
+        # The QR is the path everyone actually uses; the secret is the
+        # fallback for authenticators that cannot scan, and is shown behind
+        # a disclosure rather than printed next to the code.
+        "qr_svg": tokens.provisioning_qr(device),
+        "secret": device.secret,
+        "otpauth_url": tokens.provisioning_uri(device),
+    }, None
+
+
+def _finish_two_factor_enrolment(user, code: str) -> tuple[list[str] | None, Response | None]:
+    """The confirm-side counterpart to `_begin_two_factor_enrolment` — see
+    its docstring. Returns `(recovery_codes, None)` on success or
+    `(None, error_response)`."""
+    device = getattr(user, "two_factor", None)
+    if device is None:
+        return None, Response(
+            {"detail": "Start enrolment first.", "code": "not_started"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not tokens.verify_totp(device, code):
+        return None, Response(
+            {"detail": "That code is not valid.", "code": "invalid_code"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    codes = TwoFactorDevice.generate_recovery_codes()
+    device.set_recovery_codes(codes)
+    device.confirmed_at = timezone.now()
+    device.save(update_fields=["recovery_code_hashes", "confirmed_at", "updated_at"])
+    return codes, None
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def two_factor_setup(request):
+    """Begin enrolment. Returns the secret and its provisioning URI."""
+    data, error = _begin_two_factor_enrolment(request.user)
+    return error or Response(data)
 
 
 @api_view(["POST"])
@@ -1047,22 +1080,9 @@ def two_factor_confirm(request):
     serializer = OTPSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
 
-    device = getattr(request.user, "two_factor", None)
-    if device is None:
-        return Response(
-            {"detail": "Start enrolment first.", "code": "not_started"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    if not tokens.verify_totp(device, serializer.validated_data["code"]):
-        return Response(
-            {"detail": "That code is not valid.", "code": "invalid_code"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    codes = TwoFactorDevice.generate_recovery_codes()
-    device.set_recovery_codes(codes)
-    device.confirmed_at = timezone.now()
-    device.save(update_fields=["recovery_code_hashes", "confirmed_at", "updated_at"])
+    codes, error = _finish_two_factor_enrolment(request.user, serializer.validated_data["code"])
+    if error:
+        return error
 
     AuditLog.record(
         actor=request.user,
@@ -1072,6 +1092,120 @@ def two_factor_confirm(request):
     )
     # Shown exactly once. They are stored hashed and cannot be retrieved again.
     return Response({"recovery_codes": codes})
+
+
+def _resolve_enrolment_challenge(raw_challenge: str):
+    """Verify a login-issued enrolment challenge and return the user it was
+    minted for, or `(None, error_response)`.
+
+    Mirrors `login_two_factor`/`login_device_verify`'s own challenge
+    handling — same signed envelope, same `CHALLENGE_SALT`/`CHALLENGE_MAX_AGE`
+    — but checks `enrol` rather than `dv`, so a normal 2FA-verify challenge
+    can never be redeemed here to skip actually enrolling, and this
+    challenge can never be redeemed at `/auth/login/2fa/` either.
+    """
+    try:
+        payload = signing.loads(raw_challenge, salt=CHALLENGE_SALT, max_age=CHALLENGE_MAX_AGE)
+    except signing.BadSignature:
+        return None, Response(
+            {
+                "detail": "This sign-in attempt has expired. Start again.",
+                "code": "challenge_expired",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not payload.get("enrol"):
+        return None, Response(
+            {"detail": "Wrong verification method for this sign-in.", "code": "invalid_challenge"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    user = User.objects.filter(pk=payload["uid"], is_active=True).first()
+    if user is None or not user.requires_two_factor or user.has_two_factor:
+        # The account was suspended, its role changed, or it already
+        # finished enrolling from another tab between issuing this
+        # challenge and redeeming it — in every case, this challenge no
+        # longer describes a real pending enrolment.
+        return None, Response(
+            {
+                "detail": "This sign-in attempt is no longer valid. Start again.",
+                "code": "invalid_challenge",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return user, None
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+@_throttled("otp")
+def login_two_factor_enrol_setup(request):
+    """Begin enrolment for an admin account that has never held a session —
+    the fix for the gap D35/D37 both name: an admin's password proves who
+    they are, but `requires_two_factor` blocks a session before they can
+    reach the (authenticated) settings page that would normally start
+    enrolment. Same shape as `login_two_factor`/`login_device_verify`: a
+    signed challenge stands in for the session those need.
+    """
+    challenge = request.data.get("challenge")
+    if not challenge:
+        return Response({"detail": "challenge is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    user, error = _resolve_enrolment_challenge(challenge)
+    if error:
+        return error
+
+    data, error = _begin_two_factor_enrolment(user)
+    return error or Response(data)
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+@_throttled("otp")
+def login_two_factor_enrol_confirm(request):
+    """Finish enrolment and sign in in the same motion — the admin proved
+    their password to get here and just proved they hold the authenticator
+    they scanned the QR into; asking for the password a third time would be
+    friction with no security the second factor doesn't already cover.
+    """
+    serializer = TwoFactorChallengeSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    user, error = _resolve_enrolment_challenge(serializer.validated_data["challenge"])
+    if error:
+        return error
+
+    # A six-digit code is a 1-in-a-million guess, bounded the same way the
+    # sibling challenge flows bound theirs.
+    lock_id = f"2fa-enrol:{user.pk}"
+    if (remaining := lockout.locked_for(lock_id)) > 0:
+        security_log.warning("two_factor_enrol_locked user=%s", user.pk)
+        return Response(
+            {
+                "detail": "Too many failed attempts. Try again later.",
+                "code": "account_locked",
+                "retry_after": remaining,
+            },
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers={"Retry-After": str(remaining)},
+        )
+
+    codes, error = _finish_two_factor_enrolment(user, serializer.validated_data["code"])
+    if error:
+        lockout.record_failure(lock_id)
+        return error
+    lockout.clear(lock_id)
+
+    AuditLog.record(
+        actor=user, action=AuditLog.Action.TWO_FACTOR_ENABLED, target=user, request=request
+    )
+    response = _authenticated_response(user, request, verified_by_email=False)
+    # `_authenticated_response` already rendered its own payload shape; add
+    # the recovery codes to it rather than sending a second response — this
+    # is the one time enrolling and signing in are the same request, and the
+    # codes are shown exactly once regardless of which path enrolled.
+    response.data["recovery_codes"] = codes
+    return response
 
 
 @api_view(["POST"])

@@ -24,14 +24,14 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 8 · Professional layer | ✅ | CRM, subscriptions, retainers, agencies, workspaces |
 | 9 · Admin console | ✅ | Role-gated operator tooling: verification review, contract operations, users, audit log — see below |
 | 10 · Integrations | ✅ | Zoom/Google Meet meeting scheduling, GitHub/Figma/Notion read-only activity feeds — every provider real, all off by default, see below |
-| 11 · Hardening | ❌ | Not started |
+| 11 · Hardening | ✅ | Rate limiting, HSTS, error tracking, a wired Celery beat schedule, retry/backoff, a DB index audit, and the admin 2FA enrolment fix — see below |
 | 12 · Hire after trial | ✅ | A paid trial task before the full project — see below for what "converts" does and does not mean yet |
 | 13 · Proof-of-work challenges | ✅ | Timed briefs, human-reviewed scoring, ranked badges — automated Lighthouse grading built but off by default, see below |
 
-**315 backend tests pass.** Migration check and production build are clean.
+**329 backend tests pass.** Migration check and production build are clean.
 Lint and format are clean on every file this session touched; `api/challenges`
 and `api/core/tasks.py` carry pre-existing lint debt from Phase 13, unrelated
-to Phase 10, tracked separately rather than folded into this commit.
+to Phases 10–11, tracked separately rather than folded into either commit.
 `tsc --noEmit` run standalone currently fails on Next's own auto-generated
 `.next/types/validator.ts` — a typed-routes quirk that appeared with Phase 9's
 nested `admin/layout.tsx` (the first nested layout under `(app)/`), not an
@@ -47,7 +47,7 @@ contract state and nothing else. Everything built after it — portals,
 communities, search, reputation — sits on a marketplace that cannot yet
 transact for real.
 
-By phase count the project is 11 of 14. By revenue capability it is at zero
+By phase count the project is 12 of 14. By revenue capability it is at zero
 until Phase 3 lands. The state machine those payments will plug into is
 already the real one (decision D12), so this is a substitution rather than a
 rewrite.
@@ -225,13 +225,49 @@ sync rather than a real feed — documented plainly in
 `providers/notion.py`'s module docstring rather than silently shipped as if
 it behaved like GitHub's.
 
-**What this deliberately does not do: poll on a schedule yet.** A "sync now"
-action exists on every activity source, and `sweep_activity_sources`
-(`integrations/tasks.py`) syncs every source with a connected party — but
-it is not wired to `CELERY_BEAT_SCHEDULE`, because nothing in this codebase
-is yet; `core.tasks.sweep_promotions` and `sweep_challenge_deadlines` carry
-the identical gap. Automatic polling is the same piece of missing
-infrastructure in all three cases, not a Phase 10 shortcut.
+A "sync now" action exists on every activity source for the moment fresh
+data is needed immediately; `sweep_activity_sources` now also runs on its
+own every 30 minutes — wired in Phase 11, see below.
+
+### Phase 11 — Hardening
+
+| Delivered | Where |
+| --- | --- |
+| Six periodic tasks — three that said so, three that didn't — actually wired to a schedule for the first time | `core/migrations/0004_seed_beat_schedule.py` |
+| A real, pre-existing bug: `signup`/`login`/`otp`/`password_reset`'s named rate limits were silent no-ops | `api/core/throttling.py` |
+| Two new throttle scopes on genuinely new attack surface (`integrations/`), `writes_only` so browsing isn't capped like writing | `api/integrations/views.py` |
+| HSTS — the one security header the codebase hadn't set | `api/config/settings.py` |
+| Error tracking, gated off by default like every provider before it | `api/config/settings.py` (`SENTRY_DSN`) |
+| Retry/backoff on every outbound provider call, proved against a real flaky server | `api/integrations/providers/base.py` |
+| The one hot-path DB index that was missing | `api/marketplace/models.py` (`Proposal`) |
+| Dependabot, weekly, grouped | `.github/dependabot.yml` |
+| The admin 2FA enrolment dead end (named as debt since Phase 9) — closed | `api/accounts/views.py` (`login_two_factor_enrol_setup`/`_confirm`) |
+
+**The rate-limiting bug is the finding that mattered most.** Reading
+`DEFAULT_THROTTLE_RATES` in `settings.py`, four endpoints looked protected —
+5/hour on signup, 10/minute on login, 5/minute on OTP, 5/hour on password
+reset. None of it was enforced. `@api_view`'s wrapping never copied
+`throttle_scope` from the pre-wrap function onto the class it built, so
+`ScopedRateThrottle` silently allowed every request through; only the
+blanket anon/user rates the whole API carries were ever real on these four.
+Rewritten as `core/throttling.py`'s `scoped_throttle()`, which sets the
+scope on the dispatched view instance instead of trying to get it there
+beforehand — proven at the real production rate by a regression test, not
+a relaxed one used only for the suite's own convenience. See D37 for the
+second bug this one's fix surfaced, in how DRF caches its own rate table.
+
+**Every provider before this one gets the same off-by-default treatment,
+and this one is no exception.** `SENTRY_DSN` unset is the SDK's own inert
+state — proven both ways by a subprocess test, since the init runs once at
+import time. What isn't built: the browser-side half. `@sentry/nextjs`
+needs source-map credentials this session didn't have a safe way to add;
+named directly in DECISIONS.md rather than shipped half-wired.
+
+**What this deliberately does not do: penetration testing, load testing, a
+legal/compliance review, or external monitoring dashboards.** Each needs an
+authorized third party, real traffic infrastructure, or a lawyer — not an
+engineering session. Named in DECISIONS.md's "Not mine to take" rather than
+silently dropped from the four areas the phase was scoped to. See D37.
 
 ### Phase 12 — Hire after trial
 

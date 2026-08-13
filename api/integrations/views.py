@@ -26,6 +26,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from contracts.models import Contract
+from core.throttling import throttled
 
 from .models import ActivityFeedSource, IntegrationConnection, Meeting, Provider
 from .providers import registry
@@ -94,6 +95,7 @@ def authorize(request, provider):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@throttled("integration_connect")
 def connect(request, provider):
     if provider not in Provider.values:
         return _bad("Unknown provider.", "unknown_provider")
@@ -153,6 +155,7 @@ def disconnect(request, provider):
 
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
+@throttled("meeting_schedule", writes_only=True)
 def contract_meetings(request, contract_id):
     contract = get_object_or_404(Contract, pk=contract_id)
     if not contract.involves(request.user):
@@ -215,6 +218,7 @@ def cancel_meeting(request, meeting_id):
 
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
+@throttled("activity_sync", writes_only=True)
 def contract_activity_sources(request, contract_id):
     contract = get_object_or_404(Contract, pk=contract_id)
     if not contract.involves(request.user):
@@ -242,6 +246,7 @@ def contract_activity_sources(request, contract_id):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@throttled("activity_sync")
 def sync_activity_source_now(request, source_id):
     """Sync on demand rather than waiting for the periodic sweep — useful the
     first time a source is added, when there is nothing to show yet."""

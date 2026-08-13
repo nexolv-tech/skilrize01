@@ -321,6 +321,12 @@ class Proposal(TimestampedModel):
                 fields=["project", "freelancer"], name="one_proposal_per_freelancer_per_project"
             )
         ]
+        #: `remaining_quota()` runs this filter on every proposal submission
+        #: — the one check standing between a freelancer and going over their
+        #: plan's cap (D6) — and had no index of its own before Phase 11
+        #: (D37); only the unique constraint above, which is keyed on
+        #: `(project, freelancer)`, not `(freelancer, status)`.
+        indexes = [models.Index(fields=["freelancer", "status"])]
 
     def __str__(self) -> str:
         return f"Proposal by {self.freelancer_id} on {self.project_id}"

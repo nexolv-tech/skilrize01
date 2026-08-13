@@ -1,0 +1,28 @@
+# Weekly, grouped, minor/patch only — enough to catch a known CVE within a
+# week without turning every Tuesday into a stack of one-line PRs to review.
+# `pip-audit`/`npm audit` in ci.yml (D32) are what actually gate a merge;
+# this is what proposes the fix, not what enforces it. Phase 11 (D37).
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /api
+    schedule:
+      interval: weekly
+    groups:
+      dependencies:
+        update-types: [minor, patch]
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    groups:
+      dependencies:
+        update-types: [minor, patch]
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

@@ -443,3 +443,92 @@ def test_totp_secret_is_not_stored_in_the_clear():
     assert "JBSWY3DPEHPK3PXP" not in stored
     device.refresh_from_db()
     assert device.secret == "JBSWY3DPEHPK3PXP"
+
+
+# --- Beat schedule -----------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_every_previously_unscheduled_task_now_has_a_periodic_task_row():
+    """Migration 0004 is the only place these six rows ever get created — a
+    regression here means beat silently stopped running one of them."""
+    from django_celery_beat.models import PeriodicTask
+
+    expected = {
+        "sweep-promotions": "core.tasks.sweep_promotions",
+        "assess-review-integrity": "core.tasks.assess_review_integrity",
+        "sweep-challenge-deadlines": "core.tasks.sweep_challenge_deadlines",
+        "refresh-reputation": "core.tasks.refresh_reputation",
+        "sweep-activity-sources": "integrations.tasks.sweep_activity_sources",
+        "reindex-search": "core.tasks.reindex_search",
+    }
+    rows = {p.name: p.task for p in PeriodicTask.objects.filter(name__in=expected)}
+    assert rows == expected
+    assert all(p.enabled for p in PeriodicTask.objects.filter(name__in=expected))
+
+
+# --- Security headers ---------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_hsts_is_sent_on_a_secure_request_when_debug_is_off(client, settings):
+    """`SECURE_HSTS_SECONDS` etc. (Phase 11, D37) only apply under
+    `DEBUG=False` in `settings.py`, and Django's `SecurityMiddleware` itself
+    only ever adds the header when it believes the request came in over
+    TLS — so this has to both flip `DEBUG` off and simulate a secure
+    request to actually exercise the code path CI and production run."""
+    settings.DEBUG = False
+    settings.ALLOWED_HOSTS = ["testserver"]
+    settings.SECURE_SSL_REDIRECT = False  # exercised separately; not this test's concern
+    settings.SECURE_HSTS_SECONDS = 31536000
+    settings.SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    settings.SECURE_HSTS_PRELOAD = True
+
+    response = client.get("/healthz", secure=True)
+
+    header = response.headers["Strict-Transport-Security"]
+    assert "max-age=31536000" in header
+    assert "includeSubDomains" in header
+    assert "preload" in header
+
+
+# --- Error tracking ------------------------------------------------------------
+
+
+def _sentry_client_is_active(*, dsn: str) -> bool:
+    """Import `config.settings` fresh in a subprocess with `SENTRY_DSN` set
+    (or not) in the environment. `sentry_sdk.init()` runs once, at import
+    time, inside the settings module itself — the only way to observe
+    whether it ran with a *different* `SENTRY_DSN` is a fresh interpreter,
+    not a `settings` fixture override on an already-imported process."""
+    import json
+    import os
+    import subprocess
+    import sys
+
+    from django.conf import settings
+
+    env = {**os.environ, "DJANGO_SETTINGS_MODULE": "config.settings", "SENTRY_DSN": dsn}
+    result = subprocess.run(  # noqa: S603 — argv is a fixed list; only env vars are test-controlled
+        [
+            sys.executable,
+            "-c",
+            "import django; django.setup(); import sentry_sdk, json; "
+            "print(json.dumps(sentry_sdk.get_client().is_active()))",
+        ],
+        cwd=str(settings.BASE_DIR),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def test_sentry_is_inert_with_no_dsn_configured():
+    assert _sentry_client_is_active(dsn="") is False
+
+
+def test_sentry_actually_initialises_when_a_dsn_is_configured():
+    assert _sentry_client_is_active(dsn="https://public@o0.ingest.sentry.io/1") is True

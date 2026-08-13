@@ -336,6 +336,14 @@ export interface LoginResult {
    * account is never admitted by an email code.
    */
   device_verification_required?: boolean;
+  /**
+   * An admin-role account with no authenticator enrolled yet — mandatory
+   * for that role (`User.requires_two_factor`), so there is no session to
+   * fall into and no settings page to reach it from. `challenge` here is
+   * good for the enrolment endpoints only (Phase 11, D37); it is never
+   * interchangeable with the `two_factor_required` challenge above.
+   */
+  two_factor_enrolment_required?: boolean;
   /** Masked hint at where the code went, e.g. `a•••d@example.com`. */
   sent_to?: string;
   challenge?: string;
@@ -352,6 +360,16 @@ export const auth = {
     api.post<{ user: User }>("/auth/login/2fa/", body),
   loginVerifyDevice: (body: { challenge: string; code: string }) =>
     api.post<{ user: User }>("/auth/login/device/", body),
+  // Enrolling and signing in at once — see `two_factor_enrolment_required`
+  // above. `loginTwoFactorEnrolConfirm` returns both a signed-in `user` and
+  // `recovery_codes`, shown exactly once, same as the settings-page flow.
+  loginTwoFactorEnrolSetup: (challenge: string) =>
+    api.post<{ qr_svg: string; secret: string; otpauth_url: string }>(
+      "/auth/login/2fa/enrol/setup/",
+      { challenge },
+    ),
+  loginTwoFactorEnrolConfirm: (body: { challenge: string; code: string }) =>
+    api.post<{ user: User; recovery_codes: string[] }>("/auth/login/2fa/enrol/confirm/", body),
   logout: () => api.post<{ detail: string }>("/auth/logout/"),
 
   requestEmailVerification: () => api.post<{ detail: string }>("/auth/email/verify/"),

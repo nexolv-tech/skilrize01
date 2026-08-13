@@ -206,6 +206,13 @@ REST_FRAMEWORK = {
         "signup": "5/hour",
         "otp": "5/minute",
         "password_reset": "5/hour",
+        # Phase 11 (D37) — new surface with no domain-level defence of its
+        # own yet (unlike marketplace proposals, which are already capped by
+        # a quota, Section 10.2). Each of these triggers a real outbound
+        # call to a third-party API.
+        "integration_connect": "10/hour",
+        "meeting_schedule": "20/hour",
+        "activity_sync": "30/hour",
     },
     "EXCEPTION_HANDLER": "core.middleware.exception_handler",
     "DEFAULT_RENDERER_CLASSES": ("rest_framework.renderers.JSONRenderer",),
@@ -280,6 +287,17 @@ ADMIN_URL = config("ADMIN_URL", default="admin/")
 
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
+    # HSTS was the one header `SecurityHeadersMiddleware` (core/middleware.py)
+    # does not set — found in Phase 11's pass over security headers (D37).
+    # `SecurityMiddleware` only ever adds `Strict-Transport-Security` on a
+    # request Django itself sees as secure (`request.is_secure()`), so this
+    # is a no-op for the plain-http CI test client regardless of DEBUG —
+    # nothing in `conftest.py` needed to change alongside it. A year, every
+    # subdomain, and eligible for browser preload lists: the deploy target
+    # (`deploy/Caddyfile`) terminates TLS for every subdomain this app has.
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
@@ -426,3 +444,41 @@ LOGGING = {
         "skilrize.security": {"handlers": ["console"], "level": "INFO", "propagate": False},
     },
 }
+
+
+# --- Error tracking ----------------------------------------------------------
+# Off by default — same shape as LIGHTHOUSE_ENABLED, ZOOM_ENABLED, and the
+# rest: no Sentry project has been created for this environment yet.
+# Unlike those, there is no explicit *_ENABLED flag to flip — the sentry-sdk
+# convention is that `sentry_sdk.init()` with no DSN is itself the inert
+# state (the SDK no-ops every call rather than erroring), so `SENTRY_DSN`
+# unset is both "off" and "nothing further to configure." Read here, at
+# import time, rather than lazily: this settings module is imported once by
+# the web process and once by the Celery worker (`config/celery.py`), and
+# both need the same call made before either serves its first request or
+# picks up its first task — not on some later first-use path that might
+# never run before the first unhandled exception it exists to catch.
+SENTRY_DSN = config("SENTRY_DSN", default="")
+if SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.celery import CeleryIntegration
+    from sentry_sdk.integrations.django import DjangoIntegration
+    from sentry_sdk.integrations.logging import LoggingIntegration
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        environment=ENVIRONMENT,
+        integrations=[
+            DjangoIntegration(),
+            CeleryIntegration(),
+            # The existing structured console logging (above) is unaffected;
+            # this only mirrors WARNING+ records to Sentry as breadcrumbs/
+            # events on top of it, it does not replace it.
+            LoggingIntegration(level=None, event_level="WARNING"),
+        ],
+        # No request bodies, no user PII beyond what DjangoIntegration
+        # already redacts by default (Section 7.6 — the same rule the
+        # structured logger above follows).
+        send_default_pii=False,
+        traces_sample_rate=0.0,
+    )

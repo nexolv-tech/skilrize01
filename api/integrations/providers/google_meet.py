@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 import requests
 from django.conf import settings
 
-from .base import IntegrationError, IntegrationUnavailable
+from .base import IntegrationError, IntegrationUnavailable, session
 
 AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 — an API endpoint, not a credential
@@ -55,7 +55,7 @@ def exchange_code(code: str, redirect_uri: str) -> dict:
     if not is_enabled():
         raise IntegrationUnavailable("Google Meet is not enabled in this environment.")
     try:
-        token_response = requests.post(
+        token_response = session.post(
             TOKEN_URL,
             data={
                 "grant_type": "authorization_code",
@@ -69,7 +69,7 @@ def exchange_code(code: str, redirect_uri: str) -> dict:
         token_response.raise_for_status()
         token = token_response.json()
 
-        profile_response = requests.get(
+        profile_response = session.get(
             USERINFO_API,
             headers={"Authorization": f"Bearer {token['access_token']}"},
             timeout=_TIMEOUT,
@@ -95,7 +95,7 @@ def create_meeting(
     end_time = start_time + timedelta(minutes=duration_minutes)
     request_id = uuid.uuid4().hex
     try:
-        response = requests.post(
+        response = session.post(
             f"{CALENDAR_API}/calendars/primary/events",
             params={"conferenceDataVersion": 1},
             headers={"Authorization": f"Bearer {access_token}"},

@@ -19,7 +19,7 @@ from urllib.parse import urlencode
 import requests
 from django.conf import settings
 
-from .base import IntegrationError, IntegrationUnavailable
+from .base import IntegrationError, IntegrationUnavailable, session
 
 AUTHORIZE_URL = "https://www.figma.com/oauth"
 TOKEN_URL = "https://api.figma.com/v1/oauth/token"  # noqa: S105 — an API endpoint, not a credential
@@ -51,7 +51,7 @@ def exchange_code(code: str, redirect_uri: str) -> dict:
     if not is_enabled():
         raise IntegrationUnavailable("Figma is not enabled in this environment.")
     try:
-        token_response = requests.post(
+        token_response = session.post(
             TOKEN_URL,
             data={
                 "client_id": settings.FIGMA_CLIENT_ID,
@@ -82,7 +82,7 @@ def fetch_activity(*, access_token: str, external_ref: str, since=None) -> list[
     if not is_enabled():
         raise IntegrationUnavailable("Figma is not enabled in this environment.")
     try:
-        response = requests.get(
+        response = session.get(
             f"{API_BASE}/files/{external_ref}/versions",
             headers={"X-Figma-Token": access_token}
             if access_token.startswith("figd_")

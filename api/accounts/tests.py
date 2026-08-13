@@ -124,6 +124,56 @@ def test_signup_sends_email_confirmation(client):
     assert len(mail.outbox) == 1
 
 
+@pytest.mark.django_db
+def test_signup_is_throttled_at_the_named_scope_rate():
+    """Regression test for a real bug (D37): the `throttled("signup")`
+    decorator used to set `throttle_scope` on the pre-wrap function, which
+    `@api_view` never copies onto the view it builds — so this rate was a
+    silent no-op and only the blanket anon rate ever applied.
+    `DEFAULT_THROTTLE_RATES["signup"]` is 5/hour in production; the suite's
+    own `_generous_scoped_throttles` fixture (`conftest.py`) widens it so
+    the rest of the suite can re-authenticate freely, so this test sets it
+    back to the real, shipped value before asserting on it — otherwise it
+    would only prove the *widened* test rate works, not the real one. The
+    6th signup from the same address in the same window must be rejected
+    before it ever reaches the database.
+
+    Mutated in place on `SimpleRateThrottle.THROTTLE_RATES`, not via the
+    `settings` fixture — see `_generous_scoped_throttles` in `conftest.py`
+    for why a `settings.REST_FRAMEWORK = ...` reassignment silently does not
+    reach what the throttle actually reads. `_generous_scoped_throttles`
+    restores the surrounding dict on teardown regardless of what this test
+    sets mid-run.
+
+    A fresh `APIClient` per call, deliberately — signup itself signs the
+    caller in and sets an auth cookie, so reusing one client across calls
+    would make each later request authenticate as the account the previous
+    call just created. `ScopedRateThrottle` keys an authenticated request by
+    user id, not address, so that would throttle five different one-request
+    budgets instead of exercising the shared anonymous bucket a real spam
+    script — one that does not carry a session forward — would actually hit.
+    """
+    from rest_framework.throttling import SimpleRateThrottle
+
+    SimpleRateThrottle.THROTTLE_RATES["signup"] = "5/hour"
+
+    for i in range(5):
+        response = APIClient().post(
+            "/api/v1/auth/signup/",
+            {"email": f"throttle{i}@example.com", "password": PASSWORD},
+            format="json",
+        )
+        assert response.status_code == 201
+
+    sixth = APIClient().post(
+        "/api/v1/auth/signup/",
+        {"email": "throttle5@example.com", "password": PASSWORD},
+        format="json",
+    )
+    assert sixth.status_code == 429
+    assert not User.objects.filter(email="throttle5@example.com").exists()
+
+
 # --- Sign-in ---------------------------------------------------------------
 
 
@@ -880,6 +930,165 @@ def test_admin_accounts_cannot_disable_two_factor(signed_in, user):
     )
     assert response.status_code == 403
     assert response.data["code"] == "two_factor_mandatory"
+
+
+# --- Admin self-enrolment at login (D37) ------------------------------------
+
+
+@pytest.fixture
+def unenrolled_admin(db):
+    """An admin account before it has ever touched 2FA — the exact state
+    that was previously an unrecoverable dead end (DECISIONS.md's
+    "an admin cannot enrol 2FA through the product")."""
+    return User.objects.create_user(
+        "newadmin@example.com", PASSWORD, admin_role=User.AdminRole.SUPPORT_AGENT
+    )
+
+
+@pytest.mark.django_db
+def test_login_issues_an_enrolment_challenge_for_an_unenrolled_admin(unenrolled_admin):
+    response = APIClient().post(
+        "/api/v1/auth/login/",
+        {"email": unenrolled_admin.email, "password": PASSWORD},
+        format="json",
+    )
+    # 200, not an error status — same as the sibling `two_factor_required`/
+    # `device_verification_required` challenges: an actionable next step for
+    # the frontend to branch on, not a terminal failure.
+    assert response.status_code == 200
+    assert response.data["two_factor_enrolment_required"] is True
+    assert response.data["challenge"]
+
+
+@pytest.mark.django_db
+def test_an_unenrolled_admin_can_enrol_and_end_up_signed_in(unenrolled_admin):
+    """The full path this phase closed: password → enrolment challenge →
+    scan the QR → confirm the code → signed in, no separate second login."""
+    anon = APIClient()
+    challenge = anon.post(
+        "/api/v1/auth/login/",
+        {"email": unenrolled_admin.email, "password": PASSWORD},
+        format="json",
+    ).data["challenge"]
+
+    setup = anon.post(
+        "/api/v1/auth/login/2fa/enrol/setup/", {"challenge": challenge}, format="json"
+    )
+    assert setup.status_code == 200
+    secret = setup.data["secret"]
+
+    confirm = anon.post(
+        "/api/v1/auth/login/2fa/enrol/confirm/",
+        {"challenge": challenge, "code": pyotp.TOTP(secret).now()},
+        format="json",
+    )
+    assert confirm.status_code == 200
+    assert confirm.data["user"]["email"] == unenrolled_admin.email
+    assert len(confirm.data["recovery_codes"]) > 0
+    assert "skilrize_access" in confirm.cookies
+
+    device = TwoFactorDevice.objects.get(user=unenrolled_admin)
+    assert device.confirmed_at is not None
+
+    # Actually signed in, not just told it worked.
+    me = anon.get("/api/v1/auth/me/")
+    assert me.status_code == 200
+    assert me.data["email"] == unenrolled_admin.email
+
+
+@pytest.mark.django_db
+def test_enrolment_confirm_rejects_a_bad_code(unenrolled_admin):
+    anon = APIClient()
+    challenge = anon.post(
+        "/api/v1/auth/login/",
+        {"email": unenrolled_admin.email, "password": PASSWORD},
+        format="json",
+    ).data["challenge"]
+    anon.post("/api/v1/auth/login/2fa/enrol/setup/", {"challenge": challenge}, format="json")
+
+    response = anon.post(
+        "/api/v1/auth/login/2fa/enrol/confirm/",
+        {"challenge": challenge, "code": "000000"},
+        format="json",
+    )
+    assert response.status_code == 400
+    assert response.data["code"] == "invalid_code"
+    assert not TwoFactorDevice.objects.filter(
+        user=unenrolled_admin, confirmed_at__isnull=False
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_a_normal_two_factor_challenge_cannot_be_redeemed_as_an_enrolment(client, signed_in, user):
+    """The `enrol` flag is what stops a stolen mid-login 2FA challenge from
+    being replayed against the enrolment endpoints instead — they are
+    intentionally not interchangeable."""
+    secret = signed_in.post("/api/v1/auth/2fa/setup/").data["secret"]
+    signed_in.post("/api/v1/auth/2fa/confirm/", {"code": pyotp.TOTP(secret).now()}, format="json")
+
+    ordinary_challenge = (
+        APIClient()
+        .post("/api/v1/auth/login/", {"email": user.email, "password": PASSWORD}, format="json")
+        .data["challenge"]
+    )
+
+    response = APIClient().post(
+        "/api/v1/auth/login/2fa/enrol/setup/", {"challenge": ordinary_challenge}, format="json"
+    )
+    assert response.status_code == 400
+    assert response.data["code"] == "invalid_challenge"
+
+
+@pytest.mark.django_db
+def test_enrolment_challenge_cannot_be_redeemed_as_an_ordinary_two_factor_login(unenrolled_admin):
+    """The reverse of the test above — an enrolment challenge is not a
+    general-purpose "I have a valid challenge for this user" token.
+    `login_two_factor` does not need its own explicit `enrol` check to stay
+    safe here: an unenrolled account has no confirmed device for
+    `verify_second_factor` to check *any* code against, so this fails
+    regardless of what is typed — just with a generic "wrong code" rather
+    than the more specific "wrong challenge type" the sibling flows use."""
+    challenge = (
+        APIClient()
+        .post(
+            "/api/v1/auth/login/",
+            {"email": unenrolled_admin.email, "password": PASSWORD},
+            format="json",
+        )
+        .data["challenge"]
+    )
+
+    response = APIClient().post(
+        "/api/v1/auth/login/2fa/", {"challenge": challenge, "code": "000000"}, format="json"
+    )
+    assert response.status_code == 401
+    assert not User.objects.get(pk=unenrolled_admin.pk).has_two_factor
+
+
+@pytest.mark.django_db
+def test_enrolment_confirm_locks_out_after_repeated_bad_codes(settings, unenrolled_admin):
+    settings.LOGIN_MAX_ATTEMPTS = 2
+    anon = APIClient()
+    challenge = anon.post(
+        "/api/v1/auth/login/",
+        {"email": unenrolled_admin.email, "password": PASSWORD},
+        format="json",
+    ).data["challenge"]
+    anon.post("/api/v1/auth/login/2fa/enrol/setup/", {"challenge": challenge}, format="json")
+
+    for _ in range(2):
+        anon.post(
+            "/api/v1/auth/login/2fa/enrol/confirm/",
+            {"challenge": challenge, "code": "000000"},
+            format="json",
+        )
+
+    locked = anon.post(
+        "/api/v1/auth/login/2fa/enrol/confirm/",
+        {"challenge": challenge, "code": "000000"},
+        format="json",
+    )
+    assert locked.status_code == 429
 
 
 # --- Passwords -------------------------------------------------------------

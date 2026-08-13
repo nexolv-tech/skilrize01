@@ -286,3 +286,129 @@ def test_syncing_without_a_connection_is_rejected(contract, parties):
     response = sign_in(client_user).post(f"/api/v1/activity-sources/{source.id}/sync/")
     assert response.status_code == 400
     assert response.data["code"] == "not_connected"
+
+
+# --- Throttling (Phase 11, D37) ----------------------------------------------
+
+
+@pytest.mark.django_db
+def test_scheduling_is_throttled_but_listing_meetings_is_not(contract, parties):
+    """`meeting_schedule` is a `writes_only` throttle — the point is capping
+    how many real Zoom/Meet calls one account can create per hour, not
+    limiting how often a contract's own party can look at the list."""
+    from rest_framework.throttling import SimpleRateThrottle
+
+    client_user, _ = parties
+    IntegrationConnection.objects.create(user=client_user, provider=Provider.ZOOM, access_token="t")
+    SimpleRateThrottle.THROTTLE_RATES["meeting_schedule"] = "1/minute"
+    api = sign_in(client_user)
+
+    with patch(
+        "integrations.providers.zoom.create_meeting",
+        return_value={"join_url": "https://zoom.us/j/1", "external_id": "1"},
+    ):
+        first = api.post(
+            f"/api/v1/contracts/{contract.id}/meetings/",
+            {
+                "provider": "zoom",
+                "topic": "Kickoff",
+                "start_time": timezone.now() + timedelta(days=1),
+            },
+            format="json",
+        )
+        second = api.post(
+            f"/api/v1/contracts/{contract.id}/meetings/",
+            {
+                "provider": "zoom",
+                "topic": "Follow-up",
+                "start_time": timezone.now() + timedelta(days=2),
+            },
+            format="json",
+        )
+
+    assert first.status_code == 201
+    assert second.status_code == 429
+
+    # Reading the list is unaffected by the same 1/minute cap.
+    for _ in range(3):
+        assert api.get(f"/api/v1/contracts/{contract.id}/meetings/").status_code == 200
+
+
+@pytest.mark.django_db
+def test_connecting_a_provider_is_throttled(parties):
+    from rest_framework.throttling import SimpleRateThrottle
+
+    client_user, _ = parties
+    SimpleRateThrottle.THROTTLE_RATES["integration_connect"] = "1/minute"
+    state = signing.dumps(
+        {"user_id": client_user.id, "provider": "zoom"}, salt="integrations.oauth"
+    )
+    api = sign_in(client_user)
+
+    with (
+        patch("integrations.providers.zoom.is_enabled", return_value=True),
+        patch(
+            "integrations.providers.zoom.exchange_code",
+            return_value={
+                "access_token": "t",
+                "refresh_token": "",
+                "expires_in": None,
+                "external_label": "",
+            },
+        ),
+    ):
+        first = api.post(
+            "/api/v1/integrations/zoom/connect/", {"code": "abc", "state": state}, format="json"
+        )
+        second = api.post(
+            "/api/v1/integrations/zoom/connect/", {"code": "def", "state": state}, format="json"
+        )
+
+    assert first.status_code == 201
+    assert second.status_code == 429
+
+
+# --- Retry/backoff on outbound provider calls (Phase 11, D37) ----------------
+
+
+def test_the_shared_session_retries_a_transient_5xx_and_then_succeeds():
+    """Every provider module calls out through `integrations.providers.base
+    .session` rather than bare `requests.get`/`.post`, specifically so a
+    single flaky response from Zoom/GitHub/Figma/etc. does not surface as a
+    user-facing failure. Proved against a real local server, not just by
+    inspecting the `Retry` config — a `Retry(...)` object can be constructed
+    correctly and still not be the one actually mounted on the session in
+    use."""
+    import http.server
+    import threading
+
+    from integrations.providers.base import session
+
+    attempts = []
+
+    class _FlakyHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            attempts.append(1)
+            if len(attempts) < 3:
+                self.send_response(503)
+                self.end_headers()
+            else:
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+        def log_message(self, *args):  # noqa: D102 — silence the server's own request log
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), _FlakyHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        response = session.get(f"http://127.0.0.1:{server.server_port}/", timeout=5)
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+    assert response.status_code == 200
+    assert response.text == "ok"
+    assert len(attempts) == 3  # two failures the Retry adapter absorbed, then success

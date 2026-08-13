@@ -22,7 +22,7 @@ from urllib.parse import urlencode
 import requests
 from django.conf import settings
 
-from .base import IntegrationError, IntegrationUnavailable
+from .base import IntegrationError, IntegrationUnavailable, session
 
 AUTHORIZE_URL = "https://api.notion.com/v1/oauth/authorize"
 TOKEN_URL = "https://api.notion.com/v1/oauth/token"  # noqa: S105 — an API endpoint, not a credential
@@ -55,7 +55,7 @@ def exchange_code(code: str, redirect_uri: str) -> dict:
     if not is_enabled():
         raise IntegrationUnavailable("Notion is not enabled in this environment.")
     try:
-        token_response = requests.post(
+        token_response = session.post(
             TOKEN_URL,
             json={"grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri},
             auth=(settings.NOTION_CLIENT_ID, settings.NOTION_CLIENT_SECRET),
@@ -82,7 +82,7 @@ def fetch_activity(*, access_token: str, external_ref: str, since=None) -> list[
     if not is_enabled():
         raise IntegrationUnavailable("Notion is not enabled in this environment.")
     try:
-        response = requests.get(
+        response = session.get(
             f"{API_BASE}/pages/{external_ref}",
             headers={
                 "Authorization": f"Bearer {access_token}",

@@ -171,7 +171,8 @@ def assess_review_integrity(limit: int = 500) -> int:
 
 @shared_task
 def sweep_promotions() -> int:
-    """Start, stop, and expire promoted placements."""
+    """Start, stop, and expire promoted placements. Runs every 5 minutes
+    (`core/migrations/0004_seed_beat_schedule.py`)."""
     from discovery.models import expire_promotions
 
     return expire_promotions()
@@ -232,8 +233,7 @@ def grade_challenge_submission(self, participation_id: int) -> str:
 def sweep_challenge_deadlines() -> dict:
     """Expire attempts nobody submitted in time, and finalize challenges whose
     submission window has closed — ranking every graded attempt and awarding
-    badges. Not yet wired to a schedule; see `sweep_promotions` and
-    `reindex_search` below, which share the same gap."""
+    badges. Runs every 15 minutes (`core/migrations/0004_seed_beat_schedule.py`)."""
     from challenges.models import Challenge, Participation, finalize_challenge
 
     from .models import NotificationCategory

@@ -10,6 +10,16 @@ urlpatterns = [
     path("login/", views.login, name="login"),
     path("login/2fa/", views.login_two_factor, name="login-2fa"),
     path("login/device/", views.login_device_verify, name="login-device-verify"),
+    path(
+        "login/2fa/enrol/setup/",
+        views.login_two_factor_enrol_setup,
+        name="login-2fa-enrol-setup",
+    ),
+    path(
+        "login/2fa/enrol/confirm/",
+        views.login_two_factor_enrol_confirm,
+        name="login-2fa-enrol-confirm",
+    ),
     path("refresh/", views.refresh, name="refresh"),
     path("logout/", views.logout, name="logout"),
     # The signed-in user

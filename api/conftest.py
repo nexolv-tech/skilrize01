@@ -92,6 +92,60 @@ def _tasks_run_inline(settings):
 
 
 @pytest.fixture(autouse=True)
+def _generous_scoped_throttles():
+    """Widen the named-scope rate limits (`login`, `otp`, `signup`,
+    `password_reset`) for the suite, without touching what actually ships.
+
+    `core.throttling.scoped_throttle` (Phase 11, D37) fixed a real bug where
+    these rates were silently never enforced — `ScopedRateThrottle` keys a
+    request by IP once the caller is authenticated, and every test client
+    that plays two roles in one test (award a contract as the client,
+    deliver as the freelancer, review as the client again) does several
+    `sign_in()` round trips from the same `127.0.0.1` in well under a
+    minute. A real user re-authenticating that fast from one address would
+    be unusual; a test suite exercising the same fixture-built contract from
+    both sides in sequence is not.
+
+    Deliberately not the `settings` fixture (`settings.REST_FRAMEWORK =
+    ...`) — DRF's `SimpleRateThrottle.THROTTLE_RATES` is bound, once, at
+    import time, to the *same dict object* `settings.REST_FRAMEWORK[
+    "DEFAULT_THROTTLE_RATES"]` pointed to then (`rest_framework/
+    throttling.py`). Reassigning `settings.REST_FRAMEWORK` to a new dict —
+    which is what `settings.REST_FRAMEWORK = {...}` does, and what the
+    `settings` fixture's own restore-on-teardown needs to work — breaks that
+    aliasing silently: the throttle class keeps reading the *old* dict
+    forever, so the "override" has no effect on actual throttling, while
+    still looking correct to anything that reads `settings.REST_FRAMEWORK`
+    directly. Mutating `SimpleRateThrottle.THROTTLE_RATES` in place, and
+    restoring the exact same values on teardown, is the only way to
+    actually reach what the throttle reads. `DEFAULT_THROTTLE_RATES` in
+    `settings.py` is unchanged — this widens only what the suite sees, the
+    same way `_tasks_run_inline` and `_no_device_cooloff` above adapt the
+    test environment without touching production configuration. The
+    mechanism itself is proven directly, at the real production rate, by
+    `test_signup_is_throttled_at_the_named_scope_rate`
+    (`accounts/tests.py`), which sets it back down explicitly.
+    """
+    from rest_framework.throttling import SimpleRateThrottle
+
+    original = dict(SimpleRateThrottle.THROTTLE_RATES)
+    SimpleRateThrottle.THROTTLE_RATES.update(
+        {
+            "login": "1000/minute",
+            "otp": "1000/minute",
+            "signup": "1000/minute",
+            "password_reset": "1000/minute",
+            "integration_connect": "1000/minute",
+            "meeting_schedule": "1000/minute",
+            "activity_sync": "1000/minute",
+        }
+    )
+    yield
+    SimpleRateThrottle.THROTTLE_RATES.clear()
+    SimpleRateThrottle.THROTTLE_RATES.update(original)
+
+
+@pytest.fixture(autouse=True)
 def _isolated_cache():
     """Give every test a clean cache.
 

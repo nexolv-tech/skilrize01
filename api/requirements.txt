@@ -29,6 +29,11 @@ python-decouple==3.8
 # outbound call (ClamAV, Lighthouse) went over a raw socket or a CLI.
 requests==2.32.5
 
+# Error tracking — Phase 11. Inert with no SENTRY_DSN configured (the
+# SDK's own no-op behaviour, not code written here); see SENTRY_DSN in
+# settings.py.
+sentry-sdk==2.68.0
+
 # Production WSGI server — runserver is single-threaded and explicitly unsafe
 # for real traffic.
 gunicorn==26.0.0

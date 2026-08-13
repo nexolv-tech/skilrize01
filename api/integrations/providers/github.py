@@ -20,7 +20,7 @@ from urllib.parse import urlencode
 import requests
 from django.conf import settings
 
-from .base import IntegrationError, IntegrationUnavailable
+from .base import IntegrationError, IntegrationUnavailable, session
 
 AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
 TOKEN_URL = "https://github.com/login/oauth/access_token"  # noqa: S105 — an API endpoint, not a credential
@@ -63,7 +63,7 @@ def exchange_code(code: str, redirect_uri: str) -> dict:
     if not is_enabled():
         raise IntegrationUnavailable("GitHub is not enabled in this environment.")
     try:
-        token_response = requests.post(
+        token_response = session.post(
             TOKEN_URL,
             data={
                 "client_id": settings.GITHUB_CLIENT_ID,
@@ -79,7 +79,7 @@ def exchange_code(code: str, redirect_uri: str) -> dict:
         if "error" in token:
             raise IntegrationError(token.get("error_description", token["error"]))
 
-        profile_response = requests.get(
+        profile_response = session.get(
             f"{API_BASE}/user",
             headers={"Authorization": f"Bearer {token['access_token']}"},
             timeout=_TIMEOUT,
@@ -104,7 +104,7 @@ def fetch_activity(*, access_token: str, external_ref: str, since=None) -> list[
     if not is_enabled():
         raise IntegrationUnavailable("GitHub is not enabled in this environment.")
     try:
-        response = requests.get(
+        response = session.get(
             f"{API_BASE}/repos/{external_ref}/events",
             headers={"Authorization": f"Bearer {access_token}"},
             params={"per_page": 30},

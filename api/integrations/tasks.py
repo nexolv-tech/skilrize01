@@ -14,11 +14,19 @@ def sweep_activity_sources() -> dict:
     """Sync every activity source whose contract has at least one party with
     a live connection for its provider.
 
-    Not yet wired to a schedule — the same gap `core.tasks.sweep_promotions`
-    and `sweep_challenge_deadlines` already carry (no `CELERY_BEAT_SCHEDULE`
-    exists in this codebase yet; see the module docstrings there). Until that
-    infrastructure work happens, a source gets fresh data from the "sync now"
-    action (`activity-sources/<id>/sync/`) or by invoking this task directly.
+    Runs every 30 minutes (`core/migrations/0004_seed_beat_schedule.py`,
+    Phase 11 / D37). A source can also get fresh data sooner from the
+    "sync now" action (`activity-sources/<id>/sync/`).
+
+    Deliberately not `@shared_task(bind=True, max_retries=N)` like
+    `scan_file`/`deliver_notification`/`grade_challenge_submission` — those
+    each act on one row, so retrying the whole task is retrying the one
+    thing that failed. This task acts on every source in one pass; retrying
+    the *task* on one source's failure would re-sync every source that
+    already succeeded, for no benefit. What actually matters —
+    transient network failures on the one HTTP call each sync makes — is
+    handled a layer down, by `integrations.providers.base.session`'s retry
+    adapter, which is where the retry belongs.
     """
     from .models import ActivityFeedSource, IntegrationConnection
     from .providers.base import IntegrationError, IntegrationUnavailable

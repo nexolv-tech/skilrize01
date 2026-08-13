@@ -24,13 +24,26 @@ type Enrolment = { secret: string; qr: string };
  * `onComplete` fires only after the user has acknowledged their recovery codes,
  * not the moment the code verifies — the codes are shown exactly once, and
  * closing the flow out from under them loses the only copy.
+ *
+ * `setup`/`confirm` default to the authenticated settings-page endpoints,
+ * but are injectable so the same flow works for an admin enrolling *at*
+ * login instead of from a session that does not exist yet — see the
+ * `two_factor_enrolment_required` challenge on `/login` (Phase 11, D37).
+ * That path also needs to actually establish the session on success, which
+ * the default `confirm` does via `refresh()`; the login page's own
+ * `confirm` sets the user it already got back from the API directly
+ * instead, since a `refresh()` there would be a redundant round trip.
  */
 export function TwoFactorEnrol({
   onComplete,
   onCancel,
+  setup,
+  confirm: confirmCode,
 }: {
   onComplete?: () => void;
   onCancel?: () => void;
+  setup?: () => Promise<Enrolment>;
+  confirm?: (code: string) => Promise<{ recovery_codes: string[] }>;
 }) {
   const { refresh } = useSession();
   const [enrolment, setEnrolment] = React.useState<Enrolment | null>(null);
@@ -39,17 +52,23 @@ export function TwoFactorEnrol({
   const [recoveryCodes, setRecoveryCodes] = React.useState<string[] | null>(null);
 
   const begin = useAsyncAction(async () => {
-    const result = await auth.twoFactorSetup();
-    setEnrolment({ secret: result.secret, qr: result.qr_svg });
+    const result = setup
+      ? await setup()
+      : await auth.twoFactorSetup().then((r) => ({ secret: r.secret, qr: r.qr_svg }));
+    setEnrolment(result);
     setShowKey(false);
   });
 
   const confirm = useAsyncAction(async () => {
-    const result = await auth.twoFactorConfirm(code);
+    const result = confirmCode
+      ? await confirmCode(code)
+      : await auth.twoFactorConfirm(code).then(async (r) => {
+          await refresh();
+          return r;
+        });
     setRecoveryCodes(result.recovery_codes);
     setEnrolment(null);
     setCode("");
-    await refresh();
   });
 
   // Started on mount when the caller is a blocking prompt, so the user does not

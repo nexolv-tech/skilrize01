@@ -918,12 +918,166 @@ infrastructure surfacing a third time, not a new one.
 
 ---
 
+## D37 · Phase 11 (hardening) scoped to four buildable areas, with pen testing, load testing, and compliance review named as not mine to take
+
+**"Hardening" carried no prior scoping decision either — same blank state
+D35 and D36 both started from. Asked what it should cover, the answer split
+into four areas: security hardening (rate limiting, CSP/security headers, a
+pass over auth/2FA edges), ops hardening (error tracking, the unwired Celery
+beat schedule), reliability hardening (retry/backoff on external calls, a DB
+index audit), and — named directly rather than silently dropped — a fourth
+area (penetration testing, load testing, legal/compliance review, external
+monitoring) that needs an authorized third party, real traffic infrastructure,
+or a lawyer, not an engineering session. That fourth area moved to "Not mine
+to take" below rather than being quietly skipped.**
+
+*The most consequential finding wasn't a gap — it was a bug already in
+production shape.* Auditing rate limiting before extending it (rather than
+just extending it) surfaced that `signup`, `login`, `otp`, and
+`password_reset`'s named throttle rates — 5/hour, 10/min, 5/min, 5/hour, each
+looking exactly like real protection in `settings.py` — had been silent
+no-ops since they were written. `accounts/views.py`'s `_throttled(scope)`
+helper set `view.throttle_scope = scope` on the function *before*
+`@api_view` wrapped it into a class, and DRF's `api_view()` copies
+`throttle_classes`/`permission_classes`/a fixed list of other attributes
+from that function onto the class it builds — never `throttle_scope`.
+`ScopedRateThrottle.allow_request` returns `True` unconditionally whenever
+`getattr(view, 'throttle_scope', None)` is falsy, which it always was on
+these four endpoints; only the blanket 60/min-anon and 240/min-user rates
+the whole API carries were ever actually enforced on them. Fixed in
+`core/throttling.py`'s `scoped_throttle()`, which sets the scope on the
+*dispatched view instance* inside `allow_request` itself rather than trying
+to get it onto the class beforehand — works identically for a function view
+and a class-based one, and is now the one throttling helper the whole
+codebase shares. `test_signup_is_throttled_at_the_named_scope_rate`
+(`accounts/tests.py`) proves the fix at the real production rate, not a
+relaxed one.
+
+*Fixing it broke nine other tests, and the fix for that had its own trap.*
+Making the rate real meant tests that call `sign_in()` several times in one
+run — award a contract as the client, deliver as the freelancer, review as
+the client again, all from one test process's `127.0.0.1` — started hitting
+`login`'s 10/minute cap for real. The fix (`conftest.py`'s
+`_generous_scoped_throttles`) widens the rate for the suite without touching
+what ships, matching `_tasks_run_inline`/`_no_device_cooloff`'s existing
+pattern — except a first attempt at it used `settings.REST_FRAMEWORK = {...
+}` (the `settings` fixture's normal reassignment idiom) and silently did
+nothing: `SimpleRateThrottle.THROTTLE_RATES` is bound, once, at import time,
+to the *same dict object* `settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]`
+pointed to then. Reassigning `settings.REST_FRAMEWORK` to a new dict breaks
+that aliasing invisibly — the throttle class keeps reading the old dict
+forever, while `settings.REST_FRAMEWORK` itself looks correctly overridden
+to anything that reads it directly. The working fix mutates
+`SimpleRateThrottle.THROTTLE_RATES` in place and restores the exact values
+on teardown; `core/throttling.py`'s module docstring and the fixture's own
+say why at length, so the next person extending a scope does not lose a
+morning to the same discovery.
+
+*Two new scopes, applied only to genuinely new attack surface.* Marketplace
+proposal spam is already defended by the existing per-account quota
+(Section 10.2, D6); contract money actions are already gated by
+`CanTransact` and mandatory 2FA. Neither needed a throttle bolted on for its
+own sake. `integrations/` (D36) had no domain-level defence at all and
+triggers real third-party API calls, so `integration_connect` (10/hour) and
+`meeting_schedule`/`activity_sync` (20–30/hour) were added there —
+`meeting_schedule` and `activity_sync` are `writes_only` (`core/
+throttling.py`'s `scoped_throttle(..., writes_only=True)`), so browsing a
+contract's own meeting list is not capped at the same rate as actually
+creating one.
+
+*Six periodic tasks, wired for the first time.* `sweep_promotions`,
+`sweep_challenge_deadlines`, and `sweep_activity_sources` (D36) each said in
+their own docstring that nothing called them on a schedule;
+`reindex_search`, `refresh_reputation`, and `assess_review_integrity` carried
+the identical gap without saying so — same missing piece of infrastructure,
+found by checking rather than trusting the comments. `core/migrations/
+0004_seed_beat_schedule.py` is the first place this codebase has ever
+created `PeriodicTask`/`CrontabSchedule` rows — `CELERY_BEAT_SCHEDULER` was
+already set to `django_celery_beat`'s `DatabaseScheduler`, just never fed
+anything. Cadence is chosen per task (5 minutes for promotions that are
+literally paid for by the minute, 30 minutes for activity sources whose
+providers have their own rate limits to respect), not one blanket interval.
+
+*HSTS was the one header `SecurityHeadersMiddleware` didn't set.* Added
+under the same `if not DEBUG` block as `SECURE_SSL_REDIRECT` — a year,
+every subdomain, eligible for preload. `SecurityMiddleware` only emits the
+header on a request it believes is actually secure, so this is inert for
+the plain-http CI client regardless of `DEBUG`; nothing in `conftest.py`
+needed to change alongside it, unlike `SECURE_SSL_REDIRECT` itself.
+
+*Error tracking is real, and honestly half of what "error tracking" usually
+means.* `sentry-sdk` is wired into `config/settings.py`, gated behind
+`SENTRY_DSN` exactly like `LIGHTHOUSE_ENABLED`/`ZOOM_ENABLED` before it —
+`sentry_sdk.init()` with no DSN is itself the inert state, proved both ways
+by a subprocess test (`core/tests.py`) since the init runs once, at import
+time, and cannot be toggled by a `settings` fixture on an already-imported
+process. What is deliberately **not** built: the browser-side half.
+`@sentry/nextjs` needs source-map upload credentials and build-time
+wiring this session did not have a safe way to add without risking the
+production build; frontend error tracking stays a named gap rather than a
+half-wired one — see Engineering debt below.
+
+*Retry/backoff lives at the HTTP layer, not the task layer, for
+`sweep_activity_sources`.* Every `integrations/providers/*.py` call now
+goes through `integrations/providers/base.py`'s shared `session` — a
+`requests.Session` with a mounted `Retry` (3 attempts, exponential backoff,
+retries 429/5xx) — proved against a real flaky local HTTP server in
+`integrations/tests.py`, not just by inspecting the `Retry` object's
+config. `sweep_activity_sources` itself deliberately did *not* get the
+`@shared_task(bind=True, max_retries=N)` treatment `scan_file`/
+`deliver_notification`/`grade_challenge_submission` each have: those each
+act on one row, so retrying the task is retrying the one thing that failed.
+`sweep_activity_sources` acts on every source in one pass — retrying the
+*task* over one source's failure would re-sync every source that already
+succeeded. The transient-failure problem that actually exists (one flaky
+HTTP call) is handled a layer down, where it belongs.
+
+*One missing index, found by checking what a hot-path query actually
+filters on, not by guessing.* `Proposal.remaining_quota()` — the check
+standing between a freelancer and their plan's proposal cap, run on every
+submission — filtered on `(freelancer, status)` with only a
+`(project, freelancer)` unique constraint to lean on. `marketplace/
+migrations/0003_...` adds the index the query pattern actually needed.
+
+*The admin 2FA enrolment gap (named as debt since D35) is closed, not
+patched around.* An admin-role account cannot hold a session without 2FA
+already confirmed, and had no way to reach the (authenticated) settings
+page that starts enrolment — a genuine dead end needing a database fix.
+The close reuses the exact challenge-token shape `login_two_factor`/
+`login_device_verify` already established: `login()`'s enrolment-required
+branch now mints a signed, 10-minute `{"uid", "enrol": True}` token instead
+of returning nothing, and two new `AllowAny` endpoints
+(`login_two_factor_enrol_setup`/`_confirm`) redeem it to run the same
+device-creation and TOTP-confirmation logic `two_factor_setup`/
+`two_factor_confirm` already had — extracted into `_begin_two_factor_
+enrolment`/`_finish_two_factor_enrolment` so the authenticated and
+challenge-token paths cannot drift apart. `enrol` is checked explicitly so
+this challenge can never be redeemed as a real second factor, and a real
+2FA challenge is rejected here the same way (covered both directions in
+`accounts/tests.py`). Confirming ends the request already signed in — the
+password was proven a few requests ago and the authenticator was just
+proven too, so asking a third time would be friction with no additional
+security.
+
+*Found while wiring the frontend for that fix, not before:* the enrolment-
+required response originally kept its pre-existing `403` status while
+gaining a `challenge` field. `web/lib/api.ts`'s client throws on any
+non-2xx response, so the challenge never reached the login page's own
+branching logic — a bug caught only by actually driving the flow in a
+browser, not by the type checker or the backend test suite, both of which
+were satisfied by a 403 with the right JSON shape. Fixed by matching the
+sibling `two_factor_required`/`device_verification_required` responses:
+200, an actionable next step, not a terminal error.
+
+---
+
 ## Not mine to take
 
-These need a legal identity, a signature, or a personal relationship. Nothing
-here has moved since the log was opened, and all of it now sits on the critical
-path rather than ahead of it — Phase 3 is deferred *because* of items 1–3, and
-Phase 4 has shipped without the cohort in item 6.
+These need a legal identity, a signature, a personal relationship, or an
+external engagement neither of us can substitute for. Nothing 1–6 has moved
+since the log was opened, and all of it now sits on the critical path rather
+than ahead of it — Phase 3 is deferred *because* of items 1–3, and Phase 4
+has shipped without the cohort in item 6.
 
 1. **Engage a corporate lawyer** on the escrow question in D8. Slowest item on
    the board, and now the binding constraint: everything built after Phase 2 is
@@ -942,6 +1096,16 @@ Phase 4 has shipped without the cohort in item 6.
    moderator at one campus. Phase 4 shipped the portals; this is what puts
    anybody inside them, and it remains the single highest-risk item in the
    whole plan.
+7. **Penetration testing, load testing, and a legal/compliance review of
+   what Phase 11 hardened** (D37). A pen test needs an authorized third
+   party engaged to attack the live system, not a self-review; a load test
+   needs real traffic infrastructure and a target concurrency figure nobody
+   has set yet; a compliance review needs whoever item 1's lawyer turns out
+   to be, once engaged. External monitoring dashboards (uptime, on-call
+   paging) are the same shape — configuring an account with a provider,
+   not a code change. `SENTRY_DSN`, `SECURE_HSTS_SECONDS`, and the rest of
+   D37 are the code-side half of "hardened"; this is the half that was
+   never going to be.
 
 ---
 
@@ -950,9 +1114,6 @@ Phase 4 has shipped without the cohort in item 6.
 Not decisions, but known gaps recorded so they are not rediscovered as
 surprises:
 
-- **An admin cannot enrol 2FA through the product.** Administrative roles
-  cannot hold a session without a second factor, and cannot reach enrolment
-  without a session. A locked-out admin currently needs a database-level fix.
 - **Ranking and reputation weights are unfitted** (D20), and will stay that way
   until Phase 3 produces transaction history.
 - **Group chat is polled, not pushed.** The read model is what a socket would
@@ -971,6 +1132,17 @@ surprises:
   worth naming: nothing in the build re-checks a phase-gated label against
   what has actually shipped, so the next one will drift the same way unless
   someone happens to notice.
+- **No browser-side error tracking** (D37). `sentry-sdk` covers the API and
+  the Celery worker; `@sentry/nextjs` needs source-map upload credentials
+  and build-time config this session did not have a safe way to add without
+  risking the production build. A client-side exception today is visible
+  only if the person hitting it reports it.
+- **`api/challenges/admin.py`, `grading.py`, `models.py`, `tests.py`,
+  `views.py`, and `core/tasks.py` fail `ruff check .` as written** — found
+  verifying Phase 10 (D36) against CI-exact settings, still true after
+  Phase 11. Pre-existing lint debt from the Phase 13 build, in files neither
+  phase touched; flagged as its own task rather than folded into an
+  unrelated commit twice now.
 - **No `CELERY_BEAT_SCHEDULE` exists anywhere in this codebase.**
   `sweep_promotions`, `sweep_challenge_deadlines`, and now
   `sweep_activity_sources` (D36) are each complete, correct periodic tasks
