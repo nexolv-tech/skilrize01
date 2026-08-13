@@ -513,6 +513,21 @@ export type ProposalStatus =
   | "withdrawn"
   | "accepted";
 
+export type TrialStatus = "proposed" | "accepted" | "declined" | "converted";
+
+export interface Trial {
+  id: number;
+  brief: string;
+  amount: string;
+  duration_days: number;
+  status: TrialStatus;
+  contract_id: number | null;
+  contract_status: ContractStatus | null;
+  converted_contract_id: number | null;
+  responded_at: string | null;
+  created_at: string;
+}
+
 export interface Proposal {
   id: number;
   project: number;
@@ -530,6 +545,7 @@ export interface Proposal {
   client_viewed_at: string | null;
   created_at: string;
   answers: Array<{ question: number; question_text: string; answer: string }>;
+  trial: Trial | null;
 }
 
 export type MilestoneStatus =
@@ -681,6 +697,15 @@ export const marketplace = {
   declineProposal: (id: number) => api.post<Proposal>(`/proposals/${id}/decline/`),
   quota: () =>
     api.get<{ limit: number; outstanding: number; remaining: number }>("/proposals/quota/"),
+
+  proposeTrial: (
+    proposalId: number,
+    body: { brief: string; amount: string; duration_days?: number },
+  ) => api.post<Trial>(`/proposals/${proposalId}/trial/`, body),
+  acceptTrial: (proposalId: number) => api.post<Trial>(`/proposals/${proposalId}/trial/accept/`),
+  declineTrial: (proposalId: number) => api.post<Trial>(`/proposals/${proposalId}/trial/decline/`),
+  convertTrial: (proposalId: number) =>
+    api.post<ContractDetail>(`/proposals/${proposalId}/trial/convert/`),
 };
 
 export const contracts = {

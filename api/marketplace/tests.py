@@ -438,3 +438,166 @@ def test_skill_search_is_limited_to_approved_terms():
     names = [row["name"] for row in APIClient().get("/api/v1/skills/?q=react").data]
 
     assert names == ["React"]
+
+
+# --- Trials (Phase 12) -------------------------------------------------------
+
+
+@pytest.fixture
+def trial_setup(db):
+    client_user = make_user("trial-client@example.com")
+    freelancer = make_user("trial-freelancer@example.com")
+    with use_scope(GLOBAL_SCOPE):
+        project = Project.objects.create(
+            client=client_user,
+            title="Build a dashboard",
+            description="React front end, Django API.",
+            project_type=ProjectType.FIXED,
+            budget_max=150000,
+            status=Project.Status.OPEN,
+        )
+    proposal = Proposal.objects.create(
+        project=project,
+        freelancer=freelancer,
+        cover_letter="I can do this.",
+        bid_amount=150000,
+        estimated_days=30,
+    )
+    return client_user, freelancer, project, proposal
+
+
+def _propose_trial(client, proposal_id, *, amount="5000", brief="Build the homepage component."):
+    return client.post(
+        f"/api/v1/proposals/{proposal_id}/trial/",
+        {"brief": brief, "amount": amount, "duration_days": 3},
+        format="json",
+    )
+
+
+@pytest.mark.django_db
+def test_client_can_propose_a_trial(trial_setup):
+    client_user, freelancer, project, proposal = trial_setup
+    response = _propose_trial(sign_in(client_user), proposal.id)
+    assert response.status_code == 201
+    assert response.data["status"] == "proposed"
+    assert response.data["amount"] == "5000.00"
+
+
+@pytest.mark.django_db
+def test_only_the_client_can_propose_a_trial(trial_setup):
+    client_user, freelancer, project, proposal = trial_setup
+    response = _propose_trial(sign_in(freelancer), proposal.id)
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_cannot_propose_a_second_trial_on_the_same_proposal(trial_setup):
+    client_user, freelancer, project, proposal = trial_setup
+    client = sign_in(client_user)
+    _propose_trial(client, proposal.id)
+    response = _propose_trial(client, proposal.id, amount="6000")
+    assert response.status_code == 400
+    assert response.data["code"] == "trial_exists"
+
+
+@pytest.mark.django_db
+def test_accepting_a_trial_opens_a_one_milestone_active_contract(trial_setup):
+    from contracts.models import Contract
+
+    client_user, freelancer, project, proposal = trial_setup
+    _propose_trial(sign_in(client_user), proposal.id)
+
+    response = sign_in(freelancer).post(f"/api/v1/proposals/{proposal.id}/trial/accept/")
+    assert response.status_code == 200
+    assert response.data["status"] == "accepted"
+
+    contract = Contract.objects.unscoped().get(pk=response.data["contract_id"])
+    # accept() both creates the contract AND freezes its terms in one step —
+    # a trial offer already *is* the contract offer, so there is no separate
+    # freelancer-accepts-the-contract step the way a normal award has.
+    assert contract.status == Contract.Status.ACTIVE
+    assert contract.total_amount == 5000
+    assert contract.milestones.count() == 1
+    # Must NOT claim the proposal's OneToOne slot — the real contract needs
+    # that slot once (if) the trial converts.
+    assert contract.proposal_id is None
+
+
+@pytest.mark.django_db
+def test_freelancer_can_decline_a_trial(trial_setup):
+    client_user, freelancer, project, proposal = trial_setup
+    _propose_trial(sign_in(client_user), proposal.id)
+
+    response = sign_in(freelancer).post(f"/api/v1/proposals/{proposal.id}/trial/decline/")
+    assert response.status_code == 200
+    assert response.data["status"] == "declined"
+
+
+@pytest.mark.django_db
+def test_cannot_convert_before_the_trial_is_delivered_and_approved(trial_setup):
+    client_user, freelancer, project, proposal = trial_setup
+    client = sign_in(client_user)
+    _propose_trial(client, proposal.id)
+    sign_in(freelancer).post(f"/api/v1/proposals/{proposal.id}/trial/accept/")
+
+    response = client.post(f"/api/v1/proposals/{proposal.id}/trial/convert/")
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_full_trial_lifecycle_ends_in_a_real_contract(trial_setup):
+    """Propose, accept, fund, deliver, approve, convert — every step through
+    the exact same contract endpoints any other order or award already uses,
+    ending with a full contract distinct from the trial's own small one."""
+    from contracts.models import Contract
+
+    client_user, freelancer, project, proposal = trial_setup
+    client, freelancer_api = sign_in(client_user), sign_in(freelancer)
+
+    _propose_trial(client, proposal.id)
+    accepted = freelancer_api.post(f"/api/v1/proposals/{proposal.id}/trial/accept/")
+    trial_contract_id = accepted.data["contract_id"]
+    milestone_id = Contract.objects.unscoped().get(pk=trial_contract_id).milestones.first().id
+
+    assert (
+        client.post(
+            f"/api/v1/contracts/{trial_contract_id}/milestones/{milestone_id}/fund/"
+        ).status_code
+        == 200
+    )
+    assert (
+        freelancer_api.post(
+            f"/api/v1/contracts/{trial_contract_id}/milestones/{milestone_id}/deliver/",
+            {"note": "Here is the homepage component."},
+            format="json",
+        ).status_code
+        == 200
+    )
+    released = client.post(
+        f"/api/v1/contracts/{trial_contract_id}/milestones/{milestone_id}/release/"
+    )
+    assert released.status_code == 200
+    assert released.data["status"] == "completed"
+
+    converted = client.post(f"/api/v1/proposals/{proposal.id}/trial/convert/")
+    assert converted.status_code == 201
+    full_contract_id = converted.data["id"]
+    assert full_contract_id != trial_contract_id
+
+    full_contract = Contract.objects.unscoped().get(pk=full_contract_id)
+    assert full_contract.proposal_id == proposal.id
+    assert full_contract.total_amount == 150000
+
+    proposal.refresh_from_db()
+    assert proposal.status == Proposal.Status.ACCEPTED
+    project.refresh_from_db()
+    assert project.status == Project.Status.AWARDED
+
+    # A second attempt — either to award normally or convert again — must be
+    # refused, not silently create a second contract on the same proposal.
+    assert client.post(f"/api/v1/proposals/{proposal.id}/trial/convert/").status_code == 400
+    award_again = client.post(
+        "/api/v1/contracts/award/", {"proposal": proposal.id}, format="json"
+    )
+    assert award_again.status_code == 400
+    assert award_again.data["code"] == "already_awarded"

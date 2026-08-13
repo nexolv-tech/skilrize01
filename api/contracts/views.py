@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from decimal import Decimal
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Q, Sum
 from django.shortcuts import get_object_or_404
@@ -19,7 +19,7 @@ from core import files as filestore
 from core.models import AuditLog, NotificationCategory, StoredFile
 from core.notify import dispatch
 from core.pagination import StandardPagination
-from marketplace.models import Project, ProjectType, Proposal
+from marketplace.models import Project, Proposal
 
 from .models import Contract, ContractEvent, ContractType, Milestone, Review, TimeEntry
 from .permissions import IsContractParty
@@ -99,52 +99,16 @@ class ContractViewSet(viewsets.ReadOnlyModelViewSet):
         if hasattr(proposal, "contract") and proposal.contract is not None:
             return _bad("This proposal has already been awarded.", "already_awarded")
 
-        hourly = project.project_type == ProjectType.HOURLY
-        contract_type = data.get("contract_type") or (
-            ContractType.HOURLY if hourly else ContractType.FIXED
-        )
-        milestone_specs = data.get("milestones") or []
-        if not hourly and milestone_specs:
-            contract_type = ContractType.MILESTONE
-
-        contract = Contract.objects.create(
-            project=project,
-            proposal=proposal,
-            client=request.user,
-            freelancer=proposal.freelancer,
-            title=project.title,
-            contract_type=contract_type,
-            total_amount=None if hourly else proposal.bid_amount,
-            hourly_rate=proposal.hourly_rate if hourly else None,
-            weekly_hour_limit=data.get("weekly_hour_limit") or project.weekly_hours,
-            # The contract lives on the same surface as the brief it came from,
-            # so a campus contract never becomes globally visible.
-            visibility=project.visibility,
-            university=project.university,
-        )
-
-        # A fixed-price contract with no stated plan is one milestone, not a
-        # special case — funding and release then have one implementation.
-        if not hourly:
-            specs = milestone_specs or [
-                {"title": "Full delivery", "amount": proposal.bid_amount, "order": 0}
-            ]
-            total = sum(Decimal(str(spec["amount"])) for spec in specs)
-            if proposal.bid_amount and abs(total - proposal.bid_amount) > Decimal("0.01"):
-                return _bad("Milestone amounts must add up to the agreed price.")
-            Milestone.objects.bulk_create(
-                [
-                    Milestone(
-                        contract=contract,
-                        order=spec.get("order", index),
-                        title=spec["title"],
-                        description=spec.get("description", ""),
-                        amount=Decimal(str(spec["amount"])),
-                        due_date=spec.get("due_date"),
-                    )
-                    for index, spec in enumerate(specs)
-                ]
+        try:
+            contract = Contract.create_from_proposal(
+                proposal,
+                client=request.user,
+                milestone_specs=data.get("milestones") or None,
+                weekly_hour_limit=data.get("weekly_hour_limit"),
+                contract_type=data.get("contract_type"),
             )
+        except DjangoValidationError as exc:
+            return _bad("; ".join(exc.messages))
 
         proposal.status = Proposal.Status.ACCEPTED
         proposal.save(update_fields=["status", "updated_at"])

@@ -23,10 +23,10 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 7 · Mobile | ❌ | Flutter parity app |
 | 8 · Professional layer | ✅ | CRM, subscriptions, retainers, agencies, workspaces |
 | 9–11 | ❌ | Integrations, admin console, hardening |
-| 12 · Hire after trial | ❌ | A paid trial task that converts into the first milestone of a full contract |
+| 12 · Hire after trial | ✅ | A paid trial task before the full project — see below for what "converts" does and does not mean yet |
 | 13 · Proof-of-work challenges | ✅ | Timed briefs, human-reviewed scoring, ranked badges — automated Lighthouse grading built but off by default, see below |
 
-**280 backend tests pass.** Lint, format, migration check, `check --deploy`,
+**287 backend tests pass.** Lint, format, migration check, `check --deploy`,
 type-check, and production build are all clean.
 
 ### The gap in the middle
@@ -37,7 +37,7 @@ contract state and nothing else. Everything built after it — portals,
 communities, search, reputation — sits on a marketplace that cannot yet
 transact for real.
 
-By phase count the project is 8 of 14. By revenue capability it is at zero
+By phase count the project is 9 of 14. By revenue capability it is at zero
 until Phase 3 lands. The state machine those payments will plug into is
 already the real one (decision D12), so this is a substitution rather than a
 rewrite.
@@ -156,6 +156,38 @@ them simply leave.
 Seat limits are checked against the **agency owner's** plan rather than the
 inviter's — otherwise an admin on a free plan could grow a team past what was
 paid for.
+
+### Phase 12 — Hire after trial
+
+| Delivered | Where |
+| --- | --- |
+| A client offers a small paid task on a specific proposal, before awarding the full project | `api/contracts/models.py` (`Trial`), `marketplace/views.py` |
+| Accepting opens the trial's own one-milestone contract — funded, delivered, and released through the exact same endpoints every other contract already uses | `Trial.accept()` |
+| "Continue with this freelancer" awards the full project once the trial is delivered and approved | `Trial.convert()` |
+| Contract creation refactored into `Contract.create_from_proposal()`, shared by a normal award and a trial conversion | `api/contracts/models.py` |
+
+**Deliberately not new infrastructure.** The whole feature is "a new shape of
+order and a conversion path," per the roadmap's own framing when this phase
+was scoped (D31) — a trial rides the same fund → deliver → release machinery
+a gig order already reuses. The only genuinely new surface is proposing the
+trial and converting it afterwards; everything in between is the existing
+`/contracts/<id>/milestones/<id>/...` API, untouched.
+
+**What "convert" does not do: credit the trial fee toward the new
+contract.** That is a ledger operation — crediting one payment against
+another — and there is no ledger until Phase 3 ships. The trial amount is
+recorded on the `Trial` row so the client sees it plainly instead of the
+platform silently forgetting a payment it already collected; applying it is
+a manual adjustment today, not an automation. See D31 and D34.
+
+**Found while building it, not before:** the original `award` endpoint
+created its `Contract` row *before* validating that milestone amounts added
+up to the agreed price. A rejected 400 still left that row behind — and
+since `Contract.proposal` is a `OneToOneField`, the zombie row occupied the
+slot permanently, making the proposal un-awardable on every later attempt
+regardless of whether the amounts were now correct. Fixed by validating
+before creating anything; covered by a regression test that asserts a
+second, correct attempt succeeds.
 
 ### Phase 13 — Proof-of-work challenges
 

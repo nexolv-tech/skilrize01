@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -13,6 +14,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from accounts.auth import CanTransact
+from contracts.models import Trial
+from contracts.serializers import ContractDetailSerializer
 from core.models import AuditLog, NotificationCategory
 from core.notify import dispatch
 from core.pagination import StandardPagination
@@ -35,6 +38,8 @@ from .serializers import (
     ProposalSerializer,
     ProposalWriteSerializer,
     SkillSerializer,
+    TrialProposeSerializer,
+    TrialSerializer,
 )
 
 # --- Taxonomy --------------------------------------------------------------
@@ -329,6 +334,160 @@ class ProposalViewSet(viewsets.ReadOnlyModelViewSet):
                 data={"proposal_id": proposal.id},
             )
         return Response(ProposalSerializer(proposal).data)
+
+    # --- Trials (Phase 12) -------------------------------------------------
+
+    @action(detail=True, methods=["post"], url_path="trial")
+    def propose_trial(self, request, pk=None):
+        """The client offers a small, paid task before committing to the
+        full project. "Can I trust this freelancer?" is what a trial answers
+        directly, rather than through reviews alone."""
+        proposal = self.get_object()
+        if proposal.project.client_id != request.user.pk:
+            return Response(
+                {"detail": "Only the client can propose a trial."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if proposal.status not in (Proposal.Status.SUBMITTED, Proposal.Status.SHORTLISTED):
+            return Response(
+                {"detail": "A trial can only be proposed before the proposal is decided."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if hasattr(proposal, "trial"):
+            return Response(
+                {
+                    "detail": "A trial has already been proposed for this proposal.",
+                    "code": "trial_exists",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        input_serializer = TrialProposeSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        trial = Trial.objects.create(
+            proposal=proposal, proposed_by=request.user, **input_serializer.validated_data
+        )
+
+        dispatch(
+            proposal.freelancer,
+            NotificationCategory.ORDER,
+            "You have been offered a paid trial",
+            (
+                f"{request.user.display_name} wants to try you out on "
+                f"“{proposal.project.title}” for {trial.amount} before hiring for the full project."
+            ),
+            data={"proposal_id": proposal.id},
+        )
+        return Response(TrialSerializer(trial).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="trial/accept")
+    def accept_trial(self, request, pk=None):
+        proposal = self.get_object()
+        trial = getattr(proposal, "trial", None)
+        if trial is None:
+            return Response(
+                {"detail": "No trial has been proposed."}, status=status.HTTP_404_NOT_FOUND
+            )
+        if proposal.freelancer_id != request.user.pk:
+            return Response(
+                {"detail": "Only the freelancer can respond to this trial."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            contract = trial.accept()
+        except DjangoValidationError as exc:
+            return Response(
+                {"detail": "; ".join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        dispatch(
+            proposal.project.client,
+            NotificationCategory.ORDER,
+            "Trial accepted",
+            (
+                f"{request.user.display_name} accepted the trial for "
+                f"“{proposal.project.title}”. Fund it to let them start."
+            ),
+            data={"contract_id": contract.id},
+        )
+        return Response(TrialSerializer(trial).data)
+
+    @action(detail=True, methods=["post"], url_path="trial/decline")
+    def decline_trial(self, request, pk=None):
+        proposal = self.get_object()
+        trial = getattr(proposal, "trial", None)
+        if trial is None:
+            return Response(
+                {"detail": "No trial has been proposed."}, status=status.HTTP_404_NOT_FOUND
+            )
+        if proposal.freelancer_id != request.user.pk:
+            return Response(
+                {"detail": "Only the freelancer can respond to this trial."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            trial.decline()
+        except DjangoValidationError as exc:
+            return Response(
+                {"detail": "; ".join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        dispatch(
+            proposal.project.client,
+            NotificationCategory.ORDER,
+            "Trial declined",
+            f"{request.user.display_name} declined the trial for “{proposal.project.title}”.",
+            data={"proposal_id": proposal.id},
+        )
+        return Response(TrialSerializer(trial).data)
+
+    @action(detail=True, methods=["post"], url_path="trial/convert")
+    def convert_trial(self, request, pk=None):
+        """'Continue with this freelancer' — awards the full project after a
+        successful trial. Does not credit the trial fee toward the new
+        contract; see `Trial.convert`."""
+        proposal = self.get_object()
+        trial = getattr(proposal, "trial", None)
+        if trial is None:
+            return Response(
+                {"detail": "No trial exists on this proposal."}, status=status.HTTP_404_NOT_FOUND
+            )
+        if proposal.project.client_id != request.user.pk:
+            return Response(
+                {"detail": "Only the client can continue with this freelancer."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            contract = trial.convert(client=request.user)
+        except DjangoValidationError as exc:
+            return Response(
+                {"detail": "; ".join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        AuditLog.record(
+            actor=request.user,
+            action=AuditLog.Action.CREATE,
+            target=contract,
+            request=request,
+            justification=f"Converted trial on proposal {proposal.id} to a full contract.",
+        )
+        dispatch(
+            proposal.freelancer,
+            NotificationCategory.CONTRACT,
+            "You are hired for the full project",
+            (
+                f"{request.user.display_name} continued with you after the trial "
+                f"for “{proposal.project.title}”."
+            ),
+            data={"contract_id": contract.id},
+        )
+        return Response(
+            ContractDetailSerializer(contract, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 @api_view(["GET"])

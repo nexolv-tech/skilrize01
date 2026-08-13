@@ -26,6 +26,7 @@ import {
   marketplace,
   type ProjectDetail,
   type Proposal,
+  type Trial,
 } from "@/lib/api";
 import { formatRelative, useAsyncAction, useLoader, useSession } from "@/lib/session";
 
@@ -174,6 +175,156 @@ function ProposalForm({
 }
 
 /* -------------------------------------------------------------------------- */
+/* Trials — a paid task offered before committing to the full project         */
+/* -------------------------------------------------------------------------- */
+
+const TRIAL_TONE: Record<Trial["status"], "neutral" | "accent" | "positive" | "critical"> = {
+  proposed: "neutral",
+  accepted: "accent",
+  declined: "critical",
+  converted: "positive",
+};
+
+function ClientTrialPanel({
+  proposal,
+  onChanged,
+}: {
+  proposal: Proposal;
+  onChanged: () => void;
+}) {
+  const router = useRouter();
+  const [proposing, setProposing] = React.useState(false);
+  const [form, setForm] = React.useState({ brief: "", amount: "", duration_days: "3" });
+
+  const propose = useAsyncAction(marketplace.proposeTrial);
+  const convert = useAsyncAction(marketplace.convertTrial);
+
+  const trial = proposal.trial;
+
+  if (!trial) {
+    if (proposal.status !== "submitted" && proposal.status !== "shortlisted") return null;
+
+    if (!proposing) {
+      return (
+        <div className="mt-4 border-t border-line pt-4">
+          <Button size="sm" variant="secondary" onClick={() => setProposing(true)}>
+            <Icon name="zap" className="size-3.5" />
+            Offer a paid trial first
+          </Button>
+        </div>
+      );
+    }
+
+    return (
+      <form
+        className="mt-4 space-y-3 border-t border-line pt-4"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          const result = await propose.run(proposal.id, {
+            brief: form.brief,
+            amount: form.amount,
+            duration_days: Number(form.duration_days) || 3,
+          });
+          if (result) {
+            setProposing(false);
+            onChanged();
+          }
+        }}
+      >
+        <Field label="What should they build?" htmlFor={`trial-brief-${proposal.id}`} required>
+          <Textarea
+            id={`trial-brief-${proposal.id}`}
+            required
+            placeholder="A single homepage component, matching the attached design."
+            value={form.brief}
+            onChange={(event) => setForm({ ...form, brief: event.target.value })}
+          />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Trial price" htmlFor={`trial-amount-${proposal.id}`} required>
+            <Input
+              id={`trial-amount-${proposal.id}`}
+              type="number"
+              min={1}
+              step="0.01"
+              required
+              value={form.amount}
+              onChange={(event) => setForm({ ...form, amount: event.target.value })}
+            />
+          </Field>
+          <Field label="Days to deliver" htmlFor={`trial-days-${proposal.id}`}>
+            <Input
+              id={`trial-days-${proposal.id}`}
+              type="number"
+              min={1}
+              max={30}
+              value={form.duration_days}
+              onChange={(event) => setForm({ ...form, duration_days: event.target.value })}
+            />
+          </Field>
+        </div>
+        <div className="flex gap-2">
+          <Button type="submit" size="sm" loading={propose.pending}>
+            Send trial offer
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={() => setProposing(false)}>
+            Cancel
+          </Button>
+        </div>
+        {propose.error && <p className="text-[12.5px] text-critical">{propose.error}</p>}
+      </form>
+    );
+  }
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-line pt-4">
+      <Badge tone={TRIAL_TONE[trial.status]}>Trial: {trial.status}</Badge>
+      {trial.status === "proposed" && (
+        <span className="text-[12.5px] text-muted">
+          Waiting on {proposal.freelancer.display_name} to respond —{" "}
+          <Money amount={trial.amount} /> for “{trial.brief}”.
+        </span>
+      )}
+      {trial.status === "accepted" && trial.contract_status !== "completed" && trial.contract_id && (
+        <Link
+          href={`/contracts/${trial.contract_id}`}
+          className="text-[12.5px] text-accent hover:underline"
+        >
+          View trial contract ({trial.contract_status}) ↗
+        </Link>
+      )}
+      {trial.status === "accepted" && trial.contract_status === "completed" && (
+        <>
+          <span className="text-[12.5px] text-muted">Trial approved.</span>
+          <Button
+            size="sm"
+            loading={convert.pending}
+            onClick={async () => {
+              const contract = await convert.run(proposal.id);
+              if (contract) router.push(`/contracts/${contract.id}`);
+            }}
+          >
+            Continue with this freelancer
+          </Button>
+        </>
+      )}
+      {trial.status === "declined" && (
+        <span className="text-[12.5px] text-muted">Declined by the freelancer.</span>
+      )}
+      {trial.status === "converted" && trial.converted_contract_id && (
+        <Link
+          href={`/contracts/${trial.converted_contract_id}`}
+          className="text-[12.5px] font-medium text-positive hover:underline"
+        >
+          Hired via trial — view contract ↗
+        </Link>
+      )}
+      {convert.error && <p className="w-full text-[12.5px] text-critical">{convert.error}</p>}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /* Proposal list — the client's side                                          */
 /* -------------------------------------------------------------------------- */
 
@@ -282,36 +433,40 @@ function ProposalRow({
         </div>
       </div>
 
-      {proposal.status !== "accepted" && proposal.status !== "declined" && (
-        <div className="mt-4 flex flex-wrap gap-2 border-t border-line pt-4">
-          <Button size="sm" loading={award.pending} onClick={() => void award.run()}>
-            Award contract
-          </Button>
-          {proposal.status !== "shortlisted" && (
+      {proposal.status !== "accepted" &&
+        proposal.status !== "declined" &&
+        (!proposal.trial || proposal.trial.status === "declined") && (
+          <div className="mt-4 flex flex-wrap gap-2 border-t border-line pt-4">
+            <Button size="sm" loading={award.pending} onClick={() => void award.run()}>
+              Award contract
+            </Button>
+            {proposal.status !== "shortlisted" && (
+              <Button
+                size="sm"
+                variant="secondary"
+                loading={shortlist.pending}
+                onClick={() => void shortlist.run()}
+              >
+                Shortlist
+              </Button>
+            )}
             <Button
               size="sm"
-              variant="secondary"
-              loading={shortlist.pending}
-              onClick={() => void shortlist.run()}
+              variant="ghost"
+              loading={decline.pending}
+              onClick={() => void decline.run()}
             >
-              Shortlist
+              Decline
             </Button>
-          )}
-          <Button
-            size="sm"
-            variant="ghost"
-            loading={decline.pending}
-            onClick={() => void decline.run()}
-          >
-            Decline
-          </Button>
-          {(award.error || shortlist.error || decline.error) && (
-            <span className="self-center text-[12.5px] text-critical">
-              {award.error ?? shortlist.error ?? decline.error}
-            </span>
-          )}
-        </div>
-      )}
+            {(award.error || shortlist.error || decline.error) && (
+              <span className="self-center text-[12.5px] text-critical">
+                {award.error ?? shortlist.error ?? decline.error}
+              </span>
+            )}
+          </div>
+        )}
+
+      <ClientTrialPanel proposal={proposal} onChanged={onChanged} />
     </li>
   );
 }

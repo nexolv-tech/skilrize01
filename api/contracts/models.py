@@ -170,6 +170,80 @@ class Contract(ScopedModel):
             "frozen_at": timezone.now().isoformat(),
         }
 
+    @classmethod
+    def create_from_proposal(
+        cls,
+        proposal,
+        *,
+        client,
+        milestone_specs: list[dict] | None = None,
+        weekly_hour_limit: int | None = None,
+        contract_type: str | None = None,
+    ) -> Contract:
+        """Open a contract from a proposal — the machinery `award` and a
+        trial's `convert` both need, factored out because they need the
+        exact same one, not two versions that can quietly drift apart.
+
+        Validates milestone amounts *before* creating anything. The original
+        single-caller version created the `Contract` row first and validated
+        after — which meant a mismatched milestone total left a real,
+        permanent `Contract` behind despite the request being rejected as a
+        400, because `proposal.contract` is a `OneToOneField`: that zombie
+        row occupied the slot forever and made the proposal un-awardable on
+        every subsequent attempt, correct amounts or not. Does not touch the
+        proposal or project status — an award and a trial conversion do that
+        at different points, so it stays the caller's decision.
+        """
+        from django.core.exceptions import ValidationError
+
+        from marketplace.models import ProjectType
+
+        project = proposal.project
+        hourly = project.project_type == ProjectType.HOURLY
+        resolved_type = contract_type or (ContractType.HOURLY if hourly else ContractType.FIXED)
+
+        specs = None
+        if not hourly:
+            specs = milestone_specs or [
+                {"title": "Full delivery", "amount": proposal.bid_amount, "order": 0}
+            ]
+            if milestone_specs:
+                resolved_type = ContractType.MILESTONE
+            total = sum(Decimal(str(spec["amount"])) for spec in specs)
+            if proposal.bid_amount and abs(total - proposal.bid_amount) > Decimal("0.01"):
+                raise ValidationError("Milestone amounts must add up to the agreed price.")
+
+        contract = cls.objects.create(
+            project=project,
+            proposal=proposal,
+            client=client,
+            freelancer=proposal.freelancer,
+            title=project.title,
+            contract_type=resolved_type,
+            total_amount=None if hourly else proposal.bid_amount,
+            hourly_rate=proposal.hourly_rate if hourly else None,
+            weekly_hour_limit=weekly_hour_limit or project.weekly_hours,
+            # The contract lives on the same surface as the brief it came
+            # from, so a campus contract never becomes globally visible.
+            visibility=project.visibility,
+            university=project.university,
+        )
+        if specs:
+            Milestone.objects.bulk_create(
+                [
+                    Milestone(
+                        contract=contract,
+                        order=spec.get("order", index),
+                        title=spec["title"],
+                        description=spec.get("description", ""),
+                        amount=Decimal(str(spec["amount"])),
+                        due_date=spec.get("due_date"),
+                    )
+                    for index, spec in enumerate(specs)
+                ]
+            )
+        return contract
+
     def accept(self) -> None:
         self.status = self.Status.ACTIVE
         self.accepted_at = timezone.now()
@@ -267,6 +341,152 @@ class Milestone(TimestampedModel):
         self.status = self.Status.RELEASED
         self.released_at = timezone.now()
         self.save(update_fields=["status", "released_at", "updated_at"])
+
+
+class Trial(TimestampedModel):
+    """A small, paid task offered before a client commits to the full
+    project — Phase 12. "Can I trust this freelancer?" is the question
+    reviews only partly answer; a trial answers it directly.
+
+    Deliberately not new infrastructure. Once accepted, a trial opens its own
+    tiny `Contract` — one milestone, the trial fee — and from there it is
+    funded, delivered, and released through the exact same endpoints every
+    other contract on this platform already uses. The only genuinely new
+    surface is proposing the trial and converting it afterwards.
+    """
+
+    class Status(models.TextChoices):
+        PROPOSED = "proposed", "Proposed"
+        ACCEPTED = "accepted", "Accepted"
+        DECLINED = "declined", "Declined"
+        CONVERTED = "converted", "Converted to full contract"
+
+    proposal = models.OneToOneField(
+        "marketplace.Proposal", on_delete=models.CASCADE, related_name="trial"
+    )
+    #: The trial's own small contract — set once the freelancer accepts.
+    #: Deliberately does NOT carry `proposal`: `Contract.proposal` is a
+    #: OneToOneField, and the *real* contract (once this trial converts)
+    #: is the one meant to occupy that slot. A trial contract that claimed
+    #: it first would make its own proposal permanently un-awardable.
+    contract = models.OneToOneField(
+        Contract, null=True, blank=True, on_delete=models.SET_NULL, related_name="trial_source"
+    )
+    #: The real contract this trial converted into, once the client
+    #: continues with this freelancer. Set once, by `convert()`.
+    converted_contract = models.OneToOneField(
+        Contract,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="converted_from_trial",
+    )
+
+    brief = models.TextField()
+    amount = models.DecimalField(
+        max_digits=10, decimal_places=2, validators=[MinValueValidator(Decimal("1"))]
+    )
+    duration_days = models.PositiveSmallIntegerField(default=3)
+
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PROPOSED)
+    proposed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+"
+    )
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"Trial on proposal {self.proposal_id} ({self.status})"
+
+    @property
+    def project(self):
+        return self.proposal.project
+
+    @property
+    def freelancer(self):
+        return self.proposal.freelancer
+
+    def accept(self) -> Contract:
+        """The freelancer agrees. Opens the trial's own contract — funding,
+        delivery, and approval all happen through `ContractViewSet` from
+        here on; nothing about a trial contract's lifecycle is special."""
+        from datetime import timedelta
+
+        from django.core.exceptions import ValidationError
+
+        if self.status != self.Status.PROPOSED:
+            raise ValidationError("This trial is no longer awaiting a response.")
+
+        project = self.project
+        contract = Contract.objects.create(
+            project=project,
+            client=project.client,
+            freelancer=self.freelancer,
+            title=f"Trial: {project.title}",
+            contract_type=ContractType.FIXED,
+            total_amount=self.amount,
+            visibility=project.visibility,
+            university=project.university,
+        )
+        Milestone.objects.create(
+            contract=contract,
+            title="Trial task",
+            description=self.brief,
+            amount=self.amount,
+            due_date=timezone.now().date() + timedelta(days=self.duration_days),
+        )
+        contract.accept()
+
+        self.contract = contract
+        self.status = self.Status.ACCEPTED
+        self.responded_at = timezone.now()
+        self.save(update_fields=["contract", "status", "responded_at", "updated_at"])
+        return contract
+
+    def decline(self) -> None:
+        from django.core.exceptions import ValidationError
+
+        if self.status != self.Status.PROPOSED:
+            raise ValidationError("This trial is no longer awaiting a response.")
+        self.status = self.Status.DECLINED
+        self.responded_at = timezone.now()
+        self.save(update_fields=["status", "responded_at", "updated_at"])
+
+    def convert(self, *, client) -> Contract:
+        """'Continue with this freelancer' — open the real contract this
+        trial was a preview of.
+
+        **What this does not do: credit the trial fee toward the new
+        contract.** That is a ledger operation — crediting one payment
+        against another — and there is no ledger until Phase 3 ships (D31).
+        The amount stays on this row so the client sees it plainly on the
+        new contract's funding screen instead of the platform silently
+        forgetting a $50 payment it already collected.
+        """
+        from django.core.exceptions import ValidationError
+
+        from marketplace.models import Project, Proposal
+
+        if self.status != self.Status.ACCEPTED:
+            raise ValidationError("Only an accepted trial can convert.")
+        if self.contract is None or self.contract.status != Contract.Status.COMPLETED:
+            raise ValidationError("The trial task must be delivered and approved first.")
+        if hasattr(self.proposal, "contract") and self.proposal.contract is not None:
+            raise ValidationError("This proposal has already been awarded.")
+
+        new_contract = Contract.create_from_proposal(self.proposal, client=client)
+
+        self.proposal.status = Proposal.Status.ACCEPTED
+        self.proposal.save(update_fields=["status", "updated_at"])
+        self.proposal.project.status = Project.Status.AWARDED
+        self.proposal.project.save(update_fields=["status", "updated_at"])
+
+        self.converted_contract = new_contract
+        self.status = self.Status.CONVERTED
+        self.save(update_fields=["converted_contract", "status", "updated_at"])
+        return new_contract
 
 
 class TimeEntry(TimestampedModel):

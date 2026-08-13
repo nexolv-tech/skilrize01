@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django.db import transaction
 from django.db.models import F
 from rest_framework import serializers
 
 from accounts.serializers import PublicUserSerializer
+from contracts.models import Trial
 
 from .models import (
     Category,
@@ -302,12 +305,43 @@ class ScreeningAnswerSerializer(serializers.ModelSerializer):
         fields = ["question", "question_text", "answer"]
 
 
+class TrialSerializer(serializers.ModelSerializer):
+    contract_id = serializers.IntegerField(source="contract.id", read_only=True, default=None)
+    contract_status = serializers.CharField(source="contract.status", read_only=True, default=None)
+    converted_contract_id = serializers.IntegerField(
+        source="converted_contract.id", read_only=True, default=None
+    )
+
+    class Meta:
+        model = Trial
+        fields = [
+            "id",
+            "brief",
+            "amount",
+            "duration_days",
+            "status",
+            "contract_id",
+            "contract_status",
+            "converted_contract_id",
+            "responded_at",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class TrialProposeSerializer(serializers.Serializer):
+    brief = serializers.CharField()
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal("1"))
+    duration_days = serializers.IntegerField(required=False, min_value=1, max_value=30, default=3)
+
+
 class ProposalSerializer(serializers.ModelSerializer):
     freelancer = PublicUserSerializer(read_only=True)
     answers = ScreeningAnswerSerializer(many=True, read_only=True)
     project_title = serializers.CharField(source="project.title", read_only=True)
     project_type = serializers.CharField(source="project.project_type", read_only=True)
     is_editable = serializers.BooleanField(read_only=True)
+    trial = serializers.SerializerMethodField()
 
     class Meta:
         model = Proposal
@@ -328,6 +362,7 @@ class ProposalSerializer(serializers.ModelSerializer):
             "client_viewed_at",
             "created_at",
             "answers",
+            "trial",
         ]
         read_only_fields = [
             "id",
@@ -339,6 +374,10 @@ class ProposalSerializer(serializers.ModelSerializer):
             "created_at",
             "answers",
         ]
+
+    def get_trial(self, proposal: Proposal) -> dict | None:
+        trial = getattr(proposal, "trial", None)
+        return TrialSerializer(trial).data if trial else None
 
 
 class ProposalWriteSerializer(serializers.ModelSerializer):

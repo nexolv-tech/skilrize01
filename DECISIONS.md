@@ -748,6 +748,53 @@ report otherwise.
 
 ---
 
+## D34 · Phase 12 built exactly as scoped in D31
+
+**"Hire after trial" shipped as D31 already said it would: a small order
+riding the existing `Contract`/`Milestone` spine, with the trial-fee credit
+left manual because there is no ledger to automate it against. Nothing in
+the build changed that plan — this entry is the implementation record, and
+the one real bug it surfaced along the way.**
+
+*The shape:* a client proposes a trial on a specific proposal — a brief, a
+price, a number of days. The freelancer accepts or declines. Accepting opens
+a one-milestone `Contract` for just the trial amount, and from there it is
+funded, delivered, and released through `ContractViewSet` exactly as any
+other contract is — no new payment-adjacent endpoints exist anywhere in this
+feature. Once that trial contract is `COMPLETED`, the client can "continue
+with this freelancer," which awards the full project using the same
+`Contract.create_from_proposal` the normal award path uses.
+
+*The one modelling decision worth naming:* the trial's own contract does
+**not** set `Contract.proposal` — it stays `null`. `proposal` is a
+`OneToOneField`, and the *real* contract (the one `convert()` creates) is
+the one meant to occupy that slot once the trial succeeds. A trial contract
+that claimed it first would make its own originating proposal permanently
+un-awardable, which is close to the same failure class as the zombie-contract
+bug below — a `OneToOneField` treated as available when something is already
+quietly sitting in it.
+
+*The bug this build found, unrelated to trials specifically:* refactoring
+`award`'s contract-creation logic into `Contract.create_from_proposal` (so a
+trial conversion and a normal award share one implementation instead of two
+that can drift) surfaced that the original code created the `Contract` row
+*before* validating milestone amounts. A rejected 400 for a bad milestone
+split still left a real `Contract` behind, and because of the same
+`OneToOneField`, that row permanently blocked every later award attempt on
+the proposal — correct amounts or not. Fixed by validating first. This
+predates Phase 12 and had nothing to do with trials; it was found only
+because building this feature meant reading that code closely enough to
+reuse it correctly.
+
+*What "convert" still cannot do — restated from D31, because it is easy to
+forget once the feature exists:* the trial fee is not credited toward the
+new contract's first milestone. That is a ledger operation Phase 3 has not
+shipped. The amount stays visible on the `Trial` row precisely so nobody —
+client, freelancer, or a future engineer reading this code — mistakes the
+absence of automation for the platform having simply forgotten a payment.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, or a personal relationship. Nothing

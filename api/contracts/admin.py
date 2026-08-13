@@ -10,7 +10,7 @@ from django.contrib import admin
 
 from core.models import AuditLog
 
-from .models import Contract, ContractEvent, Milestone, Review, TimeEntry
+from .models import Contract, ContractEvent, Milestone, Review, TimeEntry, Trial
 
 
 class MilestoneInline(admin.TabularInline):
@@ -92,6 +92,14 @@ class ContractEventAdmin(admin.ModelAdmin):
     list_filter = ["kind", "created_at"]
     search_fields = ["contract__title", "body"]
     readonly_fields = ["contract", "kind", "actor", "body", "payload", "created_at"]
+
+
+@admin.register(Trial)
+class TrialAdmin(admin.ModelAdmin):
+    list_display = ["proposal", "amount", "duration_days", "status", "contract", "converted_contract"]
+    list_filter = ["status"]
+    search_fields = ["proposal__project__title", "proposal__freelancer__email"]
+    readonly_fields = ["contract", "converted_contract", "responded_at"]
 
 
 @admin.register(Review)

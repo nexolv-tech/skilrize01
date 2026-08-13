@@ -107,6 +107,12 @@ def test_a_proposal_cannot_be_awarded_twice(awarded, parties):
 
 @pytest.mark.django_db
 def test_milestone_amounts_must_add_up_to_the_agreed_price(parties):
+    """Also guards against a real bug the fix for this replaced: the
+    contract-creation logic used to create the `Contract` row *before*
+    validating the milestone total, so a rejected 400 still left a real,
+    permanent `Contract` behind — and since `Contract.proposal` is a
+    OneToOneField, that zombie row occupied the slot forever and made the
+    proposal un-awardable on every later attempt, correct amounts or not."""
     client_user, freelancer = parties
 
     with use_scope(GLOBAL_SCOPE):
@@ -135,6 +141,22 @@ def test_milestone_amounts_must_add_up_to_the_agreed_price(parties):
     )
     assert response.status_code == 400
     assert "add up" in response.data["detail"]
+    assert not Contract.objects.unscoped().filter(proposal=proposal).exists()
+
+    # A second, correct attempt on the same proposal must succeed — nothing
+    # from the rejected first attempt should be blocking it.
+    retry = sign_in(client_user).post(
+        "/api/v1/contracts/award/",
+        {
+            "proposal": proposal.id,
+            "milestones": [
+                {"title": "Phase one", "amount": "4000"},
+                {"title": "Phase two", "amount": "6000"},
+            ],
+        },
+        format="json",
+    )
+    assert retry.status_code == 201
 
 
 # --- Acceptance freezes the terms -----------------------------------------
