@@ -24,9 +24,9 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 8 · Professional layer | ✅ | CRM, subscriptions, retainers, agencies, workspaces |
 | 9–11 | ❌ | Integrations, admin console, hardening |
 | 12 · Hire after trial | ❌ | A paid trial task that converts into the first milestone of a full contract |
-| 13 · Proof-of-work challenges | ❌ | Timed skill challenges, scored and badged onto a profile |
+| 13 · Proof-of-work challenges | ✅ | Timed briefs, human-reviewed scoring, ranked badges — automated Lighthouse grading built but off by default, see below |
 
-**256 backend tests pass.** Lint, format, migration check, `check --deploy`,
+**280 backend tests pass.** Lint, format, migration check, `check --deploy`,
 type-check, and production build are all clean.
 
 ### The gap in the middle
@@ -37,7 +37,7 @@ contract state and nothing else. Everything built after it — portals,
 communities, search, reputation — sits on a marketplace that cannot yet
 transact for real.
 
-By phase count the project is 7 of 14. By revenue capability it is at zero
+By phase count the project is 8 of 14. By revenue capability it is at zero
 until Phase 3 lands. The state machine those payments will plug into is
 already the real one (decision D12), so this is a substitution rather than a
 rewrite.
@@ -156,6 +156,36 @@ them simply leave.
 Seat limits are checked against the **agency owner's** plan rather than the
 inviter's — otherwise an admin on a free plan could grow a team past what was
 paid for.
+
+### Phase 13 — Proof-of-work challenges
+
+| Delivered | Where |
+| --- | --- |
+| Timed briefs — join starts your own clock, capped at the challenge's own close | `api/challenges/models.py` |
+| Submission by **live URL**, not uploaded code — see "What this is not" below | `api/challenges/views.py` |
+| SSRF-safe URL validation, checked at submission and again immediately before any server-side fetch | `api/challenges/url_safety.py` |
+| Automated grading adapter — Lighthouse against the submitted URL | `api/challenges/grading.py` |
+| Weighted scoring (automated + human), percentile ranking, badge award | `api/challenges/models.py` |
+| Interim admin console for authoring briefs and reviewing submissions | `api/challenges/admin.py` |
+| Browse, join, submit, and result surfaces; badges on the dashboard | `web/app/(app)/challenges`, dashboard's `BadgesCard` |
+
+**What this deliberately is not: a code sandbox.** The pitch this phase came
+from describes grading with "automated tests, Lighthouse, unit tests,
+predefined test cases." Running freelancer-submitted *source code* server-side
+needs real sandboxing (gVisor, Firecracker, or an isolated Docker-in-Docker
+runner) — genuinely new infrastructure, comparable in scope and risk to the
+payment rails Phase 3 is waiting on, not something to bolt onto a Celery task.
+What shipped instead: a freelancer submits a **live deployed URL**, and
+Lighthouse audits that public page over the network — a page fetch, not code
+execution. It gets most of the automated-grading value with none of the
+"executing a stranger's code on our infrastructure" risk. See D33.
+
+**Automated grading is real code, gated off by default.** `LIGHTHOUSE_ENABLED`
+defaults to `False` — the worker image does not carry Node and headless
+Chromium yet, so `lighthouse` would not be on `PATH` even with this on. A
+challenge can be run entirely human-reviewed today (`automated_weight=0`); the
+day Chromium lands in `api/Dockerfile`, automated scoring works with zero
+further code changes. Same adapter shape as `CLAMAV_HOST`.
 
 ### Visual layer
 
@@ -373,6 +403,12 @@ addresses that do not exist, and content on a surface you cannot see returns
   giving away more than was paid for is the intended direction, but the copy
   and the enforcement should agree. Either gate workspaces to Elite or drop
   them from the tier's feature list.
+- **Known gap:** periodic sweeps (`sweep_promotions`, `reindex_search`,
+  `refresh_reputation`, `assess_review_integrity`, and now
+  `sweep_challenge_deadlines`) are defined as real Celery tasks but nothing
+  seeds a `django_celery_beat` schedule for any of them yet — they run only
+  when invoked by hand. Not new to this phase; challenges just makes it a
+  fifth instance of a gap already worth closing once.
 
 ---
 

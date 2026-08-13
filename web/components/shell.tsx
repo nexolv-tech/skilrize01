@@ -36,6 +36,7 @@ const WORK_NAV = [
   { href: "/search", label: "Search", icon: "search" as const },
   { href: "/gigs", label: "Services", icon: "layers" as const },
   { href: "/projects", label: "Projects", icon: "briefcase" as const },
+  { href: "/challenges", label: "Challenges", icon: "zap" as const },
   { href: "/showcase", label: "Showcase", icon: "star" as const },
   { href: "/orders", label: "Orders", icon: "wallet" as const },
   { href: "/contracts", label: "Contracts", icon: "file" as const },

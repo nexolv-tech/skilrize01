@@ -24,6 +24,22 @@ class UniversitySerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+def _badges_for(user) -> list:
+    """Verified-skill badges, most recent first.
+
+    Imported lazily — `challenges` depends on nothing in `accounts` beyond the
+    user FK every app has, but importing it at module load time would still
+    make identity's own serializer module load order depend on a much later
+    phase for no benefit.
+    """
+    from challenges.serializers import BadgeSerializer
+
+    badges = user.challenge_badges.select_related("challenge", "challenge__skill").order_by(
+        "-awarded_at"
+    )
+    return BadgeSerializer(badges, many=True).data
+
+
 class SellerProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = SellerProfile
@@ -85,6 +101,7 @@ class UserSerializer(serializers.ModelSerializer):
     is_verified_student = serializers.BooleanField(read_only=True)
     has_two_factor = serializers.BooleanField(read_only=True)
     profile_strength = serializers.SerializerMethodField()
+    badges = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -117,6 +134,7 @@ class UserSerializer(serializers.ModelSerializer):
             "profile_strength",
             "seller_profile",
             "buyer_profile",
+            "badges",
             "created_at",
         ]
         read_only_fields = [
@@ -154,6 +172,9 @@ class UserSerializer(serializers.ModelSerializer):
         ]
         return round(100 * sum(bool(c) for c in checks) / len(checks))
 
+    def get_badges(self, user: User) -> list:
+        return _badges_for(user)
+
 
 class PublicUserSerializer(serializers.ModelSerializer):
     """What anyone else sees. Deliberately narrow.
@@ -167,6 +188,7 @@ class PublicUserSerializer(serializers.ModelSerializer):
     is_verified_student = serializers.BooleanField(read_only=True)
     university_name = serializers.CharField(source="university.name", read_only=True)
     seller_profile = SellerProfileSerializer(read_only=True)
+    badges = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -182,12 +204,16 @@ class PublicUserSerializer(serializers.ModelSerializer):
             "is_verified_student",
             "university_name",
             "seller_profile",
+            "badges",
             "created_at",
         ]
         read_only_fields = fields
 
     def get_avatar_url(self, user: User) -> str | None:
         return signed_url(user.avatar) if user.avatar and user.avatar.is_downloadable else None
+
+    def get_badges(self, user: User) -> list:
+        return _badges_for(user)
 
 
 class SignupSerializer(serializers.Serializer):

@@ -695,6 +695,59 @@ and no dev fallbacks available to paper over a missing value.
 
 ---
 
+## D33 · Phase 13 built as "submit a URL," not "submit code"
+
+**The client's brief for proof-of-work challenges described grading with
+"automated tests, Lighthouse, unit tests, predefined test cases." What
+shipped: a freelancer submits a live deployed URL, and automated grading runs
+Lighthouse against that public page. Running submitted *source code*
+server-side — the "unit tests" and "predefined test cases" half of the
+brief — was scoped out.**
+
+*Why:* executing arbitrary freelancer-submitted code on the platform's own
+infrastructure is a sandboxing problem — gVisor, Firecracker, or an isolated
+Docker-in-Docker runner, with all the resource-limit and network-isolation
+work that implies. That is a project on the order of Phase 3's payment rails,
+not a Celery task bolted onto a feature PR. Lighthouse against a submitted
+URL gets most of the "prove you can actually build it" value the brief was
+after, with none of that risk: it is a page fetch, not a code execution.
+
+*What is real, not a stub:* the full challenge lifecycle. Joining starts an
+individual deadline capped at the challenge's own close (not a shared clock
+everyone races). Submission is SSRF-guarded — `challenges/url_safety.py`
+resolves the hostname and rejects private/loopback/link-local addresses
+(cloud metadata endpoints included), checked once at submission for fast
+feedback and again immediately before any server-side fetch, because DNS
+resolved publicly at submission time is not a guarantee it still is by
+grading time. Scoring is weighted between the automated and human sides,
+ranking is percentile-based across a challenge's graded field, and badges
+render on the profile that earned them. All of it is covered by 24 tests
+that exercise the API, not just the model layer.
+
+*What is a stub, and says so:* automated Lighthouse grading itself.
+`LIGHTHOUSE_ENABLED` defaults to `False` — the worker image has no Node or
+headless Chromium — so `grading.py`'s adapter raises `GradingUnavailable`
+rather than fabricate a score, and a challenge runs on human review alone
+until that changes. Same shape as the `CLAMAV_HOST` adapter (Phase 0, predates this log): the
+surrounding contract is real, the engine behind it is a configuration change
+away, not a rewrite.
+
+*Caught while testing it, not designed in from the start:* two bugs the test
+suite alone would not have found because they only show up when a *second*
+model's state depends on the *first* one's timing. `ChallengeCreateSerializer`
+initially had no `id`/`slug` in its response fields — a caller could create a
+challenge and have no way to navigate to what it just made, since nothing
+outside the serializer's own field list is visible in the API response
+regardless of what the database actually stored. Caught by a test asserting
+on `response.data["id"]`, not by inspection. Separately, the participant
+detail page's "N joined" count went stale after joining, because the join
+action updated the participation but never re-fetched the challenge —
+harmless, but exactly the kind of small trust-eroding staleness that is
+cheap to fix in the same session it's found and easy to leave for a bug
+report otherwise.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, or a personal relationship. Nothing

@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     "communities",
     "discovery",
     "professional",
+    "challenges",
 ]
 
 MIDDLEWARE = [
@@ -309,6 +310,14 @@ CLAMAV_TIMEOUT = config("CLAMAV_TIMEOUT", default=30, cast=int)
 # Django's test runner forces DEBUG off and would otherwise turn every suite
 # into a fail-closed run against a scanner that was never meant to be there.
 REQUIRE_FILE_SCANNER = config("REQUIRE_FILE_SCANNER", default=not DEBUG, cast=bool)
+
+# Automated challenge grading (Phase 13). Off by default — the worker image
+# does not carry Node + headless Chromium yet, so `lighthouse` would not be on
+# PATH even if this were on. Same adapter shape as CLAMAV_HOST above: a
+# challenge can still run fully human-reviewed (`automated_weight=0`) with
+# this off; turning it on is a Docker image change, not a code change.
+LIGHTHOUSE_ENABLED = config("LIGHTHOUSE_ENABLED", default=False, cast=bool)
+LIGHTHOUSE_TIMEOUT_SECONDS = config("LIGHTHOUSE_TIMEOUT_SECONDS", default=60, cast=int)
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"

@@ -358,6 +358,50 @@ function StudentPortalCard() {
   );
 }
 
+function BadgesCard() {
+  const { user } = useSession();
+  if (!user) return null;
+
+  if (user.badges.length === 0) {
+    return (
+      <Card className="p-5">
+        <div className="flex items-center gap-2.5">
+          <span className="grid size-9 place-items-center rounded-md bg-accent-soft text-accent">
+            <Icon name="zap" className="size-[18px]" />
+          </span>
+          <div>
+            <p className="text-sm font-medium text-fg">No badges yet</p>
+            <p className="text-[12.5px] text-muted">Timed challenges, graded and verified.</p>
+          </div>
+        </div>
+        <Link href="/challenges" className="mt-3 inline-block">
+          <Button size="sm" variant="secondary">
+            Browse challenges
+            <Icon name="arrowRight" className="size-3.5" />
+          </Button>
+        </Link>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader title="Verified skills" description="Earned from graded proof-of-work challenges." />
+      <ul className="divide-y divide-line">
+        {user.badges.map((badge) => (
+          <li key={badge.id} className="flex items-center justify-between gap-3 px-5 py-3">
+            <div className="min-w-0">
+              <p className="truncate text-[13px] font-medium text-fg">{badge.challenge_title}</p>
+              {badge.skill_name && <p className="text-[11.5px] text-muted">{badge.skill_name}</p>}
+            </div>
+            <Badge tone="positive">{badge.label}</Badge>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 function SecuritySummary() {
   const { user } = useSession();
   if (!user) return null;
@@ -462,6 +506,7 @@ export default function DashboardPage() {
         </div>
         <div className="space-y-6">
           <StudentPortalCard />
+          <BadgesCard />
           <SecuritySummary />
         </div>
       </div>

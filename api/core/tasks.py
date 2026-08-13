@@ -7,6 +7,7 @@ import logging
 from celery import shared_task
 from django.conf import settings
 from django.core.mail import send_mail
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +175,95 @@ def sweep_promotions() -> int:
     from discovery.models import expire_promotions
 
     return expire_promotions()
+
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=30)
+def grade_challenge_submission(self, participation_id: int) -> str:
+    """Run automated (Lighthouse) grading for one challenge submission.
+
+    Not retried on `GradingUnavailable` or `GradingFailed` — neither is a
+    transient error `bind`'s retry would fix. It is retried (implicitly, by
+    Celery's own task-level acks) only on something unexpected raising past
+    the two handled exceptions, same as `scan_file` above.
+    """
+    from challenges.grading import GradingFailed, GradingUnavailable, grade_url
+    from challenges.models import Participation
+
+    from .models import NotificationCategory
+    from .notify import dispatch
+
+    participation = (
+        Participation.objects.filter(pk=participation_id)
+        .select_related("challenge", "user")
+        .first()
+    )
+    if participation is None:
+        return "missing"
+
+    try:
+        result = grade_url(participation.submission_url)
+    except GradingUnavailable as exc:
+        logger.info("challenge_grading_unavailable participation=%s reason=%s", participation_id, exc)
+        participation.apply_automated_result(status=Participation.AutomatedStatus.UNAVAILABLE)
+        return "unavailable"
+    except GradingFailed as exc:
+        logger.warning("challenge_grading_failed participation=%s error=%s", participation_id, exc)
+        participation.apply_automated_result(status=Participation.AutomatedStatus.FAILED)
+        return "failed"
+
+    participation.apply_automated_result(
+        status=Participation.AutomatedStatus.COMPLETE,
+        score=result["score"],
+        report=result["report"],
+    )
+
+    if participation.status == Participation.Status.GRADED:
+        dispatch(
+            participation.user,
+            NotificationCategory.CHALLENGE,
+            "Your submission was graded",
+            f"{participation.challenge.title}: {participation.final_score}/100.",
+            data={"challenge_slug": participation.challenge.slug},
+        )
+    return "graded"
+
+
+@shared_task
+def sweep_challenge_deadlines() -> dict:
+    """Expire attempts nobody submitted in time, and finalize challenges whose
+    submission window has closed — ranking every graded attempt and awarding
+    badges. Not yet wired to a schedule; see `sweep_promotions` and
+    `reindex_search` below, which share the same gap."""
+    from challenges.models import Challenge, Participation, finalize_challenge
+
+    from .models import NotificationCategory
+    from .notify import dispatch
+
+    expired = Participation.objects.filter(
+        status=Participation.Status.IN_PROGRESS, deadline__lt=timezone.now()
+    ).update(status=Participation.Status.EXPIRED, updated_at=timezone.now())
+
+    finalized = 0
+    badges_awarded = 0
+    due = Challenge.objects.filter(status=Challenge.Status.PUBLISHED, closes_at__lt=timezone.now())
+    for challenge in due:
+        # Everyone's deadline is capped at closes_at, so once closes_at has
+        # passed the bulk expire above has already cleared every straggler —
+        # this is a belt-and-braces check, not the thing doing the work.
+        if challenge.participations.filter(status=Participation.Status.IN_PROGRESS).exists():
+            continue
+        badges_awarded += finalize_challenge(challenge)
+        finalized += 1
+        for badge in challenge.badges.select_related("user"):
+            dispatch(
+                badge.user,
+                NotificationCategory.CHALLENGE,
+                f"You earned a badge: {badge.label}",
+                f"{challenge.title} — {badge.final_score}/100.",
+                data={"challenge_slug": challenge.slug, "badge_id": badge.id},
+            )
+
+    return {"expired": expired, "challenges_finalized": finalized, "badges_awarded": badges_awarded}
 
 
 @shared_task(bind=True, max_retries=5, default_retry_delay=60)

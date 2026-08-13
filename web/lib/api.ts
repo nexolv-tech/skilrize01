@@ -266,6 +266,7 @@ export interface User {
   profile_strength: number;
   seller_profile: SellerProfile | null;
   buyer_profile: BuyerProfile | null;
+  badges: ChallengeBadge[];
   created_at: string;
   /**
    * Seconds until this *device* may transact, 0 once it may. A property of the
@@ -1472,4 +1473,84 @@ export const professional = {
     api.get<{ selling: RetainerEngagement[]; buying: RetainerEngagement[] }>("/retainers/mine/"),
   cancelRetainer: (id: number) =>
     api.post<RetainerEngagement>(`/retainers/subscriptions/${id}/cancel/`),
+};
+
+/* -------------------------------------------------------------------------- */
+/* Proof-of-work challenges (Phase 13)                                        */
+/* -------------------------------------------------------------------------- */
+
+export interface Challenge {
+  id: number;
+  slug: string;
+  title: string;
+  brief: string;
+  skill: number | null;
+  skill_name: string | null;
+  reference_file_url: string | null;
+  duration_hours: number;
+  automated_weight: number;
+  human_weight: number;
+  status: "draft" | "published" | "completed" | "cancelled";
+  opens_at: string;
+  closes_at: string;
+  participant_count: number;
+  graded_count: number;
+  is_open: boolean;
+  /** The caller's own attempt, if any. */
+  my_participation_id: number | null;
+  created_at: string;
+}
+
+export type AutomatedGradingStatus = "pending" | "running" | "complete" | "failed" | "unavailable";
+
+export interface ChallengeParticipation {
+  id: number;
+  challenge: number;
+  challenge_title: string;
+  challenge_slug: string;
+  user: number;
+  user_handle: string;
+  user_display_name: string;
+  started_at: string;
+  deadline: string;
+  status: "in_progress" | "submitted" | "graded" | "expired";
+  is_overdue: boolean;
+  submission_url: string;
+  repo_url: string;
+  notes: string;
+  submitted_at: string | null;
+  automated_status: AutomatedGradingStatus;
+  automated_score: number | null;
+  /** Raw Lighthouse category scores, e.g. { performance: 92, accessibility: 88, ... }. */
+  automated_report: Record<string, number>;
+  automated_graded_at: string | null;
+  human_score: number | null;
+  human_notes: string;
+  reviewed_at: string | null;
+  final_score: number | null;
+}
+
+export interface ChallengeBadge {
+  id: number;
+  challenge: number;
+  challenge_title: string;
+  challenge_slug: string;
+  skill_name: string | null;
+  final_score: number;
+  /** 8 means "Top 8%" — smaller is better. */
+  top_percent: number;
+  label: string;
+  awarded_at: string;
+}
+
+export const challenges = {
+  list: (filters: Record<string, string | undefined> = {}) =>
+    api.get<Paginated<Challenge>>(`/challenges/${toQuery(filters)}`),
+  detail: (slug: string) => api.get<Challenge>(`/challenges/${slug}/`),
+  join: (slug: string) => api.post<ChallengeParticipation>(`/challenges/${slug}/join/`),
+  submit: (
+    slug: string,
+    body: { submission_url: string; repo_url?: string; notes?: string },
+  ) => api.post<ChallengeParticipation>(`/challenges/${slug}/submit/`, body),
+  mine: () => api.get<ChallengeParticipation[]>("/challenges/mine/"),
 };

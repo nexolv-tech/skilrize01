@@ -189,6 +189,7 @@ class NotificationCategory(models.TextChoices):
     COMMUNITY = "community", "Community activity"
     SECURITY = "security", "Security"
     ANNOUNCEMENT = "announcement", "Platform announcements"
+    CHALLENGE = "challenge", "Proof-of-work challenges"
 
 
 class Channel(models.TextChoices):
