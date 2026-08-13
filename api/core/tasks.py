@@ -284,12 +284,68 @@ def deliver_notification(self, notification_id: int, channel: str) -> str:
                 recipient_list=[notification.user.email],
                 fail_silently=False,
             )
+        elif channel == Channel.PUSH:
+            return _deliver_push(notification)
         else:
-            # Push and SMS providers are connected in the phase that needs
-            # them; the queue contract and retry behaviour are already correct.
+            # SMS is connected in the phase that needs it; the queue contract
+            # and retry behaviour are already correct.
             logger.info("notification_pending channel=%s notification=%s", channel, notification_id)
             return "pending_provider"
     except Exception as exc:
         raise self.retry(exc=exc) from exc
 
     return "sent"
+
+
+def _deliver_push(notification) -> str:
+    """Fan one notification out to every active device the user has — Phase 7.
+
+    Returns a summary verdict rather than raising, for the same reason
+    `grade_challenge_submission` (D33) does: "this environment has no FCM
+    credentials" and "this user has no devices registered" are both ordinary
+    states, not failures worth retrying five times with backoff.
+
+    A `PushFailed` on one device does not abandon the rest: with several
+    devices on one account, one transient failure should not cost the others
+    their notification. Genuinely dead tokens are deactivated as they are
+    found, which is the only thing that keeps a long-lived account's device
+    list from silently accumulating tokens that can never resolve again.
+    """
+    from .models import PushDevice
+    from .push import PushFailed, PushTokenInvalid, PushUnavailable
+    from .push import send as send_push
+
+    devices = list(PushDevice.objects.filter(user=notification.user, is_active=True))
+    if not devices:
+        return "no_devices"
+
+    sent = 0
+    failed = 0
+    dead: list[int] = []
+    for device in devices:
+        try:
+            send_push(
+                token=device.token,
+                title=notification.title,
+                body=notification.body,
+                data={**notification.data, "notification_id": notification.pk},
+            )
+            sent += 1
+        except PushUnavailable:
+            # Not configured here. Nothing to retry, and nothing is wrong.
+            return "unavailable"
+        except PushTokenInvalid:
+            dead.append(device.pk)
+        except PushFailed as exc:
+            logger.warning("push_failed device=%s error=%s", device.pk, exc)
+            failed += 1
+
+    if dead:
+        PushDevice.objects.filter(pk__in=dead).update(is_active=False, updated_at=timezone.now())
+        logger.info("push_tokens_pruned count=%s user=%s", len(dead), notification.user_id)
+
+    if sent:
+        return "sent"
+    if failed:
+        return "failed"
+    return "pruned"

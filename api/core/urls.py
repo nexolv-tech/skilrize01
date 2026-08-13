@@ -12,4 +12,6 @@ urlpatterns = [
         views.notification_preferences,
         name="notification-preferences",
     ),
+    path("devices/push/", views.push_devices, name="push-devices"),
+    path("devices/push/unregister/", views.unregister_push_device, name="push-device-unregister"),
 ]

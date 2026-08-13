@@ -1071,6 +1071,87 @@ sibling `two_factor_required`/`device_verification_required` responses:
 
 ---
 
+## D38 · Phase 7 split into a backend half and an app half, and only the backend half is built
+
+**Asked to build Phase 7 ("Mobile — Flutter parity app"), the honest state
+of this machine mattered before any scoping question did: no Flutter SDK,
+no Dart, no Java, no Android toolchain, and — for iOS specifically — no
+macOS, which nothing short of different hardware fixes. Flutter is not in
+winget either; every result under that tag is an app *built with* Flutter,
+not the SDK itself. Asked how to proceed, the user did not answer before
+the next message arrived, so the call was made directly: build the half of
+Phase 7 that is unambiguously backend work, fully real, and verifiable the
+same way every other phase this session was — with the toolchain question
+left open rather than guessed at.**
+
+*"Parity" was never going to fit in one pass regardless of tooling.* The
+web app is 35 routes across every phase built so far — auth with mandatory
+2FA for some roles, projects and bidding, gigs and orders, contracts and
+milestones, student portals, communities and messaging, search, the
+professional layer, admin, integrations, trials, challenges. A genuine
+parity client is the largest single phase on the roadmap by any honest
+estimate, toolchain or not.
+
+*What "the backend half" turned out to mean, concretely:* `Channel.PUSH`
+has been a defined notification channel since Phase 0, and
+`deliver_notification` (`core/tasks.py`) has logged `pending_provider` and
+stopped for exactly as long, with a comment saying so directly — "connected
+in the phase that needs them." This is that phase. `PushDevice`
+(`core/models.py`) is new; FCM delivery (`core/push.py`) and the two
+registration endpoints (`core/views.py`) are new; `_deliver_push` replaces
+the stub. None of it needed a mobile client to exist first — a device can
+register its token the moment *any* client, web included, wants to ask a
+browser or a future app for permission and hand the token over.
+
+*Same off-by-default shape as every adapter this codebase has built —
+Lighthouse (D33), the five OAuth providers (D36), Sentry (D37) — extended
+to a fifth kind of external call.* `FCM_ENABLED` defaults to `False`
+because no Firebase project exists for this environment; `core/push.py`'s
+`send()` is a real FCM HTTP v1 call regardless, using `google-auth` for the
+service-account OAuth2 exchange rather than hand-rolled JWT signing — the
+first genuinely asymmetric-crypto dependency this codebase has taken on,
+and the module docstring says why that crossed the line the ClamAV
+adapter's raw-socket protocol didn't.
+
+*A registration token is not a secret, and treating it like the OTP secrets
+and OAuth tokens elsewhere in this codebase would have been wrong, not just
+inconsistent.* `PushDevice.token` is a plain `CharField`, not
+`EncryptedTextField` — it identifies a device, sending to it requires
+credentials that never enter the database, and it has to be looked up by
+value on every registration to dedupe, which `EncryptedTextField`'s own
+docstring says it is deliberately unsuited for. Reasoned through in the
+model's docstring rather than left for someone later to wonder if it was an
+oversight.
+
+*Fan-out is per-device and failure-isolated, and dead tokens are pruned as
+they're found, not left to accumulate.* A token identifies a handset, not a
+person — one account can hold several, and a stale token from an
+uninstalled app should stop being tried without taking any of the others
+down with it. `_deliver_push` sends to every active device independently,
+prunes on FCM's `UNREGISTERED`/`INVALID_ARGUMENT` verdicts specifically,
+and leaves a merely-failed send (a 503, a timeout) untouched — that
+distinction is the entire reason `PushTokenInvalid` and `PushFailed` are
+separate exceptions rather than one.
+
+*A registration token also outlives a sign-in, which shapes what
+"register" means.* If one person signs out of a phone and another signs
+in, FCM hands the app back the same token — a phone is the unit of
+identity FCM tracks, not an account. Registration is `update_or_create` on
+the token, reassigning an existing row to the new account rather than
+leaving two, covered directly by
+`test_re_registering_a_token_moves_it_to_the_new_account`.
+
+*What is not built, named directly rather than left implicit:* the Flutter
+application itself. `README.md`'s status table marks Phase 7 partial, not
+done. The next decision here is not an engineering one — it's whether to
+install the SDK on this machine (a ~1GB download, Android-only without
+macOS) and build a scoped foundation (auth plus two or three core flows,
+explicitly not parity), or treat the app the way D32 treated hosting
+infrastructure before it existed: real when there's a concrete reason to
+make it real.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, a personal relationship, or an

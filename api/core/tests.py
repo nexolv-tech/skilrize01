@@ -532,3 +532,192 @@ def test_sentry_is_inert_with_no_dsn_configured():
 
 def test_sentry_actually_initialises_when_a_dsn_is_configured():
     assert _sentry_client_is_active(dsn="https://public@o0.ingest.sentry.io/1") is True
+
+
+# --- Push notifications (Phase 7) ----------------------------------------------
+
+
+@pytest.fixture
+def push_user(db):
+    from rest_framework.test import APIClient
+
+    user = User.objects.create_user("phone@example.com", "Correct-Horse9-Battery")
+    api = APIClient()
+    api.force_authenticate(user=user)
+    return user, api
+
+
+@pytest.mark.django_db
+def test_registering_a_device_is_idempotent_on_the_token(push_user):
+    from core.models import PushDevice
+
+    _, api = push_user
+    body = {"token": "fcm-token-abc", "platform": "android", "label": "Pixel 8"}
+
+    first = api.post("/api/v1/devices/push/", body, format="json")
+    second = api.post("/api/v1/devices/push/", body, format="json")
+
+    assert first.status_code == 201
+    assert second.status_code == 200
+    assert PushDevice.objects.filter(token="fcm-token-abc").count() == 1
+
+
+@pytest.mark.django_db
+def test_a_device_list_never_exposes_a_token(push_user):
+    _, api = push_user
+    api.post(
+        "/api/v1/devices/push/",
+        {"token": "fcm-secret-token", "platform": "ios"},
+        format="json",
+    )
+
+    response = api.get("/api/v1/devices/push/")
+
+    assert response.status_code == 200
+    assert "fcm-secret-token" not in response.content.decode()
+    assert "token" not in response.data[0]
+
+
+@pytest.mark.django_db
+def test_re_registering_a_token_moves_it_to_the_new_account(push_user):
+    """A handset outlives a sign-in: if someone signs out and someone else
+    signs in on the same phone, FCM hands the app the same token. The row
+    must follow the new account, or the phone keeps receiving the previous
+    user's notifications."""
+    from rest_framework.test import APIClient
+
+    from core.models import PushDevice
+
+    first_user, first_api = push_user
+    second_user = User.objects.create_user("second@example.com", "Correct-Horse9-Battery")
+    second_api = APIClient()
+    second_api.force_authenticate(user=second_user)
+
+    body = {"token": "shared-handset-token", "platform": "android"}
+    first_api.post("/api/v1/devices/push/", body, format="json")
+    second_api.post("/api/v1/devices/push/", body, format="json")
+
+    assert PushDevice.objects.filter(token="shared-handset-token").count() == 1
+    assert PushDevice.objects.get(token="shared-handset-token").user == second_user
+    assert not first_user.push_devices.exists()
+
+
+@pytest.mark.django_db
+def test_unregistering_only_touches_your_own_device(push_user):
+    from core.models import PushDevice
+
+    _, api = push_user
+    other = User.objects.create_user("other@example.com", "Correct-Horse9-Battery")
+    PushDevice.objects.create(user=other, token="someone-elses", platform="ios")
+
+    response = api.post(
+        "/api/v1/devices/push/unregister/", {"token": "someone-elses"}, format="json"
+    )
+
+    assert response.status_code == 200
+    assert response.data["unregistered"] == 0
+    assert PushDevice.objects.filter(token="someone-elses").exists()
+
+
+@pytest.mark.django_db
+def test_push_delivery_reports_unavailable_when_fcm_is_off(push_user):
+    """FCM is off by default, so `_deliver_push` must return a distinct,
+    expected verdict rather than raising into Celery's retry loop — the same
+    treatment `grade_challenge_submission` gives `GradingUnavailable`."""
+    from core.models import NotificationCategory, PushDevice
+    from core.notify import dispatch
+    from core.tasks import _deliver_push
+
+    user, _ = push_user
+    PushDevice.objects.create(user=user, token="t1", platform="android")
+    notification = dispatch(user, NotificationCategory.SECURITY, "Test", "Body")
+
+    assert _deliver_push(notification) == "unavailable"
+
+
+@pytest.mark.django_db
+def test_push_fans_out_to_every_active_device_and_prunes_dead_tokens(push_user):
+    from unittest.mock import patch
+
+    from core.models import NotificationCategory, PushDevice
+    from core.notify import dispatch
+    from core.push import PushTokenInvalid
+    from core.tasks import _deliver_push
+
+    user, _ = push_user
+    PushDevice.objects.create(user=user, token="live-token", platform="android")
+    PushDevice.objects.create(user=user, token="dead-token", platform="ios")
+    PushDevice.objects.create(user=user, token="inactive", platform="web", is_active=False)
+    notification = dispatch(user, NotificationCategory.SECURITY, "Test", "Body")
+
+    def fake_send(*, token, **kwargs):
+        if token == "dead-token":
+            raise PushTokenInvalid("UNREGISTERED")
+
+    with patch("core.push.send", side_effect=fake_send) as mocked:
+        verdict = _deliver_push(notification)
+
+    assert verdict == "sent"
+    # The already-inactive device is never contacted at all.
+    assert {call.kwargs["token"] for call in mocked.call_args_list} == {"live-token", "dead-token"}
+    assert PushDevice.objects.get(token="dead-token").is_active is False
+    assert PushDevice.objects.get(token="live-token").is_active is True
+
+
+@pytest.mark.django_db
+def test_one_flaky_device_does_not_cost_the_others_their_notification(push_user):
+    from unittest.mock import patch
+
+    from core.models import NotificationCategory, PushDevice
+    from core.notify import dispatch
+    from core.push import PushFailed
+    from core.tasks import _deliver_push
+
+    user, _ = push_user
+    PushDevice.objects.create(user=user, token="flaky", platform="android")
+    PushDevice.objects.create(user=user, token="fine", platform="ios")
+    notification = dispatch(user, NotificationCategory.SECURITY, "Test", "Body")
+
+    def fake_send(*, token, **kwargs):
+        if token == "flaky":
+            raise PushFailed("503")
+
+    with patch("core.push.send", side_effect=fake_send) as mocked:
+        verdict = _deliver_push(notification)
+
+    assert verdict == "sent"
+    assert mocked.call_count == 2
+    # A transient failure is not a dead token — it stays registered.
+    assert PushDevice.objects.get(token="flaky").is_active is True
+
+
+@pytest.mark.django_db
+def test_push_with_no_registered_devices_is_not_an_error(push_user):
+    from core.models import NotificationCategory
+    from core.notify import dispatch
+    from core.tasks import _deliver_push
+
+    user, _ = push_user
+    notification = dispatch(user, NotificationCategory.SECURITY, "Test", "Body")
+
+    assert _deliver_push(notification) == "no_devices"
+
+
+def test_fcm_send_refuses_when_not_enabled():
+    from core.push import PushUnavailable, is_enabled
+    from core.push import send as send_push
+
+    assert is_enabled() is False
+    with pytest.raises(PushUnavailable):
+        send_push(token="t", title="T", body="B")
+
+
+@pytest.mark.django_db
+def test_config_tells_a_client_whether_push_can_be_delivered_here(push_user):
+    """A mobile client that asks for the OS push permission prompt on a
+    deployment that cannot deliver one has spent the single chance it gets
+    at that prompt for nothing."""
+    _, api = push_user
+    response = api.get("/api/v1/config/")
+    assert response.status_code == 200
+    assert response.data["push_enabled"] is False

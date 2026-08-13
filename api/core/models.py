@@ -289,6 +289,60 @@ class Notification(TimestampedModel):
         return self.read_at is not None
 
 
+class PushDevice(TimestampedModel):
+    """One app installation that can receive a push notification — Phase 7.
+
+    `Channel.PUSH` has existed since Phase 0 and delivered nothing: without
+    somewhere to record *where* a push should go, `deliver_notification`
+    could only log `pending_provider` and stop. This is that somewhere.
+
+    **The token is stored in the clear, deliberately**, unlike the OTP
+    secrets and OAuth tokens that share this codebase (`core.crypto`). An FCM
+    registration token is a device *address*, not a credential: it is issued
+    by Google to identify an installation, it is not secret from the device
+    that holds it, and it authorises nothing on its own — sending to it
+    requires our service-account credentials, which are the actual secret and
+    are not in the database at all. `EncryptedTextField` is also explicitly
+    "not searchable or indexable" (see its docstring), and this column has to
+    be looked up by value on every registration to dedupe. Encrypting it
+    would trade a real correctness property for no real confidentiality.
+
+    **Unique on the token globally, not per user.** A token identifies a
+    phone, and a phone outlives a sign-in: if one person signs out and
+    another signs in on the same handset, FCM hands the app the same token.
+    Scoped per-user, the old row would survive and that handset would keep
+    receiving the previous account's notifications. Registration therefore
+    reassigns an existing token rather than creating a second row for it.
+    """
+
+    class Platform(models.TextChoices):
+        ANDROID = "android", "Android"
+        IOS = "ios", "iOS"
+        WEB = "web", "Web"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="push_devices"
+    )
+    #: The FCM registration token. Long, opaque, and provider-shaped.
+    token = models.CharField(max_length=512, unique=True)
+    platform = models.CharField(max_length=8, choices=Platform.choices)
+    #: A label the user would recognise in a device list ("Pixel 8"), when
+    #: the client bothers to send one. Never required.
+    label = models.CharField(max_length=120, blank=True)
+    #: Cleared when the provider tells us the token is dead, rather than
+    #: deleting the row — so a device that re-registers is one update, and so
+    #: "this account had a device that went quiet" stays visible.
+    is_active = models.BooleanField(default=True)
+    last_seen_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-last_seen_at"]
+        indexes = [models.Index(fields=["user", "is_active"])]
+
+    def __str__(self) -> str:
+        return f"{self.platform} device for {self.user_id}"
+
+
 # --- Files -----------------------------------------------------------------
 
 

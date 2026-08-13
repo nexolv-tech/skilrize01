@@ -213,6 +213,10 @@ REST_FRAMEWORK = {
         "integration_connect": "10/hour",
         "meeting_schedule": "20/hour",
         "activity_sync": "30/hour",
+        # Phase 7 — a mobile client re-registers on launch, on token
+        # refresh, and on sign-in, so this is deliberately loose. It exists
+        # to bound a loop, not to ration normal use.
+        "push_device": "60/hour",
     },
     "EXCEPTION_HANDLER": "core.middleware.exception_handler",
     "DEFAULT_RENDERER_CLASSES": ("rest_framework.renderers.JSONRenderer",),
@@ -362,6 +366,16 @@ FIGMA_CLIENT_SECRET = config("FIGMA_CLIENT_SECRET", default="")
 NOTION_ENABLED = config("NOTION_ENABLED", default=False, cast=bool)
 NOTION_CLIENT_ID = config("NOTION_CLIENT_ID", default="")
 NOTION_CLIENT_SECRET = config("NOTION_CLIENT_SECRET", default="")
+
+# Push notifications via Firebase Cloud Messaging (Phase 7). Off by default,
+# same as every adapter above: no Firebase project exists for this
+# environment. `Channel.PUSH` has been a defined channel since Phase 0 with
+# nothing behind it; `core/push.py` is what finally sits there.
+# FCM_CREDENTIALS_JSON is the *entire* service-account key file as one
+# string — it belongs in the secret store, never in the repo.
+FCM_ENABLED = config("FCM_ENABLED", default=False, cast=bool)
+FCM_PROJECT_ID = config("FCM_PROJECT_ID", default="")
+FCM_CREDENTIALS_JSON = config("FCM_CREDENTIALS_JSON", default="")
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"

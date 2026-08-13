@@ -34,6 +34,13 @@ requests==2.32.5
 # settings.py.
 sentry-sdk==2.68.0
 
+# Service-account OAuth2 for Firebase Cloud Messaging — Phase 7. FCM's HTTP
+# v1 API needs a signed-JWT-for-bearer-token exchange with a refresh
+# lifecycle; the static-server-key API that needed none of this was shut
+# down in 2024. See the note in core/push.py on why this is a dependency
+# rather than hand-rolled.
+google-auth==2.56.3
+
 # Production WSGI server — runserver is single-threaded and explicitly unsafe
 # for real traffic.
 gunicorn==26.0.0

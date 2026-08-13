@@ -14,8 +14,10 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from . import files as filestore
-from .models import Channel, Notification, NotificationCategory, StoredFile
+from . import push
+from .models import Channel, Notification, NotificationCategory, PushDevice, StoredFile
 from .notify import preferences_for
+from .throttling import throttled
 
 
 @require_GET
@@ -93,6 +95,24 @@ class NotificationSerializer(serializers.ModelSerializer):
         model = Notification
         fields = ["id", "category", "title", "body", "data", "is_read", "created_at"]
         read_only_fields = fields
+
+
+class PushDeviceSerializer(serializers.ModelSerializer):
+    """Read shape for a registered device. The token is deliberately not a
+    field: a client already knows its own token, and echoing every device's
+    token back on a list request would hand one compromised session the
+    addresses of every other device on the account."""
+
+    class Meta:
+        model = PushDevice
+        fields = ["id", "platform", "label", "is_active", "last_seen_at", "created_at"]
+        read_only_fields = fields
+
+
+class PushDeviceRegisterSerializer(serializers.Serializer):
+    token = serializers.CharField(max_length=512)
+    platform = serializers.ChoiceField(choices=PushDevice.Platform.choices)
+    label = serializers.CharField(max_length=120, required=False, allow_blank=True)
 
 
 class NotificationPreferenceSerializer(serializers.Serializer):
@@ -185,6 +205,62 @@ def upload(request):
     return Response(StoredFileSerializer(record).data, status=status.HTTP_201_CREATED)
 
 
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+@throttled("push_device", writes_only=True)
+def push_devices(request):
+    """List this account's registered devices, or register the caller's.
+
+    Registration is an upsert on the token, not a create — see `PushDevice`'s
+    docstring on why a token can legitimately arrive already attached to a
+    different account. Re-registering also reactivates a device previously
+    pruned as dead, which is exactly what a reinstalled app looks like.
+    """
+    if request.method == "GET":
+        devices = request.user.push_devices.all()
+        return Response(PushDeviceSerializer(devices, many=True).data)
+
+    serializer = PushDeviceRegisterSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    data = serializer.validated_data
+
+    device, created = PushDevice.objects.update_or_create(
+        token=data["token"],
+        defaults={
+            "user": request.user,
+            "platform": data["platform"],
+            "label": data.get("label", ""),
+            "is_active": True,
+            "last_seen_at": timezone.now(),
+        },
+    )
+    return Response(
+        PushDeviceSerializer(device).data,
+        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+    )
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def unregister_push_device(request):
+    """Drop a device's registration — what a mobile client calls on sign-out.
+
+    Takes the token in the body rather than an id in the path: at sign-out
+    the client knows its own token and has no reason to have learned its
+    server-side id, and `PushDeviceSerializer` deliberately never told it.
+    Scoped to the caller's own devices, so knowing a token is not enough to
+    unregister somebody else's handset.
+    """
+    token = request.data.get("token")
+    if not token:
+        return Response(
+            {"detail": "token is required.", "code": "invalid"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    deleted, _ = PushDevice.objects.filter(user=request.user, token=token).delete()
+    return Response({"unregistered": deleted})
+
+
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def config(request):
@@ -195,5 +271,8 @@ def config(request):
             "notification_categories": [
                 {"value": v, "label": label} for v, label in NotificationCategory.choices
             ],
+            # So a mobile client can skip asking for the OS push permission
+            # prompt entirely when this deployment could not deliver one.
+            "push_enabled": push.is_enabled(),
         }
     )

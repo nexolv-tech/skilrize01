@@ -9,7 +9,7 @@ offered.
 
 from django.contrib import admin
 
-from .models import AuditLog, Notification, NotificationPreference, StoredFile
+from .models import AuditLog, Notification, NotificationPreference, PushDevice, StoredFile
 
 
 @admin.register(AuditLog)
@@ -60,3 +60,15 @@ class NotificationAdmin(admin.ModelAdmin):
 class NotificationPreferenceAdmin(admin.ModelAdmin):
     list_display = ["user", "digest_frequency", "quiet_hours_start", "quiet_hours_end"]
     search_fields = ["user__email"]
+
+
+@admin.register(PushDevice)
+class PushDeviceAdmin(admin.ModelAdmin):
+    """The token is readable here and nowhere else in the product — an
+    operator diagnosing "why did this phone stop getting notifications"
+    needs to see which token is attached and whether it was pruned."""
+
+    list_display = ["user", "platform", "label", "is_active", "last_seen_at"]
+    list_filter = ["platform", "is_active"]
+    search_fields = ["user__email", "label"]
+    readonly_fields = ["token", "last_seen_at", "created_at", "updated_at"]

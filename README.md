@@ -20,7 +20,7 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 4 · Student portals | ✅ | Verification, surface switching, leakage gate |
 | 5 · Communities & social | ✅ | Discussion, chat, events, resources, messaging, feed |
 | 6 · Search, reputation & trust | ✅ | FTS, ranking, JSS, seller levels, integrity, promotion |
-| 7 · Mobile | ❌ | Flutter parity app |
+| 7 · Mobile | 🟡 | Backend half built — device registration, real FCM push, gated off by default, see below. The Flutter app itself needs an SDK install this environment doesn't have; not started |
 | 8 · Professional layer | ✅ | CRM, subscriptions, retainers, agencies, workspaces |
 | 9 · Admin console | ✅ | Role-gated operator tooling: verification review, contract operations, users, audit log — see below |
 | 10 · Integrations | ✅ | Zoom/Google Meet meeting scheduling, GitHub/Figma/Notion read-only activity feeds — every provider real, all off by default, see below |
@@ -28,10 +28,11 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 12 · Hire after trial | ✅ | A paid trial task before the full project — see below for what "converts" does and does not mean yet |
 | 13 · Proof-of-work challenges | ✅ | Timed briefs, human-reviewed scoring, ranked badges — automated Lighthouse grading built but off by default, see below |
 
-**329 backend tests pass.** Migration check and production build are clean.
+**339 backend tests pass.** Migration check and production build are clean.
 Lint and format are clean on every file this session touched; `api/challenges`
 and `api/core/tasks.py` carry pre-existing lint debt from Phase 13, unrelated
-to Phases 10–11, tracked separately rather than folded into either commit.
+to Phases 10–11, tracked separately rather than folded into any of these
+commits.
 `tsc --noEmit` run standalone currently fails on Next's own auto-generated
 `.next/types/validator.ts` — a typed-routes quirk that appeared with Phase 9's
 nested `admin/layout.tsx` (the first nested layout under `(app)/`), not an
@@ -47,7 +48,9 @@ contract state and nothing else. Everything built after it — portals,
 communities, search, reputation — sits on a marketplace that cannot yet
 transact for real.
 
-By phase count the project is 12 of 14. By revenue capability it is at zero
+By phase count the project is 12 of 14 fully built, plus Phase 7's backend
+half (device registration, real FCM push delivery — the Flutter app itself
+is not started; see below). By revenue capability it is at zero
 until Phase 3 lands. The state machine those payments will plug into is
 already the real one (decision D12), so this is a substitution rather than a
 rewrite.
@@ -140,6 +143,38 @@ The verification code goes to the **claimed** address, not the account address
 | Review integrity — six weighted fraud signals | `api/contracts/integrity.py` |
 | Promoted placement, always labelled | `api/discovery/models.py` |
 | Global work showcase, published on both parties' consent | `api/discovery/models.py` |
+
+### Phase 7 — Mobile (backend half)
+
+| Delivered | Where |
+| --- | --- |
+| Device registration — upsert on token, not per-user, so a phone that changes hands doesn't keep the previous account's notifications | `api/core/models.py` (`PushDevice`) |
+| Real Firebase Cloud Messaging delivery, gated off by default like every provider before it | `api/core/push.py` |
+| `Channel.PUSH` actually wired — `deliver_notification` fans out to every active device instead of logging `pending_provider`, and prunes tokens FCM reports dead | `api/core/tasks.py` (`_deliver_push`) |
+| A client bootstrap flag so a mobile app never asks for the OS push permission on a deployment that can't deliver on it | `api/core/views.py` (`config`) |
+
+**What this deliberately is not: the Flutter app.** "Mobile" on the roadmap
+means a Flutter parity client, and that needs the Flutter/Dart SDK, an
+Android toolchain, and — for iOS — macOS, none of which this environment
+has. Rather than leave the whole phase untouched, the half that's pure
+backend work and fully verifiable without any of that (a model, an adapter,
+a task, two endpoints, driven live against the running stack) is built. The
+app itself is a decision for whenever the toolchain question is answered;
+see D38.
+
+**Same off-by-default shape as every provider in this codebase.**
+`FCM_ENABLED` defaults to `False` — no Firebase project exists for this
+environment — and `core/push.py`'s `send()` is a genuine FCM HTTP v1 call,
+not a stub. The day a service-account key exists, push starts working with
+zero further code changes.
+
+**A token is not a secret, and is stored accordingly.** Unlike the OAuth
+tokens in `api/integrations/` or the OTP secrets in `accounts/models.py`,
+an FCM registration token identifies a device, not a credential — sending
+to it needs the service-account key, which never enters the database at
+all. `PushDevice.token` is a plain, unique, lookup-friendly column rather
+than `EncryptedTextField`, and the reasoning is in the model's own
+docstring rather than assumed obvious.
 
 ### Phase 8 — Professional layer
 
