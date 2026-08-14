@@ -9,6 +9,7 @@ env and a managed secret store only.
 from datetime import timedelta
 from pathlib import Path
 
+from corsheaders.defaults import default_headers as cors_default_headers
 from decouple import Csv, config
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -257,6 +258,22 @@ if not DEBUG:
 CORS_ALLOWED_ORIGINS = config("CORS_ALLOWED_ORIGINS", default="http://localhost:3000", cast=Csv())
 CORS_ALLOW_CREDENTIALS = True
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
+
+# django-cors-headers ships a fixed default allow-list, and a header absent
+# from it fails the preflight rather than being ignored — so both of this
+# API's own headers have to be named explicitly.
+#
+# Found running the Flutter client (Phase 7 / D38), which sends
+# `X-Skilrize-Client` on every request. `X-Skilrize-Surface` was the same
+# latent bug and simply had not been hit yet: the web app only sends it when
+# the active surface is *not* global, so every cross-origin request that has
+# ever been made in a browser omitted it. The first student to switch into a
+# campus portal would have found this instead.
+CORS_ALLOW_HEADERS = (
+    *cors_default_headers,
+    "x-skilrize-surface",
+    "x-skilrize-client",
+)
 
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"

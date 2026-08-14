@@ -1,0 +1,33 @@
+name: skilrize_mobile
+description: "SkilRize — the mobile client (Phase 7)."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # The HTTP client. `package:http` rather than Dio deliberately — this app
+  # needs one interceptor's worth of behaviour (refresh once on 401), which
+  # `ApiClient` implements in about fifteen lines, and Dio's value is mostly
+  # the interceptor machinery that would then sit unused.
+  http: ^1.2.2
+
+  # Platform keystore/keychain for the bearer tokens. The one dependency here
+  # that genuinely earns itself: hand-rolling Android Keystore and iOS
+  # Keychain bindings is not something to improvise on the component holding
+  # session tokens. See `SecureTokenStore`.
+  flutter_secure_storage: ^9.2.2
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true

@@ -14,7 +14,11 @@ x-api-env: &api-env
   POSTGRES_HOST: db
   POSTGRES_PORT: 5432
   REDIS_URL: redis://redis:6379/0
-  CORS_ALLOWED_ORIGINS: http://localhost:3000
+  # :3000 is the Next.js app; :3100 is the Flutter client's web build, which
+  # is how the mobile app is run and verified on a machine without an Android
+  # emulator (Phase 7 / D38). A native build talks to the API directly and
+  # needs no CORS entry at all.
+  CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3100
   FRONTEND_URL: http://localhost:3000
   FILE_SIGNING_KEY: ${FILE_SIGNING_KEY:-dev-only-file-signing-key}
 

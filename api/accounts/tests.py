@@ -794,6 +794,90 @@ def test_replaying_a_rotated_refresh_token_kills_the_whole_family(client, user):
 
     # And the legitimate device is signed out too — the family is untrusted.
     assert client.post("/api/v1/auth/refresh/").status_code == 401
+
+
+# --- Native (bearer) clients — Phase 7 / D38 --------------------------------
+
+
+@pytest.mark.django_db
+def test_a_browser_login_never_puts_tokens_in_the_body(client, user):
+    """The web client authenticates by HttpOnly cookie precisely so that
+    script running in the page cannot read a token. Putting them in the body
+    unconditionally would hand that back."""
+    response = client.post(
+        "/api/v1/auth/login/", {"email": user.email, "password": PASSWORD}, format="json"
+    )
+
+    assert response.status_code == 200
+    assert "access" not in response.data
+    assert "refresh" not in response.data
+    assert "skilrize_access" in response.cookies
+
+
+@pytest.mark.django_db
+def test_a_native_client_gets_bearer_tokens_it_can_actually_use(user):
+    """`CookieJWTAuthentication` has documented a bearer path since Phase 0,
+    but nothing ever handed a non-browser client a token to send with it."""
+    native = APIClient(HTTP_X_SKILRIZE_CLIENT="native")
+
+    login = native.post(
+        "/api/v1/auth/login/", {"email": user.email, "password": PASSWORD}, format="json"
+    )
+    assert login.status_code == 200
+    assert login.data["access"] and login.data["refresh"]
+
+    # A completely fresh client, no cookies at all, authenticating purely on
+    # the bearer token — the thing a phone actually does.
+    bearer = APIClient()
+    bearer.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+    me = bearer.get("/api/v1/auth/me/")
+
+    assert me.status_code == 200
+    assert me.data["email"] == user.email
+
+
+@pytest.mark.django_db
+def test_refresh_returns_tokens_only_to_a_caller_that_supplied_one(client, user):
+    """The rule that keeps this endpoint from becoming an exfiltration route:
+    the rotated pair comes back in the body only when the *old* one arrived
+    in the body. Script in a browser cannot read the HttpOnly refresh cookie,
+    so it can never satisfy that — and a cookie-authenticated refresh keeps
+    answering with cookies alone."""
+    native = APIClient(HTTP_X_SKILRIZE_CLIENT="native")
+    login = native.post(
+        "/api/v1/auth/login/", {"email": user.email, "password": PASSWORD}, format="json"
+    )
+
+    from_body = APIClient().post(
+        "/api/v1/auth/refresh/", {"refresh": login.data["refresh"]}, format="json"
+    )
+    assert from_body.status_code == 200
+    assert from_body.data["access"] and from_body.data["refresh"]
+
+    # The browser path: token in the cookie, nothing in the body, and no
+    # amount of asking changes that.
+    client.post("/api/v1/auth/login/", {"email": user.email, "password": PASSWORD}, format="json")
+    from_cookie = client.post("/api/v1/auth/refresh/", HTTP_X_SKILRIZE_CLIENT="native")
+
+    assert from_cookie.status_code == 200
+    assert "access" not in from_cookie.data
+    assert "refresh" not in from_cookie.data
+
+
+@pytest.mark.django_db
+def test_a_native_client_can_actually_revoke_its_session_on_sign_out(user):
+    native = APIClient(HTTP_X_SKILRIZE_CLIENT="native")
+    login = native.post(
+        "/api/v1/auth/login/", {"email": user.email, "password": PASSWORD}, format="json"
+    )
+    refresh_token = login.data["refresh"]
+
+    logout = APIClient().post("/api/v1/auth/logout/", {"refresh": refresh_token}, format="json")
+    assert logout.status_code == 200
+
+    # The revoked token is dead, not merely forgotten by the client.
+    replay = APIClient().post("/api/v1/auth/refresh/", {"refresh": refresh_token}, format="json")
+    assert replay.status_code == 401
     assert not RefreshSession.objects.filter(user=user, revoked_at__isnull=True).exists()
 
 

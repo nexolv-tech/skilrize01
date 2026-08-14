@@ -82,3 +82,25 @@ jobs:
           NEXT_PUBLIC_API_URL: http://localhost:8000
       - name: Dependency vulnerability scan
         run: npm audit --audit-level=high
+
+  mobile:
+    runs-on: ubuntu-latest
+    defaults:
+      run: {working-directory: mobile}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: {flutter-version: "3.47.0", channel: stable, cache: true}
+      - run: flutter pub get
+      - name: Analyze
+        run: flutter analyze
+      - name: Tests
+        # The `live` suite is tagged and skipped by default — it needs a
+        # running Django stack and a seeded account, which CI has neither of.
+        # See mobile/dart_test.yaml and mobile/test/live_api_test.dart.
+        run: flutter test
+      # The web build is what makes the app runnable without an Android
+      # emulator or a Mac, so it is the one that gates a merge. An APK would
+      # need the Android SDK image and proves less about the Dart.
+      - name: Build (web)
+        run: flutter build web --release --no-wasm-dry-run

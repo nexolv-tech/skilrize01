@@ -1,0 +1,7 @@
+# The `live` suite talks to a running Django stack on localhost:8000 and needs
+# a seeded account, so it cannot run in CI or on a fresh checkout. Excluded by
+# default; run it deliberately with `flutter test --tags live` once
+# `docker compose up` is healthy. See test/live_api_test.dart.
+tags:
+  live:
+    skip: "needs a running API — run with: flutter test --tags live"

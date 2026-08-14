@@ -712,6 +712,30 @@ def test_fcm_send_refuses_when_not_enabled():
         send_push(token="t", title="T", body="B")
 
 
+@pytest.mark.parametrize("header", ["x-skilrize-surface", "x-skilrize-client"])
+def test_the_apis_own_headers_survive_a_cors_preflight(client, settings, header):
+    """django-cors-headers rejects any header absent from its allow-list, so
+    both of this API's custom headers have to be named there explicitly.
+
+    `x-skilrize-client` was found missing by the Flutter client, which sends
+    it on every request (D38). `x-skilrize-surface` was the same latent bug
+    and had simply never been hit: the web app only sends it when the active
+    surface is not global, so no cross-origin request had ever carried it.
+    The first student switching into a campus portal would have found it.
+    """
+    settings.CORS_ALLOWED_ORIGINS = ["http://localhost:3000"]
+
+    response = client.options(
+        "/api/v1/config/",
+        HTTP_ORIGIN="http://localhost:3000",
+        HTTP_ACCESS_CONTROL_REQUEST_METHOD="GET",
+        HTTP_ACCESS_CONTROL_REQUEST_HEADERS=header,
+    )
+
+    allowed = response.headers.get("access-control-allow-headers", "")
+    assert header in allowed.lower()
+
+
 @pytest.mark.django_db
 def test_config_tells_a_client_whether_push_can_be_delivered_here(push_user):
     """A mobile client that asks for the OS push permission prompt on a

@@ -20,7 +20,7 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 4 · Student portals | ✅ | Verification, surface switching, leakage gate |
 | 5 · Communities & social | ✅ | Discussion, chat, events, resources, messaging, feed |
 | 6 · Search, reputation & trust | ✅ | FTS, ranking, JSS, seller levels, integrity, promotion |
-| 7 · Mobile | 🟡 | Backend half built — device registration, real FCM push, gated off by default, see below. The Flutter app itself needs an SDK install this environment doesn't have; not started |
+| 7 · Mobile | 🟡 | Flutter client — sign-in (both 2FA paths), dashboard, projects, contracts, notifications, push registration — plus the backend half (device registration, real FCM push). A foundation, not parity with the web app; see below |
 | 8 · Professional layer | ✅ | CRM, subscriptions, retainers, agencies, workspaces |
 | 9 · Admin console | ✅ | Role-gated operator tooling: verification review, contract operations, users, audit log — see below |
 | 10 · Integrations | ✅ | Zoom/Google Meet meeting scheduling, GitHub/Figma/Notion read-only activity feeds — every provider real, all off by default, see below |
@@ -28,7 +28,9 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 12 · Hire after trial | ✅ | A paid trial task before the full project — see below for what "converts" does and does not mean yet |
 | 13 · Proof-of-work challenges | ✅ | Timed briefs, human-reviewed scoring, ranked badges — automated Lighthouse grading built but off by default, see below |
 
-**339 backend tests pass.** Migration check and production build are clean.
+**345 backend tests pass, plus 11 Dart tests and a 4-test live suite for the
+mobile client** (`flutter analyze` clean; the live suite runs against a real
+stack — see `mobile/README.md`). Migration check and production build are clean.
 Lint and format are clean on every file this session touched; `api/challenges`
 and `api/core/tasks.py` carry pre-existing lint debt from Phase 13, unrelated
 to Phases 10–11, tracked separately rather than folded into any of these
@@ -48,9 +50,9 @@ contract state and nothing else. Everything built after it — portals,
 communities, search, reputation — sits on a marketplace that cannot yet
 transact for real.
 
-By phase count the project is 12 of 14 fully built, plus Phase 7's backend
-half (device registration, real FCM push delivery — the Flutter app itself
-is not started; see below). By revenue capability it is at zero
+By phase count the project is 12 of 14 fully built, plus Phase 7's mobile
+client as a working foundation rather than full parity (see below). By
+revenue capability it is at zero
 until Phase 3 lands. The state machine those payments will plug into is
 already the real one (decision D12), so this is a substitution rather than a
 rewrite.
@@ -144,23 +146,50 @@ The verification code goes to the **claimed** address, not the account address
 | Promoted placement, always labelled | `api/discovery/models.py` |
 | Global work showcase, published on both parties' consent | `api/discovery/models.py` |
 
-### Phase 7 — Mobile (backend half)
+### Phase 7 — Mobile
 
 | Delivered | Where |
 | --- | --- |
+| Flutter client — sign-in with both second-factor paths, dashboard, project search, contracts and milestones, notification centre | `mobile/lib/` |
+| Bearer auth, the path `CookieJWTAuthentication` documented since Phase 0 but that nothing could reach — no endpoint ever handed a non-browser client a token | `mobile/lib/src/api/client.dart`, `api/accounts/views.py` |
 | Device registration — upsert on token, not per-user, so a phone that changes hands doesn't keep the previous account's notifications | `api/core/models.py` (`PushDevice`) |
 | Real Firebase Cloud Messaging delivery, gated off by default like every provider before it | `api/core/push.py` |
 | `Channel.PUSH` actually wired — `deliver_notification` fans out to every active device instead of logging `pending_provider`, and prunes tokens FCM reports dead | `api/core/tasks.py` (`_deliver_push`) |
-| A client bootstrap flag so a mobile app never asks for the OS push permission on a deployment that can't deliver on it | `api/core/views.py` (`config`) |
+| A client bootstrap flag so the app never asks for the OS push permission on a deployment that can't deliver on it | `api/core/views.py` (`config`) |
 
-**What this deliberately is not: the Flutter app.** "Mobile" on the roadmap
-means a Flutter parity client, and that needs the Flutter/Dart SDK, an
-Android toolchain, and — for iOS — macOS, none of which this environment
-has. Rather than leave the whole phase untouched, the half that's pure
-backend work and fully verifiable without any of that (a model, an adapter,
-a task, two endpoints, driven live against the running stack) is built. The
-app itself is a decision for whenever the toolchain question is answered;
-see D38.
+**A foundation, not parity.** The web client is roughly 35 routes across
+every phase built so far; the app is the slice that makes a phone useful —
+signing in, seeing where your account stands, finding work, checking a
+contract, reading alerts. Gigs, communities, messaging, the CRM, the admin
+console, and every money action are deliberately absent. Funding and
+releasing are gated behind `CanMoveMoney` and a device cool-off, and a
+half-built money flow on a phone is worse than none.
+
+**Three real bugs came out of building it**, each found by running the thing
+rather than reading it:
+
+* The bearer path was documented and unreachable — `login` and `refresh` only
+  ever set cookies. Fixed so a client identifying itself with
+  `X-Skilrize-Client: native` gets its tokens, with `refresh` returning them
+  only to a caller that supplied one in the body, so injected script in a
+  browser can never lift a token it cannot already read.
+* `package:http` decodes a body with no charset as **latin-1**, and DRF sends
+  `application/json` with no charset. Every non-ASCII character — an Urdu
+  project title, an accented name — would have been mangled. Caught by a test
+  using the masked `m•••r@example.com` hint.
+* `X-Skilrize-Surface` was never in the CORS allow-list. The app found it via
+  its own header; the web app would have hit the same wall the first time a
+  student switched into a campus portal.
+
+**Verified by running it, not just compiling it.** `flutter analyze` clean,
+11 mocked tests, and a separate `live` suite that drives the real client
+against a running Django stack — real sign-in, real bearer token accepted
+back, real push registration. See `mobile/README.md`.
+
+**Push still has no token source.** Registration, gating, and unregistration
+are real; obtaining the FCM token needs a Firebase project that does not
+exist for this environment. One `TODO` marks the single call. iOS is also
+unbuilt — it needs macOS, which no amount of code changes.
 
 **Same off-by-default shape as every provider in this codebase.**
 `FCM_ENABLED` defaults to `False` — no Firebase project exists for this
@@ -494,10 +523,14 @@ SKILRIZE/
 │  ├─ professional/         Plans, entitlements, CRM, retainers, agencies
 │  ├─ challenges/           Proof-of-work challenges, grading, badges
 │  └─ integrations/         Zoom/Google Meet, GitHub/Figma/Notion adapters
-└─ web/                     Next.js — presentation only, enforces nothing
-   ├─ app/                  Routes: marketing, (auth), (app)
-   ├─ components/           Design system primitives + app chrome
-   └─ lib/                  API client, session and theme context
+├─ web/                     Next.js — presentation only, enforces nothing
+│  ├─ app/                  Routes: marketing, (auth), (app)
+│  ├─ components/           Design system primitives + app chrome
+│  └─ lib/                  API client, session and theme context
+└─ mobile/                  Flutter client — bearer auth, a slice of the web app
+   ├─ lib/src/api/          Client, typed endpoints, token storage
+   ├─ lib/src/screens/      Sign-in, dashboard, projects, contracts, alerts
+   └─ test/                 Mocked suite + a `live` suite against a real stack
 ```
 
 No client is trusted to enforce a rule. Every endpoint authorises

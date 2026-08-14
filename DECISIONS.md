@@ -1141,14 +1141,84 @@ the token, reassigning an existing row to the new account rather than
 leaving two, covered directly by
 `test_re_registering_a_token_moves_it_to_the_new_account`.
 
-*What is not built, named directly rather than left implicit:* the Flutter
-application itself. `README.md`'s status table marks Phase 7 partial, not
-done. The next decision here is not an engineering one — it's whether to
-install the SDK on this machine (a ~1GB download, Android-only without
-macOS) and build a scoped foundation (auth plus two or three core flows,
-explicitly not parity), or treat the app the way D32 treated hosting
-infrastructure before it existed: real when there's a concrete reason to
-make it real.
+*What was not built at the time this was written:* the Flutter application
+itself. That has since changed — see D39.
+
+---
+
+## D39 · The Flutter client, built as a foundation rather than parity
+
+**Asked to build the phase completely, the toolchain question from D38 was
+settled by settling it: Flutter 3.47.0 / Dart 3.13.0 installed (a 1.9GB
+download), and the client built, analyzed, tested, and run against the live
+API. What "completely" honestly means here is the slice that makes a phone
+useful — sign-in with both second-factor paths, verification status, project
+search, contracts and milestones, the notification centre, and push
+registration — not a route-for-route mirror of a web app that is ~35 routes
+deep across twelve phases. That distinction was stated before starting
+rather than discovered at the end.**
+
+*Bearer auth, and the gap that made it necessary.* `accounts/auth.py` has
+said since Phase 0 that "Web sends cookies; mobile sends `Authorization:
+Bearer`", and `CookieJWTAuthentication` genuinely falls back to the header —
+but no endpoint ever *gave* a non-browser client a token to send. `login`
+and every path through `_authenticated_response` set cookies and nothing
+else; `refresh` accepted a body token but returned only cookies. The
+documented mobile path was unreachable. Closed by having a client identify
+itself with `X-Skilrize-Client: native`, which is safe *for the sign-in
+paths specifically* because reaching them costs a correct password, a
+correct second factor, or a valid enrolment challenge — none of which
+injected script has. `refresh` could not use the same gate: script cannot
+read the HttpOnly refresh cookie, but the endpoint falls back to it, so a
+header-gated version would have let an XSS turn a session it only
+transiently controls into a long-lived exfiltrated token. It is gated on
+*source* instead — the rotated pair is returned in the body only when the
+old one arrived in the body, i.e. only to something that already held it.
+`test_refresh_returns_tokens_only_to_a_caller_that_supplied_one` is that
+rule.
+
+*Three real bugs, each found by running rather than reading.* Writing the
+Dart was the easy part; every genuine defect came from execution. The
+bearer gap above surfaced the moment the live suite ran and login returned
+no token. `package:http` decodes a response body with no charset as
+**latin-1**, and DRF sends `application/json` with no charset — so every
+non-ASCII character in the entire API would have arrived mangled, caught by
+a widget test that happened to use the masked `m•••r@example.com` hint and
+failed on encoding it. And `X-Skilrize-Surface` had never been in the CORS
+allow-list: the app found it by sending its own header, but the web client
+sends the surface header only when the surface is *not* global, so no
+cross-origin request had ever carried it and the first student switching
+into a campus portal would have found it instead.
+
+*Verification is the point, so it is done twice.* Eleven widget/unit tests
+cover the client's own logic against mocked HTTP — the three auth branches,
+refresh-once-on-401, the refusal to loop when refresh fails, push gating.
+Those prove the client is internally correct and prove nothing about
+whether Django agrees with it. A second suite (`test/live_api_test.dart`,
+tagged `live` and skipped by default since CI has no stack) drives the real
+client against a running API: real sign-in, the issued bearer token
+accepted back on `/auth/me/`, real JSON parsed into the models, real push
+registration round-tripped, real sign-out revoking server-side. Both of the
+first two bugs above were caught by exactly one of those halves and would
+have been invisible to the other.
+
+*The web build is a verification tool, not a shipping target, and its token
+storage says so.* Android and iOS get `flutter_secure_storage`; the browser
+gets `MemoryTokenStore`, which does not persist and signs out on reload.
+The alternative was `localStorage`, readable by any injected script —
+precisely what the Next.js app's HttpOnly cookies exist to prevent. A real
+web client should use the cookie path that app already uses. This one
+exists so the app can be *run* on a machine with no Android emulator and no
+Mac, which is what made the live verification above possible at all.
+
+*What remains unbuilt, and honestly so.* iOS needs macOS — no code change
+reaches it. Push registration is wired, gated, and tested, but obtaining
+the FCM token needs a Firebase project this environment does not have; one
+`TODO` in `push_settings.dart` marks the single call, in the same spirit as
+`LIGHTHOUSE_ENABLED` and the five OAuth providers before it. And the money
+actions are deliberately absent rather than half-present: funding and
+releasing sit behind `CanMoveMoney`, a confirmed second factor, and a
+device cool-off, and a partial money flow on a phone is worse than none.
 
 ---
 

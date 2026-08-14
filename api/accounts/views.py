@@ -69,6 +69,27 @@ CHALLENGE_SALT = "skilrize.2fa.challenge"
 CHALLENGE_MAX_AGE = 300  # A partially-authenticated state should be brief.
 
 
+#: A client that declares itself non-browser gets its tokens in the response
+#: body as well as in cookies, because it has no cookie jar worth relying on
+#: and authenticates with `Authorization: Bearer` instead — the path
+#: `accounts.auth.CookieJWTAuthentication` has documented since Phase 0 but
+#: which nothing could actually reach, since no endpoint ever handed a
+#: non-browser client a token to send (found building the Flutter client,
+#: Phase 7 / D38).
+#:
+#: Gating on a header is enough *here* and only here: reaching this code at
+#: all costs a correct password, or a correct second factor, or a valid
+#: enrolment challenge. Script injected into the web app has none of those,
+#: so it cannot mint itself a body-delivered token by setting a header. The
+#: refresh endpoint is the one that would be trivially abusable that way and
+#: is gated differently — see `refresh`.
+NATIVE_CLIENT_HEADER = "HTTP_X_SKILRIZE_CLIENT"
+
+
+def _wants_tokens_in_body(request) -> bool:
+    return request.META.get(NATIVE_CLIENT_HEADER, "").strip().lower() == "native"
+
+
 def _authenticated_response(
     user, request, *, created: bool = False, verified_by_email: bool = False
 ):
@@ -76,7 +97,8 @@ def _authenticated_response(
 
     Also the single place a sign-in is attributed to a device, so the new-device
     alert and cool-off cannot be forgotten by one of the several paths that end
-    in an authenticated session.
+    in an authenticated session — and, since Phase 7, the single place a native
+    client is handed its bearer tokens.
     """
     device, is_new = devices.register(user, request)
     if is_new and not created and not verified_by_email:
@@ -91,13 +113,17 @@ def _authenticated_response(
 
     access, refresh = tokens.issue(user, request)
     payload = UserSerializer(user).data
+    body = {
+        "user": payload,
+        # Surfaced so the client can explain the hold up front rather than
+        # letting the user discover it when a purchase fails.
+        "device_cooloff_seconds": device.seconds_until_trusted if device else 0,
+    }
+    if _wants_tokens_in_body(request):
+        body["access"] = access
+        body["refresh"] = refresh
     response = Response(
-        {
-            "user": payload,
-            # Surfaced so the client can explain the hold up front rather than
-            # letting the user discover it when a purchase fails.
-            "device_cooloff_seconds": device.seconds_until_trusted if device else 0,
-        },
+        body,
         status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
     )
     user.last_active_at = timezone.now()
@@ -408,7 +434,12 @@ def login_two_factor(request):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def refresh(request):
-    raw = request.COOKIES.get(tokens.REFRESH_COOKIE) or request.data.get("refresh")
+    # Which source the token came from decides whether the rotated pair is
+    # returned in the body, so this is read as two separate things rather
+    # than one `or` (Phase 7 / D38).
+    from_cookie = request.COOKIES.get(tokens.REFRESH_COOKIE)
+    from_body = request.data.get("refresh")
+    raw = from_cookie or from_body
     if not raw:
         return Response(
             {"detail": "No refresh token supplied.", "code": "no_refresh"},
@@ -425,13 +456,27 @@ def refresh(request):
             )
         )
 
-    return tokens.set_auth_cookies(Response({"detail": "ok"}), access, new_refresh)
+    # The rotated pair goes in the body **only** when the caller supplied the
+    # old one in the body — that is, only to something that already held the
+    # token out-of-band. Deliberately not gated on a header like the sign-in
+    # paths above: script injected into the web app cannot read the HttpOnly
+    # refresh cookie, so it cannot present one here, so it can never turn
+    # this endpoint into a way to lift a long-lived token out of a browser
+    # session it has otherwise only transient control of.
+    body = {"detail": "ok"}
+    if not from_cookie and from_body:
+        body["access"] = access
+        body["refresh"] = new_refresh
+    return tokens.set_auth_cookies(Response(body), access, new_refresh)
 
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def logout(request):
-    raw = request.COOKIES.get(tokens.REFRESH_COOKIE)
+    # A native client has no cookie to read, so it hands its refresh token
+    # back explicitly — otherwise signing out would clear local state while
+    # leaving a valid, revocable session alive on the server (Phase 7 / D38).
+    raw = request.COOKIES.get(tokens.REFRESH_COOKIE) or request.data.get("refresh")
     if raw:
         tokens.revoke(raw)
     if request.user.is_authenticated:
