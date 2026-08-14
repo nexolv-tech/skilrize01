@@ -549,7 +549,12 @@ def test_full_trial_lifecycle_ends_in_a_real_contract(trial_setup):
     """Propose, accept, fund, deliver, approve, convert — every step through
     the exact same contract endpoints any other order or award already uses,
     ending with a full contract distinct from the trial's own small one."""
+    from unittest.mock import patch
+
+    from django.test import override_settings
+
     from contracts.models import Contract
+    from contracts.tests import _SWICH_TEST_SETTINGS, _fund_via_swich, _give_payout_profile
 
     client_user, freelancer, project, proposal = trial_setup
     client, freelancer_api = sign_in(client_user), sign_in(freelancer)
@@ -557,25 +562,27 @@ def test_full_trial_lifecycle_ends_in_a_real_contract(trial_setup):
     _propose_trial(client, proposal.id)
     accepted = freelancer_api.post(f"/api/v1/proposals/{proposal.id}/trial/accept/")
     trial_contract_id = accepted.data["contract_id"]
-    milestone_id = Contract.objects.unscoped().get(pk=trial_contract_id).milestones.first().id
+    trial_contract = Contract.objects.unscoped().get(pk=trial_contract_id)
+    milestone = trial_contract.milestones.first()
 
-    assert (
-        client.post(
-            f"/api/v1/contracts/{trial_contract_id}/milestones/{milestone_id}/fund/"
-        ).status_code
-        == 200
-    )
-    assert (
-        freelancer_api.post(
-            f"/api/v1/contracts/{trial_contract_id}/milestones/{milestone_id}/deliver/",
-            {"note": "Here is the homepage component."},
-            format="json",
-        ).status_code
-        == 200
-    )
-    released = client.post(
-        f"/api/v1/contracts/{trial_contract_id}/milestones/{milestone_id}/release/"
-    )
+    with override_settings(**_SWICH_TEST_SETTINGS):
+        _give_payout_profile(freelancer)
+        _fund_via_swich(client, trial_contract, milestone)
+
+        assert (
+            freelancer_api.post(
+                f"/api/v1/contracts/{trial_contract_id}/milestones/{milestone.id}/deliver/",
+                {"note": "Here is the homepage component."},
+                format="json",
+            ).status_code
+            == 200
+        )
+        with patch(
+            "payments.providers.swich.create_payout", return_value={"data": {"transactionId": "1"}}
+        ):
+            released = client.post(
+                f"/api/v1/contracts/{trial_contract_id}/milestones/{milestone.id}/release/"
+            )
     assert released.status_code == 200
     assert released.data["status"] == "completed"
 
@@ -596,8 +603,6 @@ def test_full_trial_lifecycle_ends_in_a_real_contract(trial_setup):
     # A second attempt — either to award normally or convert again — must be
     # refused, not silently create a second contract on the same proposal.
     assert client.post(f"/api/v1/proposals/{proposal.id}/trial/convert/").status_code == 400
-    award_again = client.post(
-        "/api/v1/contracts/award/", {"proposal": proposal.id}, format="json"
-    )
+    award_again = client.post("/api/v1/contracts/award/", {"proposal": proposal.id}, format="json")
     assert award_again.status_code == 400
     assert award_again.data["code"] == "already_awarded"

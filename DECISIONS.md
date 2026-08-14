@@ -1286,25 +1286,139 @@ rebuilding the image was the honest fix, not skipping those two tests.
 
 ---
 
+## D41 · Phase 3, built: escrow via Swich, not Stripe, not Safepay alone
+
+**Item 3 on "Not mine to take" — choosing a payment rail — was the last
+blocker on Phase 3, and it took three wrong turns before landing on the
+right one. Recording all three, because the wrong turns are exactly what a
+future reader needs to not repeat them.**
+
+*Turn one: Stripe was never actually a choice.* Stripe does not operate in
+Pakistan at all — a Pakistan-registered company cannot open an account,
+full stop. Once the client confirmed the company was registered in Pakistan
+(2026-08-14), every option requiring a foreign entity was eliminated in one
+step, not weighed against Stripe as an alternative.
+
+*Turn two: defaulting to Safepay plus a manual admin payout.* Safepay's
+Pay In side is real and well-documented — a Stripe-like checkout API for a
+Pakistan entity. But nothing in its public docs showed a payout API for
+paying a third party, and the recommendation was to ship the confirmed
+half (collect) and hand-wave the other half (an admin wires the freelancer
+by hand). Told directly this wasn't good enough, and it wasn't: an escrow
+platform that can take money but not automatically pay it out isn't
+escrow, it's a deposit box.
+
+*Turn three: chasing Rapyd, hitting the same wall as Stripe.* Rapyd's
+`Escrow`/`Disburse`/split-payment products are genuinely real and exactly
+the shape wanted — but Rapyd's Business Account is only available to
+companies registered in the UK and Hong Kong. Same blocker as Stripe, a
+different vendor. Airwallex, checked at the same time, has the identical
+problem: business accounts only from ~50 approved jurisdictions, Pakistan
+not among them. **Every full-featured marketplace-escrow platform
+(Stripe Connect, Rapyd, Airwallex, Mangopay) requires a foreign-registered
+entity.** That is the actual state of the market, not a research gap.
+
+*What actually closed it: reading Swich's homepage instead of stopping at
+"Safepay-shaped."* The client pasted Swich's own product page, which lists
+three separate products — Payment Gateway, **Payouts API** ("disburse …
+to gig economy workers, vendors, and partners"), and Cross-Border
+Transfers. "Gig economy workers" in a payout product's own description,
+for a Pakistan-native platform, was the signal worth actually verifying
+rather than taking as marketing copy. It held up: Swich's real API
+reference (`api-docs.swichnow.com`) documents `Payout` (domestic IBFT) and
+`Remittance` (international, but *inbound* — a beneficiary CNIC and a
+Pakistani IBAN, for money arriving in Pakistan from abroad, not the
+reverse) as genuinely separate, fully-specified products, alongside a
+complete Pay In surface (card, e-wallet, bank, QR, RTP, a hosted checkout).
+One vendor, both halves, no second company needed.
+
+*Verified against the real sandbox before a line of adapter code shipped.*
+The client supplied real sandbox credentials
+(`client_id`/`client_secret`/`SecretKey`, account "Nexolv.tech"). Before
+building anything: exchanged them for a real bearer token
+(`POST /connect/token`), pulled a real account balance
+(`GET /gateway/payout/balance` → `0.0 PKR, status Enabled`), and — the
+test that mattered most — built a real checkout URL with the documented
+checksum formula and GET it, getting back an actual 37 KB Swich-hosted
+checkout page, not an error. `fetch_title` also round-tripped correctly:
+it returned a real, specific business error (`"No bank found 'Test
+Bank'"`) rather than an auth or format failure, proving the request shape
+is right even though the exact bank code/name IBFT expects couldn't be
+resolved from public docs (see "what's still open" below).
+
+*The architecture, briefly.* A new `payments` app: `EscrowCharge` tracks
+one Pay In attempt (a milestone can retry a failed checkout, so it's a
+`ForeignKey`, not `OneToOne`); `PayoutProfile` is a freelancer's verified
+bank destination, with `account_number`/`cnic` behind `EncryptedTextField`
+the same way OTP secrets are; `Payout` tracks one IBFT attempt. `fund_milestone`
+no longer funds anything directly — it creates a checkout session and
+returns `checkout_url`; only `payments.views.swich_payin_callback`, once it
+independently recomputes and compares the callback's checksum
+(`hmac.compare_digest`, not `==`), calls `Milestone.fund()`. A callback that
+arrives twice (Swich's own retry behaviour) is a no-op on the second
+delivery, not a double-fund. `release_milestone` still executes on the
+client's approval alone, but the automated payout it triggers
+(`payments.tasks.process_payout`, run via Celery so an IBFT round-trip
+never blocks the release request) refuses to start without a complete
+`PayoutProfile` — an IBFT call missing a bank code or CNIC is not a
+transaction to retry, it's one that should never have been attempted.
+
+*A second bug this pass found, not just Swich integration.* Gig ordering
+(`gigs.views.GigViewSet.order`) turned out to fund its own milestone
+directly and had done so since Phase 2 — a purchase was never actually
+charged, only recorded as funded. Fixed the same way: the order is created,
+but its milestone starts `AWAITING_PAYMENT`, and the same callback that
+confirms contract milestones now also recognises a gig order (via
+`Order.contract`'s `gig_order` reverse relation) and fires the "order
+received" notification and `orders_count` increment only once payment is
+confirmed — not at checkout-session creation. Finding this cost fixing a
+second, unrelated landmine: `order()` is `@transaction.atomic`, and an
+early `return` inside an atomic block does **not** roll back rows already
+written in that request — the exact bug `Contract.create_from_proposal`
+was fixed for once already (the milestone-total validation test in
+`contracts/tests.py`). The `swich.is_enabled()` check now runs before any
+row is created, not after.
+
+*What's still open, honestly.* The exact bank code/name pairing Swich's
+IBFT payout endpoint (`fetch_title`/`create_payout`) expects is not the
+same list as `/gateway/payin/get/banks` and is not published anywhere
+public — confirmed by testing both the human-readable name Swich's own
+Pay-In bank list returned ("Test Bank") and getting the same "no bank
+found" response either way. Closing this needs a support ticket to Swich
+integration support, not another round of guessing; the module docstring
+in `payments/providers/swich.py` says so directly rather than presenting
+the payout path as fully proven. Everything else — Pay In checkout,
+checksum verification, the payout profile flow, the release-gate — is
+proven against the real sandbox, not only mocked.
+
+*Verification.* 17 new tests in `payments/tests.py` plus the existing
+contract/gig/marketplace suites updated to route fund/release through a
+real checksum-verified callback rather than the old direct `Milestone.fund()`
+call — 362 backend tests pass. `flutter analyze` clean on the mobile
+payout-profile screen and the `url_launcher`-based checkout hand-off
+(added as a new dependency, the same reasoning as `image_picker` for the
+student ID card: one genuine external-browser need, one dependency).
+`next build` and `eslint` clean on the web payout-profile page and both
+checkout redirects (gig order, milestone fund).
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, a personal relationship, or an
-external engagement neither of us can substitute for. Nothing 1–6 has moved
-since the log was opened, and all of it now sits on the critical path rather
-than ahead of it — Phase 3 is deferred *because* of items 1–3, and Phase 4
-has shipped without the cohort in item 6.
+external engagement neither of us can substitute for.
 
-1. **Engage a corporate lawyer** on the escrow question in D8. Slowest item on
-   the board, and now the binding constraint: everything built after Phase 2 is
-   sitting on a marketplace that cannot take money.
-2. **Register the company.** Gates the merchant accounts, which gate Phase 3.
-3. **Choose the payment rails.** The report assumed JazzCash and Easypaisa.
-   Stripe was raised later and researched: **Stripe does not operate in
-   Pakistan**, and the product that makes escrow legally simple (Connect) cannot
-   pay Pakistani sellers at all. Global Payouts can reach Pakistan but pushes
-   the licensing burden back onto us. Three routes — local rails, a foreign
-   entity, or a hybrid — and the choice changes the architecture, not just the
-   adapter.
+1. ~~**Engage a corporate lawyer** on the escrow question in D8.~~ **Done** —
+   confirmed by the client (2026-08-14). No engineering artifact exists for
+   this; it is a business/legal fact taken on the client's word, not
+   something verified from this repo.
+2. ~~**Register the company.**~~ **Done, in Pakistan** — confirmed by the
+   client (2026-08-14). This narrows item 3: Stripe does not operate in
+   Pakistan at all, so Stripe Connect is off the table unless a *second*,
+   foreign entity is registered specifically to route payment through it.
+3. ~~**Choose the payment rails.**~~ **Done — Swich**, a Pakistan-native
+   platform whose `Payouts API` and `Payment Gateway` cover both halves of
+   escrow without a second entity. Phase 3 is built on it — see D41.
 4. **Buy the domain** in D1.
 5. **Confirm or override the launch campus** in D4.
 6. **Recruit the seed cohort** — roughly 30 committed student sellers and one
@@ -1315,8 +1429,8 @@ has shipped without the cohort in item 6.
    what Phase 11 hardened** (D37). A pen test needs an authorized third
    party engaged to attack the live system, not a self-review; a load test
    needs real traffic infrastructure and a target concurrency figure nobody
-   has set yet; a compliance review needs whoever item 1's lawyer turns out
-   to be, once engaged. External monitoring dashboards (uptime, on-call
+   has set yet; a compliance review needs the lawyer engaged in item 1,
+   now that they exist. External monitoring dashboards (uptime, on-call
    paging) are the same shape — configuring an account with a provider,
    not a code change. `SENTRY_DSN`, `SECURE_HSTS_SECONDS`, and the rest of
    D37 are the code-side half of "hardened"; this is the half that was

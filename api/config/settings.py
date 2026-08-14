@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "professional",
     "challenges",
     "integrations",
+    "payments",
 ]
 
 MIDDLEWARE = [
@@ -393,6 +394,21 @@ NOTION_CLIENT_SECRET = config("NOTION_CLIENT_SECRET", default="")
 FCM_ENABLED = config("FCM_ENABLED", default=False, cast=bool)
 FCM_PROJECT_ID = config("FCM_PROJECT_ID", default="")
 FCM_CREDENTIALS_JSON = config("FCM_CREDENTIALS_JSON", default="")
+
+# Payments — Swich (Phase 3, D41). Off by default like every provider above,
+# but unlike them this one has real sandbox credentials, so it is exercised
+# against Swich's genuine sandbox rather than mocks alone. SWICH_ENV picks
+# which of *Swich's own* environments to call — independent of this app's
+# DEBUG/ENVIRONMENT, so a production SkilRize deployment can still point at
+# Swich's sandbox until the real merchant account is approved.
+SWICH_ENABLED = config("SWICH_ENABLED", default=False, cast=bool)
+SWICH_ENV = config("SWICH_ENV", default="sandbox")
+SWICH_CLIENT_ID = config("SWICH_CLIENT_ID", default="")
+SWICH_CLIENT_SECRET = config("SWICH_CLIENT_SECRET", default="")
+#: Signs Landing Page checksums and verifies callback checksums — see
+#: `payments/providers/swich.py`. Distinct from CLIENT_SECRET, which is
+#: only ever used to obtain a bearer token.
+SWICH_SECRET_KEY = config("SWICH_SECRET_KEY", default="")
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"

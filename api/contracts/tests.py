@@ -9,15 +9,81 @@ side can read the other's review before writing their own.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 from datetime import date
+from unittest.mock import patch
 
 import pytest
+from django.test import override_settings
 
 from accounts.models import User
 from contracts.models import Contract, ContractType, Milestone, Review, TimeEntry
 from core.scope import GLOBAL_SCOPE, use_scope
 from marketplace.models import Project, ProjectType, Proposal
 from marketplace.tests import make_user, sign_in
+
+#: Fund/release now round-trip through the real Swich adapter's checksum
+#: logic (Phase 3, D41) — every test that funds or releases a milestone
+#: through the API, not `Milestone.fund()` directly, needs this on.
+_SWICH_TEST_SETTINGS = dict(
+    SWICH_ENABLED=True,
+    SWICH_CLIENT_ID="test-client",
+    SWICH_CLIENT_SECRET="test-secret",
+    SWICH_SECRET_KEY="test-signing-key",
+)
+
+
+def _fund_via_swich(client_api, contract, milestone) -> None:
+    """Fund a milestone the way it actually happens now: create the
+    checkout session through the real endpoint, then simulate Swich's own
+    Pay In callback with a genuinely correct checksum — not a mock of the
+    callback view, an actual request computed the same way Swich's server
+    would compute it, so a broken checksum formula would fail this test
+    too."""
+    from payments.models import EscrowCharge
+
+    response = client_api.post(f"/api/v1/contracts/{contract.pk}/milestones/{milestone.pk}/fund/")
+    assert response.status_code == 200, response.data
+    assert "checkout_url" in response.data
+
+    charge = EscrowCharge.objects.get(milestone=milestone)
+    order_id = "SANDBOX-ORDER-1"
+    checksum = hmac.new(
+        _SWICH_TEST_SETTINGS["SWICH_SECRET_KEY"].encode("utf-8"),
+        f"SWCallback:{charge.customer_transaction_id}:{order_id}:{charge.amount}:success".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    callback = client_api.get(
+        "/api/v1/payments/callbacks/swich/payin/",
+        {
+            "CustomerTransactionId": charge.customer_transaction_id,
+            "OrderId": order_id,
+            "Amount": str(charge.amount),
+            "Status": "success",
+            "checksum": checksum,
+        },
+    )
+    assert callback.status_code == 200, callback.data
+
+
+def _give_payout_profile(freelancer) -> None:
+    """A complete `PayoutProfile`, so `release_milestone` does not refuse
+    to release for a reason unrelated to what the test is actually
+    checking."""
+    from payments.models import PayoutProfile
+
+    PayoutProfile.objects.update_or_create(
+        user=freelancer,
+        defaults=dict(
+            bank_code="HABB",
+            bank_name="Habib Bank",
+            account_number="PK00HABB0000001234567",
+            verified_account_title=freelancer.display_name or "Test Freelancer",
+            cnic="1234512345671",
+            msisdn="03001234567",
+        ),
+    )
 
 
 @pytest.fixture
@@ -213,18 +279,15 @@ def test_work_cannot_be_delivered_before_it_is_funded(awarded, parties):
 
 
 @pytest.mark.django_db
+@override_settings(**_SWICH_TEST_SETTINGS)
 def test_the_full_funding_delivery_release_loop(awarded, parties):
     client_user, freelancer = parties
     milestone = _activate(awarded, freelancer)
+    _give_payout_profile(freelancer)
 
     client_api, freelancer_api = sign_in(client_user), sign_in(freelancer)
 
-    assert (
-        client_api.post(
-            f"/api/v1/contracts/{awarded.pk}/milestones/{milestone.pk}/fund/"
-        ).status_code
-        == 200
-    )
+    _fund_via_swich(client_api, awarded, milestone)
     milestone.refresh_from_db()
     assert milestone.status == Milestone.Status.FUNDED
     awarded.refresh_from_db()
@@ -244,12 +307,13 @@ def test_the_full_funding_delivery_release_loop(awarded, parties):
     # A delivery starts the client's review clock.
     assert awarded.review_deadline is not None
 
-    assert (
-        client_api.post(
+    with patch(
+        "payments.providers.swich.create_payout", return_value={"data": {"transactionId": "1"}}
+    ):
+        release_response = client_api.post(
             f"/api/v1/contracts/{awarded.pk}/milestones/{milestone.pk}/release/"
-        ).status_code
-        == 200
-    )
+        )
+    assert release_response.status_code == 200, release_response.data
 
     milestone.refresh_from_db()
     awarded.refresh_from_db()
@@ -258,6 +322,11 @@ def test_the_full_funding_delivery_release_loop(awarded, parties):
     assert awarded.funded_amount == 0
     # Nothing left outstanding, so the contract closes itself.
     assert awarded.status == Contract.Status.COMPLETED
+
+    from payments.models import Payout
+
+    payout = Payout.objects.get(milestone=milestone)
+    assert payout.status == Payout.Status.PAID
 
 
 @pytest.mark.django_db
@@ -453,10 +522,18 @@ def test_both_parties_share_one_contract_timeline(awarded, parties):
 
 
 def _complete(contract, client_user, freelancer):
+    """Callers must apply `@override_settings(**_SWICH_TEST_SETTINGS)` —
+    fund and release now round-trip through the real Swich checksum logic
+    (Phase 3, D41)."""
     milestone = _activate(contract, freelancer)
-    sign_in(client_user).post(f"/api/v1/contracts/{contract.pk}/milestones/{milestone.pk}/fund/")
+    _give_payout_profile(freelancer)
+    client_api = sign_in(client_user)
+    _fund_via_swich(client_api, contract, milestone)
     sign_in(freelancer).post(f"/api/v1/contracts/{contract.pk}/milestones/{milestone.pk}/deliver/")
-    sign_in(client_user).post(f"/api/v1/contracts/{contract.pk}/milestones/{milestone.pk}/release/")
+    with patch(
+        "payments.providers.swich.create_payout", return_value={"data": {"transactionId": "1"}}
+    ):
+        client_api.post(f"/api/v1/contracts/{contract.pk}/milestones/{milestone.pk}/release/")
     contract.refresh_from_db()
     return contract
 
@@ -479,6 +556,7 @@ FREELANCER_REVIEW = {
 
 
 @pytest.mark.django_db
+@override_settings(**_SWICH_TEST_SETTINGS)
 def test_a_review_stays_hidden_until_both_sides_submit(awarded, parties):
     client_user, freelancer = parties
     contract = _complete(awarded, client_user, freelancer)
@@ -512,6 +590,7 @@ def test_an_incomplete_contract_cannot_be_reviewed(awarded, parties):
 
 
 @pytest.mark.django_db
+@override_settings(**_SWICH_TEST_SETTINGS)
 def test_a_party_cannot_review_twice(awarded, parties):
     client_user, freelancer = parties
     contract = _complete(awarded, client_user, freelancer)
@@ -529,6 +608,7 @@ def test_a_party_cannot_review_twice(awarded, parties):
 
 
 @pytest.mark.django_db
+@override_settings(**_SWICH_TEST_SETTINGS)
 def test_each_side_answers_only_its_own_sub_ratings(awarded, parties):
     """A freelancer cannot rate their own quality of work."""
     client_user, freelancer = parties
@@ -559,9 +639,7 @@ def test_admin_contract_list_is_not_scoped_to_the_caller(awarded, parties):
     """Finance Admin needs the whole book, not their own deals — unlike the
     party-scoped `ContractViewSet`, an admin who is neither the client nor
     the freelancer must still see this contract."""
-    finance_admin = make_user(
-        "finance-admin@example.com", admin_role=User.AdminRole.FINANCE_ADMIN
-    )
+    finance_admin = make_user("finance-admin@example.com", admin_role=User.AdminRole.FINANCE_ADMIN)
     response = sign_in(finance_admin).get("/api/v1/admin/contracts/")
     assert response.status_code == 200
     assert any(row["id"] == awarded.id for row in response.data["results"])
@@ -580,9 +658,7 @@ def test_non_finance_admin_cannot_reach_admin_contracts(parties):
 def test_finance_admin_can_force_fund_a_milestone(awarded, parties):
     _, freelancer = parties
     milestone = _activate(awarded, freelancer)
-    finance_admin = make_user(
-        "finance-admin2@example.com", admin_role=User.AdminRole.FINANCE_ADMIN
-    )
+    finance_admin = make_user("finance-admin2@example.com", admin_role=User.AdminRole.FINANCE_ADMIN)
     assert milestone.status == Milestone.Status.PENDING
 
     response = sign_in(finance_admin).post(
@@ -599,9 +675,7 @@ def test_finance_admin_can_force_fund_a_milestone(awarded, parties):
 def test_cannot_force_fund_before_the_contract_is_active(awarded):
     """The admin override is for *how* a milestone gets funded, not licence
     to fund one on a contract the freelancer has not even accepted yet."""
-    finance_admin = make_user(
-        "finance-admin3@example.com", admin_role=User.AdminRole.FINANCE_ADMIN
-    )
+    finance_admin = make_user("finance-admin3@example.com", admin_role=User.AdminRole.FINANCE_ADMIN)
     milestone = awarded.milestones.first()
 
     response = sign_in(finance_admin).post(
@@ -617,9 +691,7 @@ def test_cannot_force_fund_an_already_funded_milestone(awarded, parties):
     _, freelancer = parties
     milestone = _activate(awarded, freelancer)
     milestone.fund()
-    finance_admin = make_user(
-        "finance-admin4@example.com", admin_role=User.AdminRole.FINANCE_ADMIN
-    )
+    finance_admin = make_user("finance-admin4@example.com", admin_role=User.AdminRole.FINANCE_ADMIN)
 
     response = sign_in(finance_admin).post(
         f"/api/v1/admin/contracts/{awarded.id}/milestones/{milestone.id}/fund/"

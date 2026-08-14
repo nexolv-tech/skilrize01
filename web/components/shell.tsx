@@ -30,6 +30,7 @@ const NAV: NavItem[] = [
   { href: "/settings/security", label: "Security", icon: "shield" as const },
   { href: "/settings/notifications", label: "Notifications", icon: "bell" as const },
   { href: "/settings/integrations", label: "Integrations", icon: "link" as const },
+  { href: "/settings/payouts", label: "Payouts", icon: "wallet" as const },
 ];
 
 /** The marketplace itself, shown in the top bar. */

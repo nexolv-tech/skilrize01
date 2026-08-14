@@ -7,6 +7,7 @@ import 'crm_screen.dart';
 import 'feed_screen.dart';
 import 'integrations_screen.dart';
 import 'notifications_screen.dart';
+import 'payouts_screen.dart';
 import 'retainers_screen.dart';
 import 'settings_screen.dart';
 import 'student_screen.dart';
@@ -33,6 +34,7 @@ class MoreScreen extends StatelessWidget {
       (Icons.repeat_outlined, 'Retainers', (_) => RetainersScreen(session: session)),
       (Icons.groups_2_outlined, 'Agency & workspaces', (_) => AgencyScreen(session: session)),
       (Icons.link_outlined, 'Integrations', (_) => IntegrationsScreen(session: session)),
+      (Icons.account_balance_wallet_outlined, 'Payouts', (_) => PayoutsScreen(session: session)),
       if (isAdmin) (Icons.admin_panel_settings_outlined, 'Admin console', (_) => AdminScreen(session: session)),
       (Icons.settings_outlined, 'Settings', (_) => SettingsScreen(session: session)),
     ];

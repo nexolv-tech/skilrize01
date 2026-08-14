@@ -16,7 +16,7 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 0 · Foundations | ✅ | Auth, security, tenancy, files, notifications |
 | 1 · Projects & bidding | ✅ | Post a brief, compare proposals, award, contract |
 | 2 · Gigs | ✅ | Productised services, packages, order lifecycle |
-| 3 · Payments & escrow | ⏭️ | **Deferred** — see "The gap in the middle" |
+| 3 · Payments & escrow | ✅ | Real escrow via Swich — client charge, automated freelancer payout, checksummed webhook confirmation — see below |
 | 4 · Student portals | ✅ | Verification, surface switching, leakage gate |
 | 5 · Communities & social | ✅ | Discussion, chat, events, resources, messaging, feed |
 | 6 · Search, reputation & trust | ✅ | FTS, ranking, JSS, seller levels, integrity, promotion |
@@ -28,8 +28,8 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 12 · Hire after trial | ✅ | A paid trial task before the full project — see below for what "converts" does and does not mean yet |
 | 13 · Proof-of-work challenges | ✅ | Timed briefs, human-reviewed scoring, ranked badges — automated Lighthouse grading built but off by default, see below |
 
-**345 backend tests pass, plus 11 Dart tests and a 4-test live suite for the
-mobile client** (`flutter analyze` clean across all ~30 screens; the live
+**362 backend tests pass, plus 11 Dart tests and a 4-test live suite for the
+mobile client** (`flutter analyze` clean across all ~32 screens; the live
 suite runs against a real stack — see `mobile/README.md`). Migration check
 and production build are clean.
 Lint and format are clean on every file this session touched; `api/challenges`
@@ -43,25 +43,37 @@ error in any file this repo owns. `next build`'s own internal type-check,
 which is what actually gates a real build, passes clean on the identical
 route tree.
 
-### The gap in the middle
+### Phase 3 has landed: real money moves now
 
-Phase 3 is deferred at the client's direction, and it is worth being plain
-about what that means: **no money actually moves.** `fund` and `release` change
-contract state and nothing else. Everything built after it — portals,
-communities, search, reputation — sits on a marketplace that cannot yet
-transact for real.
+Phase 3 was deferred at the client's direction until three external
+blockers cleared — a corporate lawyer engaged on the escrow question, the
+company registered (in Pakistan), and a payment rail chosen. All three are
+now done (D41), and **Swich** is the rail: a Pakistan-native payment
+platform whose `Payouts API` explicitly targets "gig economy workers," and
+whose `Corporate Pay-Out` (domestic IBFT) sits alongside its `Payment
+Gateway` (Pay In) as one integration rather than two separate vendors.
 
-By phase count the project is 13 of 14 fully built, including Phase 7's
-mobile client at full parity with the web app's signed-in surface (see
-below). By revenue capability it is at zero
-until Phase 3 lands. The state machine those payments will plug into is
-already the real one (decision D12), so this is a substitution rather than a
-rewrite.
+What actually moves now: a client funding a milestone is sent to Swich's
+real hosted checkout; the milestone only becomes `FUNDED` once Swich's own
+webhook confirms the charge with a checksum this server verifies — a
+client's own request is never trusted as proof of payment. Releasing a
+milestone is unconditional on the client's approval, but the automated
+payout to the freelancer refuses to start without a complete, bank-verified
+payout profile (`fetch_title` confirms whose name is on the account before
+it is ever saved). Every piece has been verified against Swich's real
+sandbox — a genuine bearer token, a real account balance, and an actual
+37 KB hosted checkout page rendered by their server — not only mocked.
 
-Phase 8's subscriptions inherit the same deferral. A plan change applies its
-new limits immediately and bills nothing, and both the pricing page and the
-retainer catalogue say so rather than presenting a checkout that silently
-charges zero.
+**One honest gap remains, documented rather than guessed around.** The
+exact bank code/name pairing Swich's IBFT payout endpoint expects is not
+the same list used for Pay In, and is not published — a support ticket to
+Swich integration support is the only way to close it; see D41.
+
+By phase count the project is 14 of 14 phases built. Phase 8's
+subscriptions are a separate, still-unwired integration — Phase 3 landed
+real payment for contract escrow specifically, not for plan billing, and
+the pricing page and retainer catalogue still say so rather than presenting
+a checkout that silently charges zero.
 
 ---
 
@@ -108,6 +120,36 @@ funded milestone and drives it, so escrow, messaging, and reviews are shared
 across both tracks. A five-star review from a purchased gig and one from a won
 proposal are the same row in the same table — which is what makes "one
 reputation" true instead of aspirational.
+
+### Phase 3 — Payments & escrow
+
+| Delivered | Where |
+| --- | --- |
+| Swich adapter — Pay In checkout, IBFT payout, webhook checksum verification, token caching | `api/payments/providers/swich.py` |
+| `EscrowCharge` / `Payout` / `PayoutProfile` models — money-in, money-out, and where money-out actually goes | `api/payments/models.py` |
+| Contract milestone funding routes through a real Swich checkout session, confirmed only by webhook | `api/contracts/views.py` (`fund_milestone`), `api/payments/views.py` (`swich_payin_callback`) |
+| Gig ordering routes through the same checkout — no longer funds itself on request | `api/gigs/views.py` (`order`) |
+| Milestone release triggers an automated IBFT payout, refusing to start without a complete, bank-verified payout profile | `api/contracts/views.py` (`release_milestone`), `api/payments/tasks.py` (`process_payout`) |
+| Freelancer payout profile — bank/CNIC verified against Swich's own `fetch_title` before it can be saved | `api/payments/views.py`, `web/app/(app)/settings/payouts/`, `mobile/lib/src/screens/payouts_screen.dart` |
+
+**Real money moves now, not a state-machine stand-in.** A client funding a
+milestone or buying a gig is sent to Swich's actual hosted checkout page;
+the underlying `Milestone` only becomes `FUNDED` once Swich's own
+server-to-server callback arrives with a checksum this server independently
+verifies — a client's own request is never trusted as proof of payment,
+and a callback with a wrong checksum, an unknown transaction, or one that
+has already been processed is refused or no-op'd rather than acted on
+(`payments/tests.py` covers all three). Releasing a milestone is
+unconditional on the client's approval, but the automated payout to the
+freelancer will not even attempt to run without a bank account whose name
+Swich has confirmed matches the freelancer's payout profile.
+
+**Verified against Swich's real sandbox, not only mocks** — a genuine
+bearer token, a real account balance, and an actual 37 KB hosted checkout
+page rendered by their server, all hit for real before a single test was
+written against a mock. See D41 for the full research trail (why Safepay
+alone wasn't enough, why Rapyd and Airwallex don't work with a
+Pakistan-registered entity, and the one genuine gap that's left).
 
 ### Phase 4 — Student portals
 

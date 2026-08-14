@@ -568,6 +568,9 @@ export interface Proposal {
 
 export type MilestoneStatus =
   | "pending"
+  // A Swich checkout session exists and the client has been sent to it;
+  // money is neither captured nor available to spend yet (Phase 3, D41).
+  | "awaiting_payment"
   | "funded"
   | "in_progress"
   | "delivered"
@@ -738,8 +741,14 @@ export const contracts = {
   accept: (id: number) => api.post<ContractDetail>(`/contracts/${id}/accept/`),
   cancel: (id: number) => api.post<ContractDetail>(`/contracts/${id}/cancel/`),
 
+  // Starts a Swich checkout session rather than funding directly — the
+  // milestone moves to `awaiting_payment`, and only Swich's own Pay In
+  // callback (once it verifies a real payment) moves it to `funded`
+  // (Phase 3, D41). The caller is expected to redirect to `checkout_url`.
   fund: (id: number, milestoneId: number) =>
-    api.post<ContractDetail>(`/contracts/${id}/milestones/${milestoneId}/fund/`),
+    api.post<ContractDetail & { checkout_url: string }>(
+      `/contracts/${id}/milestones/${milestoneId}/fund/`
+    ),
   release: (id: number, milestoneId: number) =>
     api.post<ContractDetail>(`/contracts/${id}/milestones/${milestoneId}/release/`),
   deliver: (id: number, milestoneId: number, note: string, files: File[] = []) => {
@@ -769,6 +778,51 @@ export const contracts = {
   reviews: (id: number | string) => api.get<Review[]>(`/contracts/${id}/review/`),
   submitReview: (id: number, body: Record<string, unknown>) =>
     api.post<Review & { published: boolean; detail: string }>(`/contracts/${id}/review/`, body),
+};
+
+/* -------------------------------------------------------------------------- */
+/* Payments — Phase 3, D41                                                    */
+/* -------------------------------------------------------------------------- */
+
+export interface PayoutProfile {
+  bank_code: string;
+  bank_name: string;
+  verified_account_title: string;
+  msisdn: string;
+  is_complete: boolean;
+}
+
+export interface Payout {
+  id: number;
+  milestone_title: string;
+  contract_id: number;
+  amount: string;
+  currency: string;
+  status: "pending" | "processing" | "paid" | "failed";
+  failure_reason: string;
+  paid_at: string | null;
+  created_at: string;
+}
+
+export const payments = {
+  payoutProfile: () => api.get<PayoutProfile>("/payments/payout-profile/"),
+  savePayoutProfile: (body: {
+    bank_code: string;
+    bank_name: string;
+    account_number: string;
+    cnic: string;
+    msisdn: string;
+  }) => api.patch<PayoutProfile>("/payments/payout-profile/", body),
+  // Looks up the account holder's name before it is saved, so a mistyped
+  // account number is caught by a name mismatch rather than a payout
+  // silently going to a stranger later.
+  verifyPayoutTitle: (body: {
+    bank_code: string;
+    bank_name: string;
+    account_number: string;
+    msisdn: string;
+  }) => api.post<{ account_title: string }>("/payments/payout-profile/verify-title/", body),
+  myPayouts: () => api.get<Paginated<Payout>>("/payments/payouts/"),
 };
 
 /* -------------------------------------------------------------------------- */
@@ -901,8 +955,11 @@ export const gigs = {
     api.patch<GigDetail>(`/gigs/${id}/`, body),
   publish: (id: number) => api.post<GigDetail>(`/gigs/${id}/publish/`),
   pause: (id: number) => api.post<GigDetail>(`/gigs/${id}/pause/`),
+  // Starts a Swich checkout session rather than buying directly — the
+  // order exists but its milestone sits in `awaiting_payment` until
+  // Swich's own callback confirms the charge (Phase 3, D41).
   order: (id: number, body: { package: number; extras?: number[] }) =>
-    api.post<GigOrder>(`/gigs/${id}/order/`, body),
+    api.post<GigOrder & { checkout_url: string }>(`/gigs/${id}/order/`, body),
   sellerDashboard: () =>
     api.get<{
       gigs: number;

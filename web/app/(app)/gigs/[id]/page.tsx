@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 
 import { CoverArt, motifFor } from "@/components/artwork";
 import {
@@ -30,7 +30,6 @@ import { useAsyncAction, useLoader } from "@/lib/session";
 /* -------------------------------------------------------------------------- */
 
 function PackagePanel({ gig }: { gig: GigDetail }) {
-  const router = useRouter();
   const active = gig.packages.filter((p) => p.is_active);
   const [tier, setTier] = React.useState<Tier>(active[0]?.tier ?? "basic");
   const [chosenExtras, setChosenExtras] = React.useState<number[]>([]);
@@ -50,9 +49,13 @@ function PackagePanel({ gig }: { gig: GigDetail }) {
       .filter((extra) => chosenExtras.includes(extra.id))
       .reduce((sum, extra) => sum + extra.extra_days, 0);
 
+  // Starting a checkout session leaves the browser (Phase 3, D41) — the
+  // order exists once this returns, but is not paid for until Swich's own
+  // callback confirms it, which happens after the buyer returns from a
+  // page this app does not control.
   const buy = useAsyncAction(async () => {
     const order = await gigs.order(gig.id, { package: selected!.id, extras: chosenExtras });
-    router.push(`/orders/${order.id}`);
+    window.location.assign(order.checkout_url);
   });
 
   if (!selected) {

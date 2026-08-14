@@ -4,6 +4,7 @@ import '../models/marketplace.dart';
 import '../models/messaging.dart';
 import '../models/misc.dart';
 import '../models/models.dart';
+import '../models/payments.dart';
 import '../models/professional.dart';
 import 'client.dart';
 
@@ -168,13 +169,20 @@ class SkilrizeApi {
   Future<ContractDetail> acceptContract(int id) async =>
       ContractDetail.fromJson(_map(await client.post('/contracts/$id/accept/')));
 
-  /// **Money-moving — `CanMoveMoney`.** Can raise `ApiError` with code
-  /// `profile_incomplete`, `device_cooloff`, or `two_factor_required`;
-  /// callers should route those through `MoneyGateBanner`.
-  Future<ContractDetail> fundMilestone(int contractId, int milestoneId) async =>
-      ContractDetail.fromJson(
-        _map(await client.post('/contracts/$contractId/milestones/$milestoneId/fund/')),
-      );
+  /// **Money-moving — `CanMoveMoney`.** Starts a Swich checkout session
+  /// rather than funding directly — the milestone moves to
+  /// `awaiting_payment`, and only Swich's own Pay In callback (once it
+  /// verifies a real payment) moves it to `funded` (Phase 3, D41). Can
+  /// raise `ApiError` with code `profile_incomplete`, `device_cooloff`, or
+  /// `two_factor_required`; callers should route those through
+  /// `MoneyGateBanner`.
+  Future<({ContractDetail contract, String checkoutUrl})> fundMilestone(
+    int contractId,
+    int milestoneId,
+  ) async {
+    final data = _map(await client.post('/contracts/$contractId/milestones/$milestoneId/fund/'));
+    return (contract: ContractDetail.fromJson(data), checkoutUrl: data['checkout_url'] as String);
+  }
 
   /// **Money-moving — `CanMoveMoney`.**
   Future<ContractDetail> releaseMilestone(int contractId, int milestoneId) async =>
@@ -213,12 +221,24 @@ class SkilrizeApi {
 
   Future<GigDetail> gig(int id) async => GigDetail.fromJson(_map(await client.get('/gigs/$id/')));
 
-  /// **Money-moving — `CanMoveMoney`.** Funds are captured immediately.
-  Future<GigOrder> orderGig(int gigId, {required int package, List<int>? extras}) async =>
-      GigOrder.fromJson(_map(await client.post('/gigs/$gigId/order/', {
-        'package': package,
-        if (extras != null) 'extras': extras,
-      })));
+  /// **Money-moving — `CanMoveMoney`.** Starts a Swich checkout session
+  /// rather than capturing funds directly — the order exists, but its
+  /// milestone sits in `awaiting_payment` until Swich's own callback
+  /// confirms the charge (Phase 3, D41).
+  Future<({GigOrder order, String checkoutUrl})> orderGig(
+    int gigId, {
+    required int package,
+    List<int>? extras,
+  }) async {
+    final data = await client.post('/gigs/$gigId/order/', {
+      'package': package,
+      if (extras != null) 'extras': extras,
+    });
+    return (
+      order: GigOrder.fromJson(_map(data)),
+      checkoutUrl: _map(data)['checkout_url'] as String,
+    );
+  }
 
   Future<Paginated<GigOrder>> orders({String? role, int page = 1}) async {
     final data = await client.get('/orders/', {
@@ -491,6 +511,53 @@ class SkilrizeApi {
   Future<Paginated<AuditLogEntry>> auditLog({int page = 1}) async {
     final data = await client.get('/auth/admin/audit-log/', {'page': '$page'});
     return Paginated.from(_map(data), AuditLogEntry.fromJson);
+  }
+
+  // --- Payments (Phase 3, D41) -----------------------------------------------
+
+  Future<PayoutProfile> payoutProfile() async =>
+      PayoutProfile.fromJson(_map(await client.get('/payments/payout-profile/')));
+
+  /// **Money-adjacent — `CanMoveMoney`.** Where released funds go is exactly
+  /// the kind of account change that gate exists for.
+  Future<PayoutProfile> savePayoutProfile({
+    required String bankCode,
+    required String bankName,
+    required String accountNumber,
+    required String cnic,
+    required String msisdn,
+  }) async {
+    final data = await client.patch('/payments/payout-profile/', {
+      'bank_code': bankCode,
+      'bank_name': bankName,
+      'account_number': accountNumber,
+      'cnic': cnic,
+      'msisdn': msisdn,
+    });
+    return PayoutProfile.fromJson(_map(data));
+  }
+
+  /// Looks up the account holder's name before it is saved, so a mistyped
+  /// account number is caught by a name mismatch rather than a payout
+  /// silently going to a stranger later.
+  Future<String> verifyPayoutTitle({
+    required String bankCode,
+    required String bankName,
+    required String accountNumber,
+    required String msisdn,
+  }) async {
+    final data = await client.post('/payments/payout-profile/verify-title/', {
+      'bank_code': bankCode,
+      'bank_name': bankName,
+      'account_number': accountNumber,
+      'msisdn': msisdn,
+    });
+    return _map(data)['account_title'] as String? ?? '';
+  }
+
+  Future<Paginated<Payout>> myPayouts({int page = 1}) async {
+    final data = await client.get('/payments/payouts/', {'page': '$page'});
+    return Paginated.from(_map(data), Payout.fromJson);
   }
 
   // --- Notifications & push (existing) --------------------------------------

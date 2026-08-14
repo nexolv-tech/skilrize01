@@ -84,10 +84,12 @@ environment. One `TODO` in `push_settings.dart` marks the single call.
 **The student ID card upload needs a browser hop for OAuth-style
 integrations, not for itself.** `image_picker` reads a real photo/file from
 the device and uploads it via multipart to `/auth/student/id-card/` — no
-`TODO` there. The integrations "Connect" button is the one screen that does
-carry a `TODO`: completing a provider's OAuth redirect needs a web view or
-`url_launcher` external-browser hop, which is unwired until a provider has
-real credentials to test the redirect against.
+`TODO` there. `url_launcher` is wired and real — it opens Swich's hosted
+checkout for funding a milestone or ordering a gig (Phase 3, D41). The
+integrations "Connect" button is the one screen that still carries a
+`TODO`: completing an OAuth redirect needs the same kind of external-browser
+hop, unwired until a provider has real credentials to test the redirect
+against.
 
 **Money-moving and plan-entitlement refusals share one banner, not two.**
 `CanTransact`/`CanMoveMoney` (403) and the professional layer's

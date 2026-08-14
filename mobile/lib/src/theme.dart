@@ -46,7 +46,7 @@ ThemeData skilrizeTheme(Brightness brightness) {
 /// something else on the other.
 Color statusColor(ColorScheme scheme, String status) => switch (status) {
       'completed' || 'released' || 'active' => Colors.green.shade600,
-      'delivered' || 'approved' || 'funded' => Colors.amber.shade700,
+      'delivered' || 'approved' || 'funded' || 'awaiting_payment' => Colors.amber.shade700,
       'disputed' || 'cancelled' => scheme.error,
       _ => scheme.outline,
     };

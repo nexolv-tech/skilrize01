@@ -29,6 +29,12 @@ dependencies:
   # one place this dependency earns its keep.
   image_picker: ^1.1.2
 
+  # Opening Swich's hosted checkout page (Phase 3, D41) — money changes
+  # hands there, so it happens in the phone's real browser/webview rather
+  # than anything this app renders itself, the same reasoning that keeps
+  # this client out of PCI scope entirely.
+  url_launcher: ^6.3.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

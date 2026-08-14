@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../api/api_error.dart';
 import '../models/models.dart';
@@ -176,6 +177,28 @@ class _ContractDetailScreenState extends State<ContractDetailScreen> {
     }
   }
 
+  /// Starts a Swich checkout session and opens it in the system browser —
+  /// money changes hands there, not inside this app, the same reasoning
+  /// that keeps this client out of PCI scope entirely (Phase 3, D41). The
+  /// milestone will not actually be funded until Swich's own callback
+  /// confirms it, which `_load` on return from the browser will pick up.
+  Future<void> _fund(int contractId, int milestoneId) async {
+    setState(() {
+      _busyMilestoneId = milestoneId;
+      _actionError = null;
+    });
+    try {
+      final result = await widget.session.api.fundMilestone(contractId, milestoneId);
+      await _load();
+      final uri = Uri.parse(result.checkoutUrl);
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } on ApiError catch (e) {
+      setState(() => _actionError = e);
+    } finally {
+      if (mounted) setState(() => _busyMilestoneId = null);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final contract = _contract;
@@ -185,7 +208,9 @@ class _ContractDetailScreenState extends State<ContractDetailScreen> {
           ? Center(child: Text(_error!))
           : contract == null
               ? const Center(child: CircularProgressIndicator())
-              : ListView(
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
                     Card(
@@ -269,6 +294,7 @@ class _ContractDetailScreenState extends State<ContractDetailScreen> {
                           ),
                         ),
                   ],
+                  ),
                 ),
     );
   }
@@ -277,17 +303,24 @@ class _ContractDetailScreenState extends State<ContractDetailScreen> {
     final busy = _busyMilestoneId == milestone.id;
     final actions = <Widget>[];
 
-    // Client funds a pending milestone — CanMoveMoney.
+    // Client funds a pending milestone — CanMoveMoney. Opens Swich's hosted
+    // checkout rather than funding directly; see `_fund`.
     if (milestone.status == 'pending' && contract.myRole == 'client') {
       actions.add(FilledButton.tonal(
-        onPressed: busy
-            ? null
-            : () => _act(
-                  milestone.id,
-                  () => widget.session.api.fundMilestone(contract.id, milestone.id),
-                ),
-        child: Text(busy ? 'Funding…' : 'Fund this milestone'),
+        onPressed: busy ? null : () => _fund(contract.id, milestone.id),
+        child: Text(busy ? 'Starting payment…' : 'Fund this milestone'),
       ));
+    }
+
+    if (milestone.status == 'awaiting_payment') {
+      actions.add(
+        Text(
+          contract.myRole == 'client'
+              ? 'Waiting for payment to be confirmed — pull to refresh.'
+              : 'Not funded yet — do not start work on this milestone.',
+          style: const TextStyle(fontSize: 12.5),
+        ),
+      );
     }
 
     // Client releases a delivered milestone — CanMoveMoney.

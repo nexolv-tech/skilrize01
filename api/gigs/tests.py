@@ -9,9 +9,14 @@ revision entitlement and the acceptance window).
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+
 import pytest
+from django.test import override_settings
 
 from contracts.models import Contract, Milestone
+from contracts.tests import _SWICH_TEST_SETTINGS
 from core.scope import GLOBAL_SCOPE, Scope, SurfaceKind, Visibility, use_scope
 from gigs.models import Gig, Order, Package
 from marketplace.tests import make_user, sign_in
@@ -166,11 +171,49 @@ def test_a_campus_gig_never_appears_in_the_global_catalogue(seller, buyer):
 
 
 def _order(gig, buyer, *, extras=None):
+    """Buy a package and, if the order was actually created, confirm its
+    payment through a genuine Swich callback checksum — the same discipline
+    `contracts.tests._fund_via_swich` applies, so a broken checksum formula
+    fails these tests too rather than only the contract-milestone ones.
+
+    Every caller gets this treatment, including the negative-path tests
+    (self-ordering, missing 2FA): `order()` now checks `swich.is_enabled()`
+    before its own business-logic checks, so those tests would otherwise
+    see `payments_unavailable` instead of the refusal they are testing for.
+    """
     package = gig.packages.get(tier=Package.Tier.STANDARD)
     body = {"package": package.pk}
     if extras:
         body["extras"] = extras
-    return sign_in(buyer).post(f"/api/v1/gigs/{gig.pk}/order/", body, format="json")
+    with override_settings(**_SWICH_TEST_SETTINGS):
+        response = sign_in(buyer).post(f"/api/v1/gigs/{gig.pk}/order/", body, format="json")
+        if response.status_code == 201:
+            _confirm_gig_payment(response.data["id"])
+    return response
+
+
+def _confirm_gig_payment(order_id: int) -> None:
+    from payments.models import EscrowCharge
+
+    order = Order.objects.get(pk=order_id)
+    milestone = order.contract.milestones.first()
+    charge = EscrowCharge.objects.get(milestone=milestone)
+    checksum = hmac.new(
+        _SWICH_TEST_SETTINGS["SWICH_SECRET_KEY"].encode("utf-8"),
+        f"SWCallback:{charge.customer_transaction_id}:GIGTEST-ORDER:{charge.amount}:success".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    response = sign_in(order.buyer).get(
+        "/api/v1/payments/callbacks/swich/payin/",
+        {
+            "CustomerTransactionId": charge.customer_transaction_id,
+            "OrderId": "GIGTEST-ORDER",
+            "Amount": str(charge.amount),
+            "Status": "success",
+            "checksum": checksum,
+        },
+    )
+    assert response.status_code == 200, response.data
 
 
 @pytest.mark.django_db

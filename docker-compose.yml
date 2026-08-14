@@ -21,6 +21,13 @@ x-api-env: &api-env
   CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3100
   FRONTEND_URL: http://localhost:3000
   FILE_SIGNING_KEY: ${FILE_SIGNING_KEY:-dev-only-file-signing-key}
+  # Payments — Swich (Phase 3, D41). Empty defaults keep the provider off
+  # (`is_enabled()`) in any environment that hasn't set these.
+  SWICH_ENABLED: ${SWICH_ENABLED:-False}
+  SWICH_ENV: ${SWICH_ENV:-sandbox}
+  SWICH_CLIENT_ID: ${SWICH_CLIENT_ID:-}
+  SWICH_CLIENT_SECRET: ${SWICH_CLIENT_SECRET:-}
+  SWICH_SECRET_KEY: ${SWICH_SECRET_KEY:-}
 
 services:
   db:

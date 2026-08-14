@@ -397,9 +397,7 @@ class ProposalViewSet(viewsets.ReadOnlyModelViewSet):
         try:
             contract = trial.accept()
         except DjangoValidationError as exc:
-            return Response(
-                {"detail": "; ".join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"detail": "; ".join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
 
         dispatch(
             proposal.project.client,
@@ -430,9 +428,7 @@ class ProposalViewSet(viewsets.ReadOnlyModelViewSet):
         try:
             trial.decline()
         except DjangoValidationError as exc:
-            return Response(
-                {"detail": "; ".join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"detail": "; ".join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
 
         dispatch(
             proposal.project.client,
@@ -463,9 +459,7 @@ class ProposalViewSet(viewsets.ReadOnlyModelViewSet):
         try:
             contract = trial.convert(client=request.user)
         except DjangoValidationError as exc:
-            return Response(
-                {"detail": "; ".join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"detail": "; ".join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
 
         AuditLog.record(
             actor=request.user,

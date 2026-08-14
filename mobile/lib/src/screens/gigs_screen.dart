@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../api/api_error.dart';
 import '../models/gigs.dart';
@@ -69,8 +70,10 @@ class _GigDetailScreenState extends State<GigDetailScreen> {
     }
   }
 
-  /// **Money-moving.** `orderGig` is gated `CanMoveMoney` and captures funds
-  /// immediately — a real order, not a cart.
+  /// **Money-moving.** `orderGig` is gated `CanMoveMoney` and starts a real
+  /// Swich checkout — opened in the system browser, the same reasoning
+  /// that keeps this app out of PCI scope entirely (Phase 3, D41). The
+  /// order is not actually paid for until Swich's callback confirms it.
   Future<void> _order() async {
     if (_selected == null) return;
     setState(() {
@@ -78,13 +81,9 @@ class _GigDetailScreenState extends State<GigDetailScreen> {
       _orderError = null;
     });
     try {
-      await widget.session.api.orderGig(widget.gigId, package: _selected!.id);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Order placed. See it under Orders.')),
-        );
-        Navigator.of(context).pop();
-      }
+      final result = await widget.session.api.orderGig(widget.gigId, package: _selected!.id);
+      await launchUrl(Uri.parse(result.checkoutUrl), mode: LaunchMode.externalApplication);
+      if (mounted) Navigator.of(context).pop();
     } on ApiError catch (e) {
       setState(() => _orderError = e);
     } finally {

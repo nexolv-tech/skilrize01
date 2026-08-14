@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import timedelta
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -201,11 +202,15 @@ class ContractViewSet(viewsets.ReadOnlyModelViewSet):
         permission_classes=[IsAuthenticated, IsContractParty, CanMoveMoney],
     )
     def fund_milestone(self, request, pk=None, milestone_id=None):
-        """Secure the money for one milestone.
+        """Start funding one milestone through Swich's hosted checkout.
 
-        Phase 3 replaces this with a gateway capture and a ledger entry. Until
-        then it is an explicit client action, recorded, so the rest of the
-        lifecycle can be built and tested against real state transitions.
+        This does not fund the milestone — it creates a checkout session
+        and hands back the URL to send the client's browser to. The
+        milestone moves to `AWAITING_PAYMENT`, not `FUNDED`: only Swich's
+        own Pay In callback (`payments.views.swich_payin_callback`), once
+        it verifies a real payment against a checksum only Swich and this
+        server know, calls `milestone.fund()`. A client's own request is
+        proof someone *started* paying, never proof they did (Phase 3, D41).
         """
         contract = self.get_object()
         milestone = get_object_or_404(contract.milestones, pk=milestone_id)
@@ -215,14 +220,39 @@ class ContractViewSet(viewsets.ReadOnlyModelViewSet):
         if contract.status != Contract.Status.ACTIVE:
             return _bad("The contract must be active before funding.")
         if milestone.status != Milestone.Status.PENDING:
-            return _bad("This milestone is already funded.")
+            return _bad("This milestone is already funded or awaiting payment.")
 
-        milestone.fund()
+        from django.conf import settings as django_settings
+
+        from payments.models import EscrowCharge
+        from payments.providers import swich
+
+        if not swich.is_enabled():
+            return _bad("Payments are not enabled in this environment.", "payments_unavailable")
+
+        customer_transaction_id = f"fund-{milestone.id}-{uuid.uuid4().hex[:16]}"
+        checkout_url = swich.build_checkout_url(
+            customer_transaction_id=customer_transaction_id,
+            amount=str(milestone.amount),
+            item=f"Milestone: {milestone.title}"[:500],
+            description=f'SkilRize contract "{contract.title}"'[:500],
+            payee_name=request.user.display_name or request.user.handle,
+            email=request.user.email,
+            msisdn=request.user.phone_number or "03000000000",
+            success_redirect_url=f"{django_settings.FRONTEND_URL}/contracts/{contract.id}?funded=1",
+        )
+        EscrowCharge.objects.create(
+            milestone=milestone,
+            customer_transaction_id=customer_transaction_id,
+            amount=milestone.amount,
+        )
+        milestone.status = Milestone.Status.AWAITING_PAYMENT
+        milestone.save(update_fields=["status", "updated_at"])
         ContractEvent.log(
             contract,
-            ContractEvent.Kind.FUNDED,
+            ContractEvent.Kind.STATUS,
             actor=request.user,
-            body=f"“{milestone.title}” funded.",
+            body=f"Payment started for “{milestone.title}”.",
             milestone_id=milestone.id,
             amount=str(milestone.amount),
         )
@@ -231,16 +261,9 @@ class ContractViewSet(viewsets.ReadOnlyModelViewSet):
             action=AuditLog.Action.UPDATE,
             target=milestone,
             request=request,
-            justification="Milestone funded (manual, pre-gateway).",
+            justification="Milestone funding checkout created.",
         )
-        dispatch(
-            contract.freelancer,
-            NotificationCategory.PAYMENT,
-            "Milestone funded",
-            f"“{milestone.title}” is funded — you can safely start work.",
-            data={"contract_id": contract.id},
-        )
-        return Response(self._detail(contract, request))
+        return Response({**self._detail(contract, request), "checkout_url": checkout_url})
 
     @action(detail=True, methods=["post"], url_path="milestones/(?P<milestone_id>[^/.]+)/deliver")
     def deliver_milestone(self, request, pk=None, milestone_id=None):
@@ -300,7 +323,16 @@ class ContractViewSet(viewsets.ReadOnlyModelViewSet):
         permission_classes=[IsAuthenticated, IsContractParty, CanMoveMoney],
     )
     def release_milestone(self, request, pk=None, milestone_id=None):
-        """Accept the delivery and release the money."""
+        """Accept the delivery, release the money, and automatically pay
+        the freelancer out via Swich IBFT.
+
+        Releasing itself is unconditional on the client's approval — that
+        half is real regardless of payout mechanics. The *payout* is not:
+        it refuses to start at all without a complete `PayoutProfile`,
+        because an IBFT call with a missing bank code or CNIC is not a
+        transaction that can safely retry, it is one that should never
+        have been attempted (Phase 3, D41).
+        """
         contract = self.get_object()
         milestone = get_object_or_404(contract.milestones, pk=milestone_id)
 
@@ -309,7 +341,30 @@ class ContractViewSet(viewsets.ReadOnlyModelViewSet):
         if milestone.status != Milestone.Status.DELIVERED:
             return _bad("Nothing has been delivered for this milestone yet.")
 
+        from payments.models import Payout, PayoutProfile
+        from payments.providers import swich
+
+        payout_profile = PayoutProfile.objects.filter(user=contract.freelancer).first()
+        if swich.is_enabled() and (payout_profile is None or not payout_profile.is_complete):
+            return _bad(
+                "The freelancer has not finished setting up payout details yet.",
+                "payout_profile_incomplete",
+            )
+
         milestone.release()
+
+        payout = None
+        if swich.is_enabled():
+            from payments.tasks import process_payout
+
+            payout = Payout.objects.create(
+                milestone=milestone,
+                freelancer=contract.freelancer,
+                customer_transaction_id=f"payout-{milestone.id}-{uuid.uuid4().hex[:16]}",
+                amount=milestone.amount,
+            )
+            process_payout.delay(payout.id)
+
         ContractEvent.log(
             contract,
             ContractEvent.Kind.RELEASED,
@@ -349,7 +404,12 @@ class ContractViewSet(viewsets.ReadOnlyModelViewSet):
             contract.freelancer,
             NotificationCategory.PAYMENT,
             "Payment released",
-            f"{milestone.amount} released for “{milestone.title}”.",
+            (
+                f"Rs {milestone.amount} released for “{milestone.title}” — on its way to your "
+                "bank account."
+                if payout is not None
+                else f"Rs {milestone.amount} released for “{milestone.title}”."
+            ),
             data={"contract_id": contract.id},
         )
         return Response(self._detail(contract, request))
@@ -606,6 +666,4 @@ class AdminContractViewSet(viewsets.ReadOnlyModelViewSet):
             data={"contract_id": contract.id},
         )
         contract.refresh_from_db()
-        return Response(
-            AdminContractDetailSerializer(contract, context={"request": request}).data
-        )
+        return Response(AdminContractDetailSerializer(contract, context={"request": request}).data)

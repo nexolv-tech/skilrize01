@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import timedelta
 from decimal import Decimal
 
@@ -165,7 +166,18 @@ class GigViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated, CanMoveMoney])
     @transaction.atomic
     def order(self, request, pk=None):
-        """Buy a package. Funds are captured immediately (Section 11.3, step 1)."""
+        """Buy a package — starts a Swich checkout session (Phase 3, D41).
+        Checked before anything is written, not after: this method is
+        `@transaction.atomic`, and an early `return` (unlike a raised
+        exception) does not roll back what came before it — a lesson this
+        codebase already paid for once, in `Contract.create_from_proposal`
+        (see the milestone-total validation test in `contracts/tests.py`).
+        """
+        from payments.providers import swich
+
+        if not swich.is_enabled():
+            return _bad("Payments are not enabled in this environment.", "payments_unavailable")
+
         gig = self.get_object()
         allowed, reason = gig.accepts_order_from(request.user)
         if not allowed:
@@ -199,10 +211,15 @@ class GigViewSet(viewsets.ModelViewSet):
         milestone = Milestone.objects.create(
             contract=contract, order=0, title=package.name or "Delivery", amount=total
         )
-        # A gig purchase is paid up front, so the contract is live and the
-        # milestone funded from the moment the order exists.
+        # A gig purchase needs no separate freelancer acceptance, so the
+        # contract is live immediately — but the milestone is not funded
+        # until Swich confirms a real charge (Phase 3, D41). The seller is
+        # not notified of the order yet either; that happens once the
+        # payment callback actually lands
+        # (`payments.views.swich_payin_callback`), the same reasoning as
+        # `contracts.fund_milestone`: a buyer's own request is proof they
+        # started paying, never proof they did.
         contract.accept()
-        milestone.fund()
 
         order = Order.objects.create(
             gig=gig,
@@ -224,26 +241,48 @@ class GigViewSet(viewsets.ModelViewSet):
             },
         )
         order.extras.set(extras)
-        Gig.objects.filter(pk=gig.pk).update(orders_count=F("orders_count") + 1)
+        # `orders_count`, the "Order placed and funded" event, and the
+        # seller's notification all wait for the Pay In callback
+        # (`payments.views.swich_payin_callback`) — none of them should be
+        # true yet for a checkout the buyer has not actually completed.
+
+        from django.conf import settings as django_settings
+
+        from payments.models import EscrowCharge
+
+        customer_transaction_id = f"fund-{milestone.id}-{uuid.uuid4().hex[:16]}"
+        checkout_url = swich.build_checkout_url(
+            customer_transaction_id=customer_transaction_id,
+            amount=str(milestone.amount),
+            item=f"Gig: {gig.title}"[:500],
+            description=f'SkilRize order for "{gig.title}"'[:500],
+            payee_name=request.user.display_name or request.user.handle,
+            email=request.user.email,
+            msisdn=request.user.phone_number or "03000000000",
+            success_redirect_url=f"{django_settings.FRONTEND_URL}/orders/{order.id}?funded=1",
+        )
+        EscrowCharge.objects.create(
+            milestone=milestone,
+            customer_transaction_id=customer_transaction_id,
+            amount=milestone.amount,
+        )
+        milestone.status = Milestone.Status.AWAITING_PAYMENT
+        milestone.save(update_fields=["status", "updated_at"])
 
         ContractEvent.log(
             contract,
             ContractEvent.Kind.STATUS,
             actor=request.user,
-            body="Order placed and funded. Waiting for requirements.",
+            body="Order started. Waiting for payment.",
         )
         AuditLog.record(
             actor=request.user, action=AuditLog.Action.CREATE, target=order, request=request
         )
-        dispatch(
-            gig.seller,
-            NotificationCategory.ORDER,
-            "New order received",
-            f"{request.user.display_name} ordered “{gig.title}”.",
-            data={"order_id": order.id},
-        )
         return Response(
-            OrderSerializer(order, context={"request": request}).data,
+            {
+                **OrderSerializer(order, context={"request": request}).data,
+                "checkout_url": checkout_url,
+            },
             status=status.HTTP_201_CREATED,
         )
 
