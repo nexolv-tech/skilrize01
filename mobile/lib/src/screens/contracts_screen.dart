@@ -4,14 +4,14 @@ import '../api/api_error.dart';
 import '../models/models.dart';
 import '../state/session.dart';
 import '../theme.dart';
+import '../widgets/money_gate.dart';
 
 /// Contracts the signed-in user is a party to, and their milestones.
 ///
-/// Read-only, deliberately. Funding and releasing money are gated behind
-/// `CanMoveMoney` — a confirmed second factor plus a cleared device
-/// cool-off — and a half-built money action on a phone is worse than none.
-/// The states are shown honestly; acting on them stays on the web client
-/// until the mobile money flow is designed properly.
+/// Funding and releasing route through the same `CanMoveMoney` gate the API
+/// enforces — a confirmed second factor plus a cleared device cool-off — and
+/// a refusal is shown with `MoneyGateBanner` rather than a generic error, so
+/// "why can't I do this" has an answer with a next step.
 class ContractsScreen extends StatefulWidget {
   const ContractsScreen({super.key, required this.session});
 
@@ -141,6 +141,8 @@ class ContractDetailScreen extends StatefulWidget {
 class _ContractDetailScreenState extends State<ContractDetailScreen> {
   ContractDetail? _contract;
   String? _error;
+  ApiError? _actionError;
+  int? _busyMilestoneId;
 
   @override
   void initState() {
@@ -156,6 +158,21 @@ class _ContractDetailScreenState extends State<ContractDetailScreen> {
     } on ApiError catch (e) {
       if (!mounted) return;
       setState(() => _error = e.message);
+    }
+  }
+
+  Future<void> _act(int milestoneId, Future<void> Function() action) async {
+    setState(() {
+      _busyMilestoneId = milestoneId;
+      _actionError = null;
+    });
+    try {
+      await action();
+      await _load();
+    } on ApiError catch (e) {
+      setState(() => _actionError = e);
+    } finally {
+      if (mounted) setState(() => _busyMilestoneId = null);
     }
   }
 
@@ -186,6 +203,20 @@ class _ContractDetailScreenState extends State<ContractDetailScreen> {
                         ),
                       ),
                     ),
+                    if (contract.status == 'pending' && contract.myRole == 'freelancer') ...[
+                      const SizedBox(height: 12),
+                      FilledButton(
+                        onPressed: () => _act(
+                          0,
+                          () async => widget.session.api.acceptContract(contract.id),
+                        ),
+                        child: const Text('Accept contract'),
+                      ),
+                    ],
+                    if (_actionError != null) ...[
+                      const SizedBox(height: 12),
+                      MoneyGateBanner(error: _actionError!),
+                    ],
                     const SizedBox(height: 16),
                     Text('Milestones', style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 8),
@@ -195,21 +226,88 @@ class _ContractDetailScreenState extends State<ContractDetailScreen> {
                       for (final milestone in contract.milestones)
                         Card(
                           margin: const EdgeInsets.only(bottom: 8),
-                          child: ListTile(
-                            title: Text(milestone.title),
-                            subtitle: Text('Rs ${milestone.amount}'),
-                            trailing: Text(
-                              milestone.status,
-                              style: TextStyle(
-                                color: statusColor(
-                                    Theme.of(context).colorScheme, milestone.status),
-                              ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(milestone.title,
+                                              style: Theme.of(context).textTheme.titleSmall),
+                                          Text('Rs ${milestone.amount}'),
+                                        ],
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: statusColor(
+                                                Theme.of(context).colorScheme, milestone.status)
+                                            .withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: Text(
+                                        milestone.status,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: statusColor(
+                                              Theme.of(context).colorScheme, milestone.status),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                ..._milestoneActions(contract, milestone),
+                              ],
                             ),
                           ),
                         ),
                   ],
                 ),
     );
+  }
+
+  List<Widget> _milestoneActions(ContractDetail contract, Milestone milestone) {
+    final busy = _busyMilestoneId == milestone.id;
+    final actions = <Widget>[];
+
+    // Client funds a pending milestone — CanMoveMoney.
+    if (milestone.status == 'pending' && contract.myRole == 'client') {
+      actions.add(FilledButton.tonal(
+        onPressed: busy
+            ? null
+            : () => _act(
+                  milestone.id,
+                  () => widget.session.api.fundMilestone(contract.id, milestone.id),
+                ),
+        child: Text(busy ? 'Funding…' : 'Fund this milestone'),
+      ));
+    }
+
+    // Client releases a delivered milestone — CanMoveMoney.
+    if (milestone.status == 'delivered' && contract.myRole == 'client') {
+      actions.add(FilledButton(
+        onPressed: busy
+            ? null
+            : () => _act(
+                  milestone.id,
+                  () => widget.session.api.releaseMilestone(contract.id, milestone.id),
+                ),
+        child: Text(busy ? 'Releasing…' : 'Release payment'),
+      ));
+    }
+
+    if (actions.isEmpty) return const [];
+    return [
+      const SizedBox(height: 10),
+      Row(mainAxisAlignment: MainAxisAlignment.end, children: actions),
+    ];
   }
 
   Widget _row(BuildContext context, String label, String value) => Padding(

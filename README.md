@@ -20,7 +20,7 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 4 · Student portals | ✅ | Verification, surface switching, leakage gate |
 | 5 · Communities & social | ✅ | Discussion, chat, events, resources, messaging, feed |
 | 6 · Search, reputation & trust | ✅ | FTS, ranking, JSS, seller levels, integrity, promotion |
-| 7 · Mobile | 🟡 | Flutter client — sign-in (both 2FA paths), dashboard, projects, contracts, notifications, push registration — plus the backend half (device registration, real FCM push). A foundation, not parity with the web app; see below |
+| 7 · Mobile | ✅ | Flutter client, full parity with the web app's signed-in surface — marketplace, money-moving contract/gig actions, messaging, communities, search, the professional layer, challenges, integrations, admin console, student verification, settings, feed/showcase — behind a 5-tab shell; see below |
 | 8 · Professional layer | ✅ | CRM, subscriptions, retainers, agencies, workspaces |
 | 9 · Admin console | ✅ | Role-gated operator tooling: verification review, contract operations, users, audit log — see below |
 | 10 · Integrations | ✅ | Zoom/Google Meet meeting scheduling, GitHub/Figma/Notion read-only activity feeds — every provider real, all off by default, see below |
@@ -29,8 +29,9 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 13 · Proof-of-work challenges | ✅ | Timed briefs, human-reviewed scoring, ranked badges — automated Lighthouse grading built but off by default, see below |
 
 **345 backend tests pass, plus 11 Dart tests and a 4-test live suite for the
-mobile client** (`flutter analyze` clean; the live suite runs against a real
-stack — see `mobile/README.md`). Migration check and production build are clean.
+mobile client** (`flutter analyze` clean across all ~30 screens; the live
+suite runs against a real stack — see `mobile/README.md`). Migration check
+and production build are clean.
 Lint and format are clean on every file this session touched; `api/challenges`
 and `api/core/tasks.py` carry pre-existing lint debt from Phase 13, unrelated
 to Phases 10–11, tracked separately rather than folded into any of these
@@ -50,9 +51,9 @@ contract state and nothing else. Everything built after it — portals,
 communities, search, reputation — sits on a marketplace that cannot yet
 transact for real.
 
-By phase count the project is 12 of 14 fully built, plus Phase 7's mobile
-client as a working foundation rather than full parity (see below). By
-revenue capability it is at zero
+By phase count the project is 13 of 14 fully built, including Phase 7's
+mobile client at full parity with the web app's signed-in surface (see
+below). By revenue capability it is at zero
 until Phase 3 lands. The state machine those payments will plug into is
 already the real one (decision D12), so this is a substitution rather than a
 rewrite.
@@ -156,14 +157,19 @@ The verification code goes to the **claimed** address, not the account address
 | Real Firebase Cloud Messaging delivery, gated off by default like every provider before it | `api/core/push.py` |
 | `Channel.PUSH` actually wired — `deliver_notification` fans out to every active device instead of logging `pending_provider`, and prunes tokens FCM reports dead | `api/core/tasks.py` (`_deliver_push`) |
 | A client bootstrap flag so the app never asks for the OS push permission on a deployment that can't deliver on it | `api/core/views.py` (`config`) |
+| **Full-parity build**: marketplace proposals, gig ordering/orders, contract money actions (fund/release/deliver/review), messaging, communities, unified search, the professional layer (CRM/subscriptions/retainers/agencies/workspaces), proof-of-work challenges, integrations (provider connect + contract meetings/activity), role-gated admin console, student verification with real ID-card photo upload, account/2FA settings, activity feed and showcase | `mobile/lib/src/screens/`, `mobile/lib/src/api/endpoints.dart` (~90 API methods) |
+| Five-tab shell (Home/Work/Messages/Contracts/More) replacing the four-tab foundation, since a phone nav bar cannot hold ~35 routes | `mobile/lib/src/screens/home_shell.dart`, `work_hub_screen.dart`, `more_screen.dart` |
 
-**A foundation, not parity.** The web client is roughly 35 routes across
-every phase built so far; the app is the slice that makes a phone useful —
-signing in, seeing where your account stands, finding work, checking a
-contract, reading alerts. Gigs, communities, messaging, the CRM, the admin
-console, and every money action are deliberately absent. Funding and
-releasing are gated behind `CanMoveMoney` and a device cool-off, and a
-half-built money flow on a phone is worse than none.
+**Full parity with the web app's signed-in surface**, not the earlier
+foundation slice. Every domain from every phase built so far is a real,
+working screen against the real API — including every money-moving action,
+gated exactly as the API gates it (`CanTransact`/`CanMoveMoney`/403 vs the
+professional layer's `upgrade_required`/402, both routed through one
+`MoneyGateBanner` rather than each screen reimplementing the branch). The
+one deliberate gap: OAuth-style integration "Connect" needs a web view or
+external-browser hop that stays a `TODO` until a provider has real
+credentials to test the redirect against — everything before and after that
+hop is real.
 
 **Three real bugs came out of building it**, each found by running the thing
 rather than reading it:

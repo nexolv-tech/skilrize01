@@ -75,6 +75,30 @@ class ApiClient {
 
   Future<dynamic> delete(String path) => _send('DELETE', path);
 
+  /// Multipart upload — the one request shape `_send` can't cover, since it
+  /// always JSON-encodes `body`. Used only by the student ID card upload.
+  Future<dynamic> uploadFile(String path, String field, List<int> bytes, String filename) async {
+    final request = http.MultipartRequest('POST', _uri(path))
+      ..headers.addAll(await _headers(json: false))
+      ..files.add(http.MultipartFile.fromBytes(field, bytes, filename: filename));
+
+    final streamed = await _http.send(request);
+    final response = await http.Response.fromStream(streamed);
+
+    if (response.statusCode == 401 && path != '/auth/refresh/') {
+      if (await _refresh()) {
+        return uploadFile(path, field, bytes, filename);
+      }
+    }
+
+    if (response.statusCode == 204 || response.bodyBytes.isEmpty) return null;
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    if (response.statusCode >= 400) {
+      throw ApiError.fromResponse(response.statusCode, decoded);
+    }
+    return decoded;
+  }
+
   Future<dynamic> _send(
     String method,
     String path, {

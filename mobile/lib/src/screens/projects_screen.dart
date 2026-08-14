@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api/api_error.dart';
 import '../models/models.dart';
 import '../state/session.dart';
+import 'project_detail_screen.dart';
 
 /// Browse and search open briefs.
 class ProjectsScreen extends StatefulWidget {
@@ -100,7 +101,14 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           final project = projects[i];
           return Card(
             margin: const EdgeInsets.only(bottom: 10),
-            child: Padding(
+            child: InkWell(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) =>
+                      ProjectDetailScreen(session: widget.session, projectId: project.id),
+                ),
+              ),
+              child: Padding(
               padding: const EdgeInsets.all(14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -124,6 +132,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     ],
                   ),
                 ],
+              ),
               ),
             ),
           );

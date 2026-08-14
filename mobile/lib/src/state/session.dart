@@ -78,6 +78,19 @@ class Session extends ChangeNotifier {
     }
   }
 
+  /// Re-fetch `/auth/me/` after something server-side changed the account —
+  /// enabling 2FA, editing the profile — so the in-memory `user` does not
+  /// drift from what the API would return on a fresh load.
+  Future<void> refreshUser() async {
+    try {
+      user = await api.me();
+      notifyListeners();
+    } catch (_) {
+      // A stale local copy is better than losing the screen to an error
+      // over a refresh that was a courtesy, not the action itself.
+    }
+  }
+
   Future<void> signIn(String email, String password) async {
     _set(busy: true, error: null);
     try {

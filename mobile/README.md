@@ -4,15 +4,23 @@ Flutter client for the SkilRize API. Phase 7; see `DECISIONS.md` D38 for scope.
 
 ## What it does
 
-Sign in (including both second-factor paths), see your verification status,
-browse and search projects, read contracts and their milestones, and read the
-notification centre. Push device registration is wired to the Phase 7 backend
-and gated on whether the deployment can actually deliver a push.
+Full parity with the web app's signed-in surface, not a slice of it: sign in
+(including both second-factor paths and student email verification with a
+real ID-card photo upload), browse and propose on projects, order and
+manage gigs, fund/release/deliver/review contracts (money actions, gated the
+same way the API gates them), message, browse communities, search, run the
+professional layer (CRM, subscriptions, retainers, agencies, workspaces),
+enter proof-of-work challenges, connect integrations and see contract
+meetings/activity, use the role-gated admin console, manage account settings
+and 2FA, and read the activity feed and showcase. Push device registration is
+wired to the Phase 7 backend and gated on whether the deployment can
+actually deliver a push.
 
-**This is a foundation, not parity with the web app.** The web client is ~35
-routes across every phase built; this is the slice that makes a phone useful.
-Gigs, communities, messaging, the CRM, the admin console, and the money
-actions are deliberately not here — see D38.
+Five bottom-nav destinations (Home / Work / Messages / Contracts / More)
+rather than the web's ~35 routes — a phone nav bar cannot hold that many, so
+everything outside the everyday loop lives one tap deeper under "More"
+(`lib/src/screens/more_screen.dart`) and "Work" (`work_hub_screen.dart`). See
+D38 and D40.
 
 ## Running it
 
@@ -72,3 +80,17 @@ web client. See `MemoryTokenStore`.
 are real and tested; obtaining the FCM token itself needs a Firebase project
 (`google-services.json` / an APNs key) that does not exist for this
 environment. One `TODO` in `push_settings.dart` marks the single call.
+
+**The student ID card upload needs a browser hop for OAuth-style
+integrations, not for itself.** `image_picker` reads a real photo/file from
+the device and uploads it via multipart to `/auth/student/id-card/` — no
+`TODO` there. The integrations "Connect" button is the one screen that does
+carry a `TODO`: completing a provider's OAuth redirect needs a web view or
+`url_launcher` external-browser hop, which is unwired until a provider has
+real credentials to test the redirect against.
+
+**Money-moving and plan-entitlement refusals share one banner, not two.**
+`CanTransact`/`CanMoveMoney` (403) and the professional layer's
+`upgrade_required` (402) read as the same shape of failure to a user — "you
+can't do that yet" — so `MoneyGateBanner` branches on the error code once
+rather than every money-adjacent screen reimplementing that branch.

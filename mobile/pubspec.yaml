@@ -24,6 +24,11 @@ dependencies:
 
   cupertino_icons: ^1.0.8
 
+  # Picking a photo of a student ID card for `/auth/student/id-card/` —
+  # the one screen in this app that needs the camera/gallery, so it is the
+  # one place this dependency earns its keep.
+  image_picker: ^1.1.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

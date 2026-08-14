@@ -39,6 +39,8 @@ class User {
     this.adminRole = '',
     this.avatarUrl,
     this.headline = '',
+    this.isVerifiedStudent = false,
+    this.universityName,
   });
 
   final int id;
@@ -47,6 +49,8 @@ class User {
   final String displayName;
   final bool canTransact;
   final bool profileComplete;
+  final bool isVerifiedStudent;
+  final String? universityName;
 
   /// Which of email / phone / identity are still outstanding. The server
   /// decides this, not the client — the same gate blocks the API regardless
@@ -72,6 +76,8 @@ class User {
         adminRole: json['admin_role'] as String? ?? '',
         avatarUrl: json['avatar_url'] as String?,
         headline: json['headline'] as String? ?? '',
+        isVerifiedStudent: json['is_verified_student'] as bool? ?? false,
+        universityName: json['university_name'] as String?,
       );
 }
 

@@ -1148,6 +1148,12 @@ itself. That has since changed — see D39.
 
 ## D39 · The Flutter client, built as a foundation rather than parity
 
+**Superseded by D40** — asked directly why the phase wasn't complete, the
+scope line this decision draws was rebuilt out to full parity. The
+reasoning below (bearer auth, the three bugs, the verification split, the
+web build's memory-only tokens) all still stands; only the "foundation, not
+parity" scope claim in its opening paragraph does not.
+
 **Asked to build the phase completely, the toolchain question from D38 was
 settled by settling it: Flutter 3.47.0 / Dart 3.13.0 installed (a 1.9GB
 download), and the client built, analyzed, tested, and run against the live
@@ -1219,6 +1225,64 @@ the FCM token needs a Firebase project this environment does not have; one
 actions are deliberately absent rather than half-present: funding and
 releasing sit behind `CanMoveMoney`, a confirmed second factor, and a
 device cool-off, and a partial money flow on a phone is worse than none.
+
+---
+
+## D40 · The Flutter client, rebuilt out to full parity
+
+**Told plainly that a foundation was not what was asked for, the "not a
+route-for-route mirror" scope line D39 drew was the wrong line, and every
+domain the web app covers got a real screen against the real API: gigs and
+orders, contract money actions, messaging, communities, unified search, the
+professional layer, challenges, integrations, a role-gated admin console,
+student verification, account settings, and the activity feed/showcase.
+Around ninety new `SkilrizeApi` methods and roughly twenty new screens
+later, the nav itself needed rebuilding to hold it.**
+
+*Five tabs, not four, and everything else one tap deeper.* The old
+four-destination bottom bar (Home/Projects/Contracts/Alerts) had no room for
+fifteen-plus new destinations, and a bottom bar that tries anyway stops
+being navigable. The new shell is Home/Work/Messages/Contracts/More: "Work"
+groups search, projects, proposals, gigs, orders, communities, and
+challenges (`work_hub_screen.dart`); "More" groups the professional layer,
+integrations, settings, student verification, the admin console (rendered
+only when `user.adminRole` is non-empty — the server enforces the real gate
+regardless, so this is a UI convenience, not a boundary), and the feed
+(`more_screen.dart`). This mirrors how the web app itself separates the
+everyday work loop from account/business surfaces; it does not invent a new
+information architecture.
+
+*Money-moving and plan-entitlement refusals, one banner.* `CanTransact` and
+`CanMoveMoney` answer 403 with `profile_incomplete` / `device_cooloff` /
+`two_factor_required`; the professional layer's entitlement checks answer
+402 with `upgrade_required`. Different HTTP status, different subsystem,
+same shape of user-facing failure — "you can't do that yet, and here is the
+one thing that unblocks it." `MoneyGateBanner` (already built for gig
+ordering and contract funding) got a fourth branch rather than a sibling
+widget, so subscribing to a plan, creating an agency, and selling a
+retainer all render the same refusal UI gig ordering already had.
+
+*The one screen still carrying a `TODO`, and why it is the honest one.*
+Every other domain is real end to end — including the student ID card
+upload, which needed a genuine new dependency (`image_picker`) and a new
+`ApiClient.uploadFile` multipart path, both added rather than stubbed.
+Provider "Connect" in Integrations is the exception: completing an OAuth
+redirect needs a web view or an external-browser launch, and wiring that up
+against providers with no real credentials in this environment would be
+exercising code with no way to prove it works. The `TODO` is scoped to
+exactly that hop — everything before it (the provider list, the
+`authorize_url` fetch) and after it (disconnect, meetings, activity sync)
+is real.
+
+*Verified the same way as before, plus a rebuilt image.* `flutter analyze`
+is clean across every new file. The mocked suite (11 tests, unchanged) and
+the live suite (4 tests) both pass against a running stack. The live suite
+needed a seeded account that no longer existed in the dev database — created
+directly rather than adding seed-data machinery for one test fixture. The
+backend's own 345-test suite surfaced two failures unrelated to this work
+(`sentry_sdk` missing from a stale API container image, from Phase 11's
+`requirements.txt` addition never being rebuilt into the running container);
+rebuilding the image was the honest fix, not skipping those two tests.
 
 ---
 
