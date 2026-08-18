@@ -27,6 +27,10 @@ deploy/backups/
 # Local storage (uploads land here in dev)
 api/.storage/
 
+# whitenoise's collectstatic output — generated, and only ever needed at
+# runtime inside a built image, never checked in
+api/staticfiles/
+
 # Filebased email backend — verification links and OTP codes in dev, real
 # credentials for whoever reads them, never something to commit
 api/.mail/

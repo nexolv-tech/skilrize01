@@ -51,8 +51,16 @@ services:
     dockerContext: ./api
     plan: free
     healthCheckPath: /healthz
+    # `seed --demo` runs on every boot, not as a one-off — Render's Shell/Jobs
+    # tabs (the normal place to run a one-off management command) are gated
+    # behind a paid plan, unavailable on this free service. Safe to run
+    # repeatedly: title-based dedup in core/management/commands/seed.py
+    # makes it a no-op once the catalogue already exists, and it's wrapped
+    # in `|| true` so a seed failure can never take the whole site down —
+    # worst case is an empty catalogue, not a dead deploy.
     dockerCommand: >
       sh -c "python manage.py migrate --noinput &&
+             (python manage.py seed --demo || true) &&
              python manage.py collectstatic --noinput &&
              gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60"
     envVars:
