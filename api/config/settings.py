@@ -253,7 +253,15 @@ SIMPLE_JWT = {
 REFRESH_COOKIE_NAME = "skilrize_refresh"
 COOKIE_SECURE = config("COOKIE_SECURE", default=not DEBUG, cast=bool)
 COOKIE_DOMAIN = config("COOKIE_DOMAIN", default="") or None
-COOKIE_SAMESITE = "Lax"
+# "Lax" everywhere the web app and API share a site (subdomains of one
+# registrable domain, per D32's real deployment) — a browser attaches a
+# Lax cookie to a same-site fetch/XHR without any further configuration.
+# A deployment where the two live on genuinely different domains (D44's
+# Render+Vercel test path — neither is a subdomain of the other) needs
+# "None" instead, since Lax cookies are never sent cross-site at all, not
+# even with CORS_ALLOW_CREDENTIALS on; "None" requires Secure, which is
+# already forced below whenever DEBUG is off.
+COOKIE_SAMESITE = config("COOKIE_SAMESITE", default="Lax")
 
 if not DEBUG:
     # An environment variable may relax this locally over plain http, but it
@@ -292,9 +300,9 @@ SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
 X_FRAME_OPTIONS = "DENY"
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = COOKIE_SECURE
-SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_SAMESITE = COOKIE_SAMESITE
 CSRF_COOKIE_SECURE = COOKIE_SECURE
-CSRF_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = COOKIE_SAMESITE
 # The CSRF cookie is read by the web client to echo the token back in a header,
 # so it cannot be HttpOnly. That is the documented double-submit design and is
 # safe as long as the value is only ever *reflected*, never trusted on its own.

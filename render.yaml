@@ -27,10 +27,13 @@
 #   2. In the Render dashboard: New -> Blueprint -> connect this repo.
 #      Render reads this file and proposes the two resources below.
 #   3. Apply it. First deploy takes a few minutes (image build + migrate).
-#   4. Note the API's URL (something like https://skilrize-api-xxxx.onrender.com).
+#   4. Note the API's URL (Render names it after the service, e.g.
+#      https://skilrize-api.onrender.com or -xxxx if that's taken).
 #   5. Deploy web/ to Vercel with NEXT_PUBLIC_API_URL set to that URL.
-#   6. Back in Render, edit the api service's FRONTEND_URL and
-#      CORS_ALLOWED_ORIGINS env vars to the real Vercel URL, then
+#   6. FRONTEND_URL/CORS_ALLOWED_ORIGINS/COOKIE_SAMESITE below are already
+#      filled in for this deployment's actual URLs (skilrize-api.onrender.com
+#      / skilrize01.vercel.app). Deploying this blueprint fresh under
+#      different service names needs those three edited to match, then a
 #      "Manual Deploy" -> "Deploy latest commit" to restart with it applied.
 
 databases:
@@ -72,12 +75,17 @@ services:
       # ALLOWED_HOSTS syntax matches any subdomain).
       - key: ALLOWED_HOSTS
         value: ".onrender.com"
-      # Placeholders — Render can't know the Vercel URL yet at blueprint
-      # time. Update both to the real one after step 5 above.
       - key: FRONTEND_URL
-        value: "https://your-app.vercel.app"
+        value: "https://skilrize01.vercel.app"
       - key: CORS_ALLOWED_ORIGINS
-        value: "https://your-app.vercel.app"
+        value: "https://skilrize01.vercel.app"
+      # Vercel and Render are different domains here, not subdomains of one
+      # thing — a genuinely cross-site setup, unlike D32's real deployment.
+      # "Lax" cookies are never sent on a cross-site fetch/XHR at all, no
+      # matter what CORS allows, so auth would silently never persist
+      # without this. Requires Secure, which DEBUG=False already forces.
+      - key: COOKIE_SAMESITE
+        value: "None"
       - key: POSTGRES_DB
         fromDatabase: {name: skilrize-db, property: database}
       - key: POSTGRES_USER
