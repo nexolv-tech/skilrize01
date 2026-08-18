@@ -188,8 +188,12 @@ class Subscription(TimestampedModel):
     def renew(self) -> None:
         """Extend by one interval.
 
-        Phase 3 replaces the body of this with a gateway charge. The period
-        arithmetic and the state transitions are already the real ones.
+        Unused today — nothing calls this. There is no gateway to charge on
+        a period boundary (D42), so a real renewal would need the same
+        bank-transfer declaration `professional.views.subscribe` requires
+        for a new one (D43), driven by whatever reminds a user their period
+        is ending; that flow does not exist yet. The period arithmetic and
+        the state transition are already the real ones, ready for it.
         """
         span = timedelta(days=365 if self.interval == self.Interval.YEARLY else 30)
         base = max(self.current_period_end, timezone.now())

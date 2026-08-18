@@ -54,6 +54,33 @@ class EscrowFunding(TimestampedModel):
         return f"EscrowFunding(milestone={self.milestone_id})"
 
 
+class SubscriptionPayment(TimestampedModel):
+    """A subscription period's price, reported as transferred to the
+    platform's bank account — the same client-declared trust basis
+    `EscrowFunding` runs on, just for plan billing instead of a milestone.
+
+    Unlike escrow there is nothing to release later: the whole amount is
+    the platform's, so there is no matching `Payout` on the other end —
+    one row per period is the full record.
+    """
+
+    subscription = models.ForeignKey(
+        "professional.Subscription", on_delete=models.CASCADE, related_name="payments"
+    )
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=3, default="PKR")
+    reference_note = models.CharField(max_length=200, blank=True)
+    paid_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"SubscriptionPayment(subscription={self.subscription_id})"
+
+
 class PayoutProfile(TimestampedModel):
     """Where a freelancer's released milestone money actually goes, for
     whoever on the platform side sends the manual bank transfer to read.

@@ -156,6 +156,58 @@ def test_cancelling_keeps_the_period_the_user_paid_for(tiers):
 
 
 @pytest.mark.django_db
+def test_subscribing_to_a_paid_tier_records_a_bank_transfer_declaration(tiers):
+    """Phase 3, D42 extended to plan billing: a paid `subscribe` declares a
+    bank transfer the same way `contracts.fund_milestone`/`gigs.order` do."""
+    from payments.models import SubscriptionPayment
+
+    user = make_user("payer@example.com")
+    client = sign_in(user)
+
+    response = client.post(
+        "/api/v1/subscription/subscribe/",
+        {"tier": "pro", "interval": "yearly", "reference_note": "IBFT-4471"},
+        format="json",
+    )
+    assert response.status_code == 201
+
+    subscription = Subscription.objects.get(user=user, status__in=Subscription.LIVE_STATUSES)
+    payment = SubscriptionPayment.objects.get(subscription=subscription)
+    assert payment.amount == tiers[Plan.Tier.PRO].yearly_price
+    assert payment.reference_note == "IBFT-4471"
+    assert payment.paid_by == user
+
+
+@pytest.mark.django_db
+def test_subscribing_to_a_paid_tier_requires_an_enrolled_second_factor(tiers):
+    """Same asymmetry Phase 3 already draws for milestones and gig orders:
+    `CanTransact` is enough to browse plans, `CanMoveMoney` is needed to
+    declare having paid for one."""
+    unenrolled = make_user("no-authenticator@example.com", two_factor=False)
+    client = sign_in(unenrolled)
+
+    response = client.post("/api/v1/subscription/subscribe/", {"tier": "pro"}, format="json")
+    assert response.status_code == 403
+    assert response.data["code"] == "two_factor_required"
+    assert not Subscription.objects.filter(user=unenrolled).exists()
+
+
+@pytest.mark.django_db
+def test_switching_to_free_needs_no_bank_transfer_declaration(tiers):
+    """Free is the one tier that isn't a declaration of having paid for
+    anything, so it skips `CanMoveMoney` entirely — same as before D42."""
+    from payments.models import SubscriptionPayment
+
+    unenrolled = make_user("free-switcher@example.com", two_factor=False)
+    subscribe(unenrolled, tiers[Plan.Tier.PRO])
+    client = sign_in(unenrolled)
+
+    response = client.post("/api/v1/subscription/subscribe/", {"tier": "free"}, format="json")
+    assert response.status_code == 200
+    assert not SubscriptionPayment.objects.filter(subscription__user=unenrolled).exists()
+
+
+@pytest.mark.django_db
 def test_the_pricing_table_is_public(client, tiers):
     response = client.get("/api/v1/plans/")
     assert response.status_code == 200

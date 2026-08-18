@@ -355,9 +355,17 @@ class SkilrizeApi {
     return Entitlements.fromJson(_map(data['entitlements']));
   }
 
-  /// **Plan-entitlement gate — 402 `upgrade_required`, not `CanMoveMoney`.**
-  Future<void> subscribe(String tier, String interval) =>
-      client.post('/subscription/subscribe/', {'tier': tier, 'interval': interval});
+  /// Switching to Free needs no `referenceNote` — nothing is being paid
+  /// for. A paid tier is **money-moving — `CanMoveMoney`**, the same trust
+  /// basis `fundMilestone`/`orderGig` run on: the caller has already
+  /// transferred the plan's price to the platform's own bank account
+  /// (Phase 3, D42) and this call is them confirming that.
+  Future<void> subscribe(String tier, String interval, {String referenceNote = ''}) =>
+      client.post('/subscription/subscribe/', {
+        'tier': tier,
+        'interval': interval,
+        'reference_note': referenceNote,
+      });
 
   Future<Paginated<CrmContact>> crmContacts({int page = 1}) async {
     final data = await client.get('/crm/contacts/', {'page': '$page'});

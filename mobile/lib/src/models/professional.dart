@@ -5,18 +5,21 @@ class SubscriptionPlan {
     required this.tier,
     required this.name,
     required this.monthlyPrice,
+    required this.isPaid,
     required this.features,
   });
 
   final String tier;
   final String name;
   final String monthlyPrice;
+  final bool isPaid;
   final List<String> features;
 
   factory SubscriptionPlan.fromJson(Map<String, dynamic> json) => SubscriptionPlan(
         tier: json['tier'] as String? ?? '',
         name: json['name'] as String? ?? '',
         monthlyPrice: '${json['monthly_price'] ?? '0'}',
+        isPaid: json['is_paid'] as bool? ?? false,
         features:
             ((json['features'] as List?) ?? const []).map((e) => e.toString()).toList(),
       );

@@ -2,25 +2,26 @@ import 'package:flutter/material.dart';
 
 import '../state/session.dart';
 
-/// Escrow funding UI — the platform's own bank account, shown before a
-/// client confirms they've paid (Phase 3, D42). Shared between the
-/// contract-milestone flow and the gig-order flow, which both fund the
-/// same way: a real bank transfer this app cannot verify, followed by the
-/// client's own confirmation.
+/// Bank-transfer confirmation UI — the platform's own bank account, shown
+/// before a caller confirms they've paid (Phase 3, D42). Shared across the
+/// contract-milestone, gig-order, and plan-subscription flows, which all
+/// fund the same way: a real bank transfer this app cannot verify,
+/// followed by the caller's own confirmation.
 ///
-/// Returns the reference note the client typed if they confirmed, or
+/// Returns the reference note the caller typed if they confirmed, or
 /// `null` if they cancelled — callers pass whichever they get straight to
-/// `fundMilestone`/`orderGig`.
+/// `fundMilestone`/`orderGig`/`subscribe`.
 Future<String?> showBankTransferDialog(
   BuildContext context, {
   required Session session,
   required String amount,
+  String title = 'Fund into escrow',
 }) {
   final reference = TextEditingController();
   return showDialog<String>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('Fund into escrow'),
+      title: Text(title),
       content: SizedBox(
         width: 360,
         child: Column(

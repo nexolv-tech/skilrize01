@@ -17,6 +17,7 @@ import * as React from "react";
 import Link from "next/link";
 
 import { PageHeading } from "@/components/shell";
+import { BankTransferPanel } from "@/components/payments";
 import {
   Alert,
   Badge,
@@ -51,12 +52,18 @@ function PlanCard({
   currentTier,
   onChoose,
   pending,
+  payingFor,
+  onConfirmPayment,
+  onCancelPayment,
 }: {
   plan: SubscriptionPlan;
   interval: Interval;
   currentTier: PlanTier | null;
   onChoose: (tier: PlanTier) => void;
   pending: PlanTier | null;
+  payingFor: boolean;
+  onConfirmPayment: (referenceNote: string) => void;
+  onCancelPayment: () => void;
 }) {
   const featured = plan.tier === "pro";
   const current = currentTier === plan.tier;
@@ -107,6 +114,13 @@ function PlanCard({
             <Button variant="secondary" block disabled>
               Current plan
             </Button>
+          ) : payingFor ? (
+            <BankTransferPanel
+              amount={price}
+              pending={pending === plan.tier}
+              onConfirm={onConfirmPayment}
+              onCancel={onCancelPayment}
+            />
           ) : (
             <Button
               block
@@ -175,15 +189,30 @@ export default function PricingPage() {
   const subscribe = useAsyncAction(professional.subscribe);
   const cancel = useAsyncAction(professional.cancelSubscription);
   const [choosing, setChoosing] = React.useState<PlanTier | null>(null);
+  // The paid tier currently showing its `BankTransferPanel` in place of a
+  // "Choose" button — null once confirmed, cancelled, or never opened.
+  const [payingForTier, setPayingForTier] = React.useState<PlanTier | null>(null);
 
   const currentTier = mine.data?.entitlements.tier ?? null;
   const subscription = mine.data?.subscription ?? null;
 
-  async function choose(tier: PlanTier) {
+  async function confirm(tier: PlanTier, referenceNote = "") {
     setChoosing(tier);
-    const result = await subscribe.run(tier, interval);
+    const result = await subscribe.run(tier, interval, referenceNote);
     setChoosing(null);
+    setPayingForTier(null);
     if (result !== undefined) await mine.reload();
+  }
+
+  function choose(tier: PlanTier) {
+    const plan = plans.data?.find((row) => row.tier === tier);
+    // Free needs no bank transfer — same trust basis as everywhere else in
+    // the product, just nothing to declare (Phase 3, D42).
+    if (!plan?.is_paid) {
+      void confirm(tier);
+      return;
+    }
+    setPayingForTier(tier);
   }
 
   return (
@@ -228,6 +257,9 @@ export default function PricingPage() {
               currentTier={currentTier}
               onChoose={user ? choose : () => undefined}
               pending={choosing}
+              payingFor={payingForTier === plan.tier}
+              onConfirmPayment={(referenceNote) => void confirm(plan.tier, referenceNote)}
+              onCancelPayment={() => setPayingForTier(null)}
             />
           ))}
         </div>
@@ -244,15 +276,6 @@ export default function PricingPage() {
               Sign up
             </Link>
           </div>
-        </Alert>
-      )}
-
-      {/* Billing is Phase 3. Saying so is better than a checkout that silently
-          charges nothing and leaves the user unsure whether it worked. */}
-      {user && (
-        <Alert tone="caution" className="mt-6">
-          Card payments arrive with the wallet in the next release. Switching plans today applies
-          your new limits immediately and bills nothing.
         </Alert>
       )}
 

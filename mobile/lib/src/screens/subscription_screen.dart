@@ -3,13 +3,15 @@ import 'package:flutter/material.dart';
 import '../api/api_error.dart';
 import '../models/professional.dart';
 import '../state/session.dart';
+import '../widgets/bank_transfer_dialog.dart';
 import '../widgets/money_gate.dart';
 
-/// Plan picker + current entitlements — mirrors `web/app/(app)/plans`.
-/// Subscribing is gated by the 402 `upgrade_required` shape even here
-/// (paradoxically: buying a *higher* plan can itself be blocked, e.g. by
-/// `device_cooloff` on the payment method), so it still routes through
-/// [MoneyGateBanner].
+/// Plan picker + current entitlements — mirrors `web/app/(app)/pricing`.
+/// A paid tier declares a bank transfer through the same
+/// [showBankTransferDialog] the contract and gig flows use (Phase 3, D42)
+/// before calling `subscribe`; Free skips straight to it. Either way the
+/// call is `CanMoveMoney`-gated for paid tiers, so [MoneyGateBanner] still
+/// has to be here for `two_factor_required`/`profile_incomplete`.
 class SubscriptionScreen extends StatefulWidget {
   const SubscriptionScreen({super.key, required this.session});
   final Session session;
@@ -41,13 +43,28 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     }
   }
 
-  Future<void> _subscribe(String tier) async {
+  Future<void> _choose(SubscriptionPlan plan) async {
+    var referenceNote = '';
+    if (plan.isPaid) {
+      final note = await showBankTransferDialog(
+        context,
+        session: widget.session,
+        amount: plan.monthlyPrice,
+        title: 'Confirm your ${plan.name} payment',
+      );
+      if (note == null) return; // Cancelled the dialog.
+      referenceNote = note;
+    }
+    await _subscribe(plan.tier, referenceNote);
+  }
+
+  Future<void> _subscribe(String tier, String referenceNote) async {
     setState(() {
       _busyTier = tier;
       _error = null;
     });
     try {
-      await widget.session.api.subscribe(tier, 'monthly');
+      await widget.session.api.subscribe(tier, 'monthly', referenceNote: referenceNote);
       await _load();
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -111,8 +128,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       trailing: entitlements?.tier == plan.tier
                           ? const Chip(label: Text('Current'))
                           : FilledButton(
-                              onPressed:
-                                  _busyTier != null ? null : () => _subscribe(plan.tier),
+                              onPressed: _busyTier != null ? null : () => _choose(plan),
                               child: Text(_busyTier == plan.tier ? 'Working…' : 'Choose'),
                             ),
                     ),

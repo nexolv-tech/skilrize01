@@ -1,12 +1,22 @@
 from django.contrib import admin
 
-from .models import EscrowFunding, Payout, PayoutProfile
+from .models import EscrowFunding, Payout, PayoutProfile, SubscriptionPayment
 
 
 @admin.register(EscrowFunding)
 class EscrowFundingAdmin(admin.ModelAdmin):
     list_display = ["milestone", "amount", "currency", "funded_by", "created_at"]
     search_fields = ["milestone__title", "funded_by__handle", "funded_by__email"]
+
+
+@admin.register(SubscriptionPayment)
+class SubscriptionPaymentAdmin(admin.ModelAdmin):
+    """Reconciliation view for plan billing — there is no `mark_paid` action
+    here the way `PayoutAdmin` has one, because nothing is owed *out*: the
+    whole amount is the platform's the moment the row exists."""
+
+    list_display = ["subscription", "amount", "currency", "paid_by", "created_at"]
+    search_fields = ["paid_by__handle", "paid_by__email", "reference_note"]
 
 
 @admin.register(Payout)

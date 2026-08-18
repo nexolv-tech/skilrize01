@@ -21,6 +21,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
+from accounts.auth import CanMoveMoney
 from core.models import AuditLog, NotificationCategory
 from core.notify import dispatch
 from core.pagination import StandardPagination
@@ -129,10 +130,14 @@ def my_subscription(request):
 def subscribe(request):
     """Start or change a plan.
 
-    **No money changes hands here.** Phase 3 replaces the body of this with a
-    gateway charge; what is real today is the state machine, the single-live-
-    subscription constraint, and the entitlements that follow from it — so the
-    day billing lands, the only untested thing is the charge itself.
+    Switching to Free needs no declaration — nothing is being paid for, so
+    `existing.cancel()` is the whole story. A paid tier runs on the same
+    trust basis `contracts.fund_milestone` and `gigs.order` do (Phase 3,
+    D42): the caller has already transferred the plan's price to the
+    platform's own bank account (`GET /payments/bank-transfer-instructions/`
+    gives the details), and this call is them confirming that — gated by
+    `CanMoveMoney` for the same reason funding or releasing a milestone is,
+    since it is the same kind of declaration.
     """
     tier = (request.data.get("tier") or "").strip()
     interval = request.data.get("interval") or Subscription.Interval.MONTHLY
@@ -153,10 +158,14 @@ def subscribe(request):
     if existing and existing.plan_id == plan.pk:
         return Response(SubscriptionSerializer(existing).data)
 
+    if not CanMoveMoney().has_permission(request, None):
+        return _forbidden("Complete your profile before transacting.", "profile_incomplete")
+
     if existing:
         # Switching tiers ends the old subscription outright rather than
         # stacking a second one — the partial unique constraint would refuse it
-        # anyway, and proration is a billing concern that arrives with billing.
+        # anyway, and proration is a billing concern for a real gateway, not
+        # a bank-transfer declaration.
         existing.status = Subscription.Status.CANCELLED
         existing.cancelled_at = timezone.now()
         existing.save(update_fields=["status", "cancelled_at", "updated_at"])
@@ -170,12 +179,22 @@ def subscribe(request):
         current_period_end=timezone.now() + span,
     )
 
+    from payments.models import SubscriptionPayment
+
+    price = plan.yearly_price if interval == Subscription.Interval.YEARLY else plan.monthly_price
+    SubscriptionPayment.objects.create(
+        subscription=subscription,
+        amount=price,
+        reference_note=str(request.data.get("reference_note", ""))[:200],
+        paid_by=request.user,
+    )
+
     AuditLog.record(
         actor=request.user,
         action=AuditLog.Action.CREATE,
         target=subscription,
         request=request,
-        justification=f"Subscribed to {plan.name} ({interval}).",
+        justification=f"Subscribed to {plan.name} ({interval}), bank transfer reported.",
     )
     dispatch(
         request.user,

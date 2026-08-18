@@ -21,14 +21,14 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 5 · Communities & social | ✅ | Discussion, chat, events, resources, messaging, feed |
 | 6 · Search, reputation & trust | ✅ | FTS, ranking, JSS, seller levels, integrity, promotion |
 | 7 · Mobile | ✅ | Flutter client, full parity with the web app's signed-in surface — marketplace, money-moving contract/gig actions, messaging, communities, search, the professional layer, challenges, integrations, admin console, student verification, settings, feed/showcase — behind a 5-tab shell; see below |
-| 8 · Professional layer | ✅ | CRM, subscriptions, retainers, agencies, workspaces |
+| 8 · Professional layer | ✅ | CRM, subscriptions, retainers, agencies, workspaces — plan billing wired to the same custodial bank-transfer model as Phase 3, see below |
 | 9 · Admin console | ✅ | Role-gated operator tooling: verification review, contract operations, users, audit log — see below |
 | 10 · Integrations | ✅ | Zoom/Google Meet meeting scheduling, GitHub/Figma/Notion read-only activity feeds — every provider real, all off by default, see below |
 | 11 · Hardening | ✅ | Rate limiting, HSTS, error tracking, a wired Celery beat schedule, retry/backoff, a DB index audit, and the admin 2FA enrolment fix — see below |
 | 12 · Hire after trial | ✅ | A paid trial task before the full project — see below for what "converts" does and does not mean yet |
 | 13 · Proof-of-work challenges | ✅ | Timed briefs, human-reviewed scoring, ranked badges — automated Lighthouse grading built but off by default, see below |
 
-**359 backend tests pass (19 of them the cross-tenant leakage gate), plus 11
+**362 backend tests pass (19 of them the cross-tenant leakage gate), plus 11
 Dart tests and a 4-test live suite for the mobile client** (`flutter analyze`
 clean across all ~32 screens; the live suite runs against a real stack — see
 `mobile/README.md`). Migration check and production build are clean.
@@ -77,11 +77,16 @@ right now. Re-adding a real gateway later is a matter of wiring
 `fund_milestone`/`release_milestone`/`gigs.order` to it again — the
 `EscrowFunding`/`Payout` bookkeeping shape barely has to change.
 
-By phase count the project is 14 of 14 phases built. Phase 8's
-subscriptions are a separate, still-unwired integration — Phase 3 covers
-contract/gig escrow specifically, not plan billing, and the pricing page
-and retainer catalogue still say so rather than presenting a checkout that
-silently charges zero.
+By phase count the project is 14 of 14 phases built. Phase 8's plan
+billing was the one gap this left: `subscribe` used to activate a paid
+tier with no money changing hands, and the pricing page said so outright
+rather than presenting a checkout that silently charged zero. D43 closes
+that gap the same way D42 closed Phase 3's — a paid tier now declares a
+bank transfer to the platform's own account, the same trust basis every
+other money-adjacent endpoint in this codebase runs on, gated by
+`CanMoveMoney` like funding a milestone or ordering a gig. Retainers
+(seller-to-buyer, not account-to-platform) are a separate mechanism and
+still say so on their own catalogue.
 
 ---
 
@@ -274,6 +279,7 @@ docstring rather than assumed obvious.
 | Agencies with per-member revenue share and seat limits | `api/professional/views.py` |
 | Shared workspaces with a separate client view | `api/professional/models.py` |
 | Pricing, CRM, teams and retainer surfaces | `web/app/(app)/{pricing,crm,teams,retainers}` |
+| `SubscriptionPayment` — a paid tier's price, reported as transferred to the platform's own bank account (D43) | `api/payments/models.py` |
 
 **Absence resolves to Free, never to unlimited.** A missing subscription, an
 expired one, a database the seed never ran against — all land on the free
@@ -288,6 +294,23 @@ them simply leave.
 Seat limits are checked against the **agency owner's** plan rather than the
 inviter's — otherwise an admin on a free plan could grow a team past what was
 paid for.
+
+**Billing, wired to Phase 3's custodial model (D43).** `subscribe` used to
+activate a paid tier for free — a real gap the pricing page said so about
+outright. Now a paid tier runs on the same trust basis `fund_milestone` and
+`gigs.order` do: the caller has already transferred the plan's price to
+`GET /payments/bank-transfer-instructions/`'s account, and confirming that
+creates a `SubscriptionPayment` alongside the `Subscription`, gated by
+`CanMoveMoney` the same way any other money-adjacent endpoint is. Switching
+to Free needs no declaration, since nothing is being paid for — `cancel()`
+is the whole story there, unchanged from before D43. Unlike `Payout`,
+`SubscriptionPayment` has no release half: the whole amount is the
+platform's the moment the row exists, so there is nothing to queue and
+nothing for `payments.admin` to mark paid. The web pricing page and mobile
+`SubscriptionScreen` both reuse the existing bank-transfer UI
+(`BankTransferPanel`/`showBankTransferDialog`) rather than building a
+second one — the mobile dialog gained an optional `title` so "Fund into
+escrow" doesn't show up over a plan purchase.
 
 ### Phase 9 — Admin console
 

@@ -1532,6 +1532,101 @@ exactly.
 
 ---
 
+## D43 · Plan billing wired to the same custodial model as D42
+
+**D42 rebuilt Phase 3's escrow around the platform's own bank account.
+Phase 8's `subscribe` was never touched by that pass — it still activated
+a paid tier for free, and the pricing page said so outright ("Card
+payments arrive with the wallet in the next release... bills nothing").
+This decision closes that gap the same way, not a different one.**
+
+*The trigger.* No client ask this time — this was the one piece of "14 of
+14 phases built" that the previous session's own README explicitly
+flagged as still open: "Phase 8's subscriptions are a separate,
+still-unwired integration." That sentence was accurate and became the
+next thing to build once D42 landed, since D42 had already established
+the exact pattern a fix needed to follow.
+
+*What changed.* `professional.views.subscribe` used to create an `ACTIVE`
+`Subscription` with nothing behind it — its own docstring said "Phase 3
+replaces the body of this with a gateway charge," which had already
+stopped being true the moment D42 shipped a bank-transfer model instead
+of a gateway. A paid tier now runs on exactly the trust basis
+`contracts.fund_milestone` and `gigs.order` do: the caller has already
+transferred the plan's price to `GET
+/payments/bank-transfer-instructions/`'s account, and the `subscribe`
+call is them confirming that. Gated by `CanMoveMoney` — the same
+permission `fund_milestone`/`release_milestone`/`gigs.order` use — checked
+inline (`subscribe` is a bare `@api_view`, not a viewset action, so there
+is no `permission_classes` list to attach it to at the decorator level;
+it only applies to the paid branch, since switching to Free is not a
+declaration of anything and stays ungated, unchanged from before this
+decision).
+
+*What's new.* `SubscriptionPayment` (`api/payments/models.py`) — one row
+per period, `ForeignKey` to `professional.Subscription`, `amount`,
+`reference_note`, `paid_by`. Deliberately not shaped like `EscrowFunding`
+plus a matching `Payout`: a milestone's escrowed money has a release half
+that sends most of it to someone else, but a subscription payment is the
+platform's in full the moment it exists, so there is nothing to queue and
+`payments.admin` has no `mark_paid` action for it — `SubscriptionPaymentAdmin`
+is read-only, for reconciliation only. `subscribe` creates one alongside
+the `Subscription` it always created, inside the same
+`@transaction.atomic` view.
+
+*Reused rather than rebuilt.* The web pricing page and mobile
+`SubscriptionScreen` both route a paid choice through the same
+bank-transfer UI Phase 3 already has — `BankTransferPanel` (web) shown in
+place of the "Choose" button until confirmed or cancelled,
+`showBankTransferDialog` (mobile) as a dialog. The mobile dialog's title
+was hardcoded to "Fund into escrow," which reads wrong over a plan
+purchase, so it gained an optional `title` parameter (default unchanged,
+so the contract and gig call sites needed no edits) and the subscription
+screen passes `"Confirm your {plan.name} payment"`. Neither `web/lib/api.ts`
+nor `mobile/lib/src/api/endpoints.dart` needed a new endpoint — `subscribe`
+just gained a `reference_note`/`referenceNote` parameter alongside `tier`
+and `interval`.
+
+*What stays true from D42, and what's new here.* The framing principle —
+present the real mechanism honestly rather than simulate automation that
+doesn't exist — carries over unchanged; the pricing page's stale "bills
+nothing" alert is deleted rather than reworded, since there is now
+something real behind the button it used to caveat. Retainers
+(seller-to-buyer, a different money flow entirely) are untouched by this
+decision and still carry their own "arrives with the wallet" notice on
+`web/app/(app)/retainers` — D43 is Phase 8's account-to-platform billing
+specifically, not every unbuilt payment surface in the professional
+layer.
+
+*Verification.* Three new tests in `professional/tests.py`: a paid
+`subscribe` records a `SubscriptionPayment` with the exact plan price for
+the chosen interval and the reference note the caller sent; an
+unenrolled account gets `403`/`two_factor_required` with no `Subscription`
+left behind; switching to Free creates no `SubscriptionPayment` at all.
+**362 backend tests pass** (359 from D42 plus these 3; the cross-tenant
+gate is unaffected and still passes standalone at 19), `makemigrations
+--check` clean, `ruff check`/`ruff format --check` clean on every touched
+file (`payments/models.py`, `payments/admin.py`, `professional/views.py`,
+`professional/tests.py` — the migration itself is excluded from lint the
+same way every migration in this repo is). `flutter analyze` and `flutter
+test` clean on mobile, plus a `flutter build web` smoke build since three
+Dart files changed. `next build`, `eslint`, and `tsc --noEmit` clean on
+web. Beyond the test suite: seeded all three plan tiers in the local
+stack (only Free existed — `plans()` only calls `seed_default_plans()`
+when zero rows exist, and a prior session's `for_user()` call had already
+created a bare `Plan.get_free()` row, so Pro/Elite were silently never
+seeded; a pre-existing quirk, not something this decision introduces),
+signed in as a fresh verified-and-2FA-enrolled account, chose Pro monthly
+in the browser, confirmed a bank transfer with reference note
+`IBFT-LIVE-TEST-001`, and read back a `Subscription` (`pro`, `active`,
+`current_period_end` 30 days out) and a `SubscriptionPayment` (`1500.00
+PKR`, same reference note, `paid_by` the signed-in account) that matched
+the UI exactly. Test fixtures (the account, its `Subscription`, and its
+`SubscriptionPayment`) deleted afterward; the seeded Pro/Elite plan rows
+were left in place as the real reference data they are, not test fixtures.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, a personal relationship, or an

@@ -1519,8 +1519,15 @@ export const professional = {
     api.get<{ subscription: UserSubscription | null; entitlements: Entitlements }>(
       "/subscription/",
     ),
-  subscribe: (tier: PlanTier, interval: "monthly" | "yearly" = "monthly") =>
-    api.post<UserSubscription>("/subscription/subscribe/", { tier, interval }),
+  // A paid tier declares a bank transfer the same way `contracts.fund` and
+  // `gigs.order` do (Phase 3, D42) — `referenceNote` is ignored server-side
+  // for the free tier, which needs no declaration.
+  subscribe: (tier: PlanTier, interval: "monthly" | "yearly" = "monthly", referenceNote = "") =>
+    api.post<UserSubscription>("/subscription/subscribe/", {
+      tier,
+      interval,
+      reference_note: referenceNote,
+    }),
   cancelSubscription: () => api.post<UserSubscription>("/subscription/cancel/"),
 
   contacts: (filters: Record<string, string | undefined> = {}) =>
