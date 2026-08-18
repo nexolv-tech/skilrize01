@@ -5,9 +5,14 @@ Seed the category and skill taxonomy, and optionally a demo dataset.
     python manage.py seed --demo      # plus sample users, briefs, and a contract
 
 The taxonomy is real reference data the product needs in every environment.
-The demo flag is for local work only and refuses to run outside DEBUG, because
-seeding fake users into production is exactly the kind of thing that happens
-once and is never fully cleaned up.
+The demo flag is for local work and disposable test deployments only, and
+refuses to run anywhere else, because seeding fake users into production is
+exactly the kind of thing that happens once and is never fully cleaned up.
+Two things unlock it: DEBUG=True (local work), or ENVIRONMENT=test (D44's
+free Render+Vercel deployment, which runs DEBUG=False like real production
+does but sets ENVIRONMENT=test specifically so this can still run there —
+render.yaml sets it, deploy/production.env.example sets ENVIRONMENT=production
+instead, so the real deployment can never match this by accident).
 """
 
 from __future__ import annotations
@@ -141,8 +146,10 @@ class Command(BaseCommand):
             self._seed_demo()
 
     def _seed_demo(self):
-        if not settings.DEBUG:
-            raise CommandError("Refusing to seed demo data outside DEBUG.")
+        if not (settings.DEBUG or settings.ENVIRONMENT == "test"):
+            raise CommandError(
+                "Refusing to seed demo data outside DEBUG or a test deployment (ENVIRONMENT=test)."
+            )
 
         from accounts.models import SellerProfile, User, VerificationStatus
         from marketplace.models import Category, Project, ProjectType, Skill
