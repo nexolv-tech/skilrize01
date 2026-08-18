@@ -6,10 +6,10 @@ import '../state/session.dart';
 import '../widgets/async_list.dart';
 import '../widgets/money_gate.dart';
 
-/// Where a freelancer's released milestones actually get paid — set up
-/// once, verified once (the bank tells us whose name is on the account
-/// before it's saved, not the other way round), then it just sits behind
-/// every future release. Phase 3, D41.
+/// Where a freelancer's released milestones actually get paid — typed in
+/// once, then read by whoever on the platform side sends the manual bank
+/// transfer on release. Nothing here verifies the account; there is no
+/// gateway to ask (Phase 3, D42).
 class PayoutsScreen extends StatefulWidget {
   const PayoutsScreen({super.key, required this.session});
   final Session session;
@@ -23,14 +23,14 @@ class _PayoutsScreenState extends State<PayoutsScreen> with SingleTickerProvider
   PayoutProfile? _profile;
   bool _loadingProfile = true;
 
-  final _bankCode = TextEditingController();
   final _bankName = TextEditingController();
+  final _accountTitle = TextEditingController();
   final _accountNumber = TextEditingController();
   final _cnic = TextEditingController();
   final _msisdn = TextEditingController();
 
-  String? _verifiedTitle;
   bool _busy = false;
+  bool _saved = false;
   ApiError? _error;
 
   @override
@@ -41,8 +41,8 @@ class _PayoutsScreenState extends State<PayoutsScreen> with SingleTickerProvider
 
   @override
   void dispose() {
-    _bankCode.dispose();
     _bankName.dispose();
+    _accountTitle.dispose();
     _accountNumber.dispose();
     _cnic.dispose();
     _msisdn.dispose();
@@ -60,40 +60,29 @@ class _PayoutsScreenState extends State<PayoutsScreen> with SingleTickerProvider
     }
   }
 
-  void _resetTitleOnEdit() {
-    if (_verifiedTitle != null) setState(() => _verifiedTitle = null);
-  }
-
-  Future<void> _verifyOrSave() async {
+  Future<void> _save() async {
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      if (_verifiedTitle == null) {
-        final title = await widget.session.api.verifyPayoutTitle(
-          bankCode: _bankCode.text.trim(),
-          bankName: _bankName.text.trim(),
-          accountNumber: _accountNumber.text.trim(),
-          msisdn: _msisdn.text.trim(),
-        );
-        setState(() => _verifiedTitle = title);
-      } else {
-        await widget.session.api.savePayoutProfile(
-          bankCode: _bankCode.text.trim(),
-          bankName: _bankName.text.trim(),
-          accountNumber: _accountNumber.text.trim(),
-          cnic: _cnic.text.trim(),
-          msisdn: _msisdn.text.trim(),
-        );
-        _bankCode.clear();
-        _bankName.clear();
-        _accountNumber.clear();
-        _cnic.clear();
-        _msisdn.clear();
-        setState(() => _verifiedTitle = null);
-        await _loadProfile();
-      }
+      await widget.session.api.savePayoutProfile(
+        bankName: _bankName.text.trim(),
+        accountTitle: _accountTitle.text.trim(),
+        accountNumber: _accountNumber.text.trim(),
+        cnic: _cnic.text.trim(),
+        msisdn: _msisdn.text.trim(),
+      );
+      _bankName.clear();
+      _accountTitle.clear();
+      _accountNumber.clear();
+      _cnic.clear();
+      _msisdn.clear();
+      setState(() => _saved = true);
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _saved = false);
+      });
+      await _loadProfile();
     } on ApiError catch (e) {
       setState(() => _error = e);
     } finally {
@@ -125,7 +114,7 @@ class _PayoutsScreenState extends State<PayoutsScreen> with SingleTickerProvider
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Text(
-                          'Currently paying out to ${_profile!.verifiedAccountTitle} at '
+                          'Currently paying out to ${_profile!.accountTitle} at '
                           '${_profile!.bankName}. Saving a new account below replaces this one.',
                         ),
                       ),
@@ -134,24 +123,20 @@ class _PayoutsScreenState extends State<PayoutsScreen> with SingleTickerProvider
                       const SizedBox(height: 12),
                     ],
                     TextField(
-                      controller: _bankCode,
-                      onChanged: (_) => _resetTitleOnEdit(),
-                      textCapitalization: TextCapitalization.characters,
-                      decoration: const InputDecoration(
-                        labelText: 'Bank code',
-                        hintText: 'HABB',
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
                       controller: _bankName,
-                      onChanged: (_) => _resetTitleOnEdit(),
                       decoration: const InputDecoration(labelText: 'Bank name', hintText: 'Habib Bank'),
                     ),
                     const SizedBox(height: 10),
                     TextField(
+                      controller: _accountTitle,
+                      decoration: const InputDecoration(
+                        labelText: 'Account title',
+                        hintText: 'Ahmed Raza',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
                       controller: _accountNumber,
-                      onChanged: (_) => _resetTitleOnEdit(),
                       decoration: const InputDecoration(
                         labelText: 'Account / IBAN number',
                         hintText: 'PK00HABB0000001234567',
@@ -161,38 +146,27 @@ class _PayoutsScreenState extends State<PayoutsScreen> with SingleTickerProvider
                     TextField(
                       controller: _cnic,
                       keyboardType: TextInputType.number,
-                      onChanged: (_) => _resetTitleOnEdit(),
                       decoration: const InputDecoration(labelText: 'CNIC', hintText: '4210112345671'),
                     ),
                     const SizedBox(height: 10),
                     TextField(
                       controller: _msisdn,
                       keyboardType: TextInputType.phone,
-                      onChanged: (_) => _resetTitleOnEdit(),
                       decoration:
                           const InputDecoration(labelText: 'Mobile number', hintText: '03001234567'),
                     ),
                     const SizedBox(height: 16),
-                    if (_verifiedTitle != null) ...[
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(10),
+                    Row(
+                      children: [
+                        FilledButton(
+                          onPressed: _busy ? null : _save,
+                          child: Text(_busy ? 'Saving…' : 'Save payout account'),
                         ),
-                        child: Text(
-                          'This account belongs to $_verifiedTitle. Save it if that\'s you.',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-                    FilledButton(
-                      onPressed: _busy ? null : _verifyOrSave,
-                      child: Text(
-                        _busy
-                            ? 'Working…'
-                            : (_verifiedTitle == null ? 'Verify account' : 'Save payout account'),
-                      ),
+                        if (_saved) ...[
+                          const SizedBox(width: 10),
+                          const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                        ],
+                      ],
                     ),
                   ],
                 ),
@@ -204,14 +178,14 @@ class _PayoutsScreenState extends State<PayoutsScreen> with SingleTickerProvider
               margin: const EdgeInsets.only(bottom: 8),
               child: ListTile(
                 title: Text(payout.milestoneTitle),
-                subtitle: payout.status == 'failed' && payout.failureReason.isNotEmpty
-                    ? Text(payout.failureReason)
-                    : null,
+                subtitle: Text(
+                  'Rs ${payout.grossAmount} minus ${payout.commissionPercent}% fee',
+                ),
                 trailing: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text('Rs ${payout.amount}'),
+                    Text('Rs ${payout.netAmount}'),
                     StatusPill(payout.status),
                   ],
                 ),

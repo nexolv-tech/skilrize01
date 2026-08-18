@@ -15,16 +15,8 @@ class PayoutProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PayoutProfile
-        fields = [
-            "bank_code",
-            "bank_name",
-            "account_number",
-            "verified_account_title",
-            "cnic",
-            "msisdn",
-            "is_complete",
-        ]
-        read_only_fields = ["verified_account_title", "is_complete"]
+        fields = ["bank_name", "account_title", "account_number", "cnic", "msisdn", "is_complete"]
+        read_only_fields = ["is_complete"]
         extra_kwargs = {
             "account_number": {"write_only": True},
             "cnic": {"write_only": True},
@@ -41,10 +33,12 @@ class PayoutSerializer(serializers.ModelSerializer):
             "id",
             "milestone_title",
             "contract_id",
-            "amount",
+            "gross_amount",
+            "commission_percent",
+            "commission_amount",
+            "net_amount",
             "currency",
             "status",
-            "failure_reason",
             "paid_at",
             "created_at",
         ]

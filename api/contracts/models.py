@@ -290,13 +290,6 @@ class Milestone(TimestampedModel):
 
     class Status(models.TextChoices):
         PENDING = "pending", "Awaiting funding"
-        #: A Swich checkout session exists and the client has been sent to
-        #: it; money is neither captured nor available to spend yet. Only
-        #: the Pay In callback (`payments.views.swich_payin_callback`) moves
-        #: a milestone out of this status — never the client's own request,
-        #: since the client's browser saying "I paid" is not proof anyone
-        #: did (Phase 3, D41).
-        AWAITING_PAYMENT = "awaiting_payment", "Payment processing"
         FUNDED = "funded", "Funded"
         IN_PROGRESS = "in_progress", "In progress"
         DELIVERED = "delivered", "Delivered"
@@ -329,31 +322,17 @@ class Milestone(TimestampedModel):
 
     @property
     def is_funded(self) -> bool:
-        # AWAITING_PAYMENT deliberately does *not* count as funded — a
-        # Swich checkout session existing is not money captured, and a
-        # freelancer starting work on an unconfirmed payment is exactly
-        # the risk this status exists to prevent (Phase 3, D41).
-        return self.status not in (
-            self.Status.PENDING,
-            self.Status.AWAITING_PAYMENT,
-            self.Status.CANCELLED,
-        )
+        return self.status not in (self.Status.PENDING, self.Status.CANCELLED)
 
     def fund(self) -> None:
-        """Money is secured. Called only from the Swich Pay In callback
-        (`payments.views.swich_payin_callback`) once Swich confirms the
-        charge — never directly from a client request, which is only ever
-        proof someone *tried* to pay, not that they did (Phase 3, D41)."""
+        """Money is secured — the client has transferred it to the
+        platform's own bank account and confirmed doing so
+        (`contracts.views.fund_milestone`). Nothing here verifies the
+        transfer landed; there is no gateway to ask (Phase 3, D42, which
+        replaced the Swich integration in D41)."""
         self.status = self.Status.FUNDED
         self.funded_at = timezone.now()
         self.save(update_fields=["status", "funded_at", "updated_at"])
-
-    def mark_payment_failed(self) -> None:
-        """A Swich checkout session was created but the payment failed or
-        expired — back to PENDING so the client can retry funding rather
-        than being stuck behind a dead checkout session forever."""
-        self.status = self.Status.PENDING
-        self.save(update_fields=["status", "updated_at"])
 
     def deliver(self, note: str = "") -> None:
         self.status = self.Status.DELIVERED

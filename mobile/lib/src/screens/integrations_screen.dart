@@ -9,8 +9,8 @@ import '../widgets/async_list.dart';
 /// `authorize_url` step) needs a web view or an external-browser launch to
 /// complete on a phone; that launch step is a `TODO` in the same spirit as
 /// the FCM token in `push_settings.dart` — everything up to and after the
-/// redirect is real, the browser hop itself needs `url_launcher` wired in
-/// when a provider actually has credentials to test against.
+/// redirect is real, the browser hop itself needs a launcher package added
+/// back when a provider actually has credentials to test against.
 class IntegrationsScreen extends StatelessWidget {
   const IntegrationsScreen({super.key, required this.session});
   final Session session;

@@ -9,14 +9,9 @@ revision entitlement and the acceptance window).
 
 from __future__ import annotations
 
-import hashlib
-import hmac
-
 import pytest
-from django.test import override_settings
 
 from contracts.models import Contract, Milestone
-from contracts.tests import _SWICH_TEST_SETTINGS
 from core.scope import GLOBAL_SCOPE, Scope, SurfaceKind, Visibility, use_scope
 from gigs.models import Gig, Order, Package
 from marketplace.tests import make_user, sign_in
@@ -171,49 +166,14 @@ def test_a_campus_gig_never_appears_in_the_global_catalogue(seller, buyer):
 
 
 def _order(gig, buyer, *, extras=None):
-    """Buy a package and, if the order was actually created, confirm its
-    payment through a genuine Swich callback checksum — the same discipline
-    `contracts.tests._fund_via_swich` applies, so a broken checksum formula
-    fails these tests too rather than only the contract-milestone ones.
-
-    Every caller gets this treatment, including the negative-path tests
-    (self-ordering, missing 2FA): `order()` now checks `swich.is_enabled()`
-    before its own business-logic checks, so those tests would otherwise
-    see `payments_unavailable` instead of the refusal they are testing for.
-    """
+    """Buy a package. Ordering funds the milestone immediately from the
+    buyer's confirmation that they've transferred the money to the
+    platform's own bank account — no gateway, no callback (Phase 3, D42)."""
     package = gig.packages.get(tier=Package.Tier.STANDARD)
-    body = {"package": package.pk}
+    body = {"package": package.pk, "reference_note": "test transfer"}
     if extras:
         body["extras"] = extras
-    with override_settings(**_SWICH_TEST_SETTINGS):
-        response = sign_in(buyer).post(f"/api/v1/gigs/{gig.pk}/order/", body, format="json")
-        if response.status_code == 201:
-            _confirm_gig_payment(response.data["id"])
-    return response
-
-
-def _confirm_gig_payment(order_id: int) -> None:
-    from payments.models import EscrowCharge
-
-    order = Order.objects.get(pk=order_id)
-    milestone = order.contract.milestones.first()
-    charge = EscrowCharge.objects.get(milestone=milestone)
-    checksum = hmac.new(
-        _SWICH_TEST_SETTINGS["SWICH_SECRET_KEY"].encode("utf-8"),
-        f"SWCallback:{charge.customer_transaction_id}:GIGTEST-ORDER:{charge.amount}:success".encode(),
-        hashlib.sha256,
-    ).hexdigest()
-    response = sign_in(order.buyer).get(
-        "/api/v1/payments/callbacks/swich/payin/",
-        {
-            "CustomerTransactionId": charge.customer_transaction_id,
-            "OrderId": "GIGTEST-ORDER",
-            "Amount": str(charge.amount),
-            "Status": "success",
-            "checksum": checksum,
-        },
-    )
-    assert response.status_code == 200, response.data
+    return sign_in(buyer).post(f"/api/v1/gigs/{gig.pk}/order/", body, format="json")
 
 
 @pytest.mark.django_db
@@ -376,6 +336,16 @@ def test_the_full_delivery_and_acceptance_loop(gig, buyer, seller):
     assert order.status == Order.Status.COMPLETED
     assert order.contract.status == Contract.Status.COMPLETED
     assert order.contract.released_amount == 15000
+
+    # Accepting a gig order releases through its own path, separate from
+    # `contracts.release_milestone` — it must still create the seller's
+    # `Payout` with the commission split (Phase 3, D42).
+    from payments.models import Payout
+
+    payout = Payout.objects.get(milestone=order.contract.milestones.first())
+    assert payout.freelancer_id == seller.pk
+    assert payout.status == Payout.Status.PENDING
+    assert payout.net_amount == payout.gross_amount - payout.commission_amount
 
 
 @pytest.mark.django_db

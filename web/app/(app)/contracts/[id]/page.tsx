@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams } from "next/navigation";
 
 import {
   Alert,
@@ -23,6 +23,7 @@ import {
   type IconName,
 } from "@/components/ui";
 import { ActivityFeedPanel, MeetingsPanel } from "@/components/integrations";
+import { BankTransferPanel, ReleaseEstimate } from "@/components/payments";
 import { TwoFactorRequiredPrompt } from "@/components/two-factor";
 import {
   contracts,
@@ -36,7 +37,6 @@ import { formatRelative, useAsyncAction, useLoader, useSession } from "@/lib/ses
 
 const MILESTONE_TONE: Record<MilestoneStatus, "neutral" | "accent" | "positive" | "caution"> = {
   pending: "neutral",
-  awaiting_payment: "caution",
   funded: "accent",
   in_progress: "accent",
   delivered: "caution",
@@ -55,6 +55,26 @@ const EVENT_ICON: Record<ContractEvent["kind"], IconName> = {
   review: "star",
 };
 
+function ReleasePanel({
+  amount,
+  pending,
+  onRelease,
+}: {
+  amount: string;
+  pending: boolean;
+  onRelease: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <Button size="sm" loading={pending} onClick={onRelease}>
+        <Icon name="check" className="size-3.5" strokeWidth={2.4} />
+        Accept and release from escrow
+      </Button>
+      <ReleaseEstimate amount={amount} />
+    </div>
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /* Milestones                                                                 */
 /* -------------------------------------------------------------------------- */
@@ -72,14 +92,11 @@ function MilestoneRow({
   const [note, setNote] = React.useState("");
   const [files, setFiles] = React.useState<File[]>([]);
   const [delivering, setDelivering] = React.useState(false);
+  const [funding, setFunding] = React.useState(false);
 
-  // Starting a checkout session leaves the browser (Phase 3, D41) — there is
-  // no `onChanged` here because the milestone will not actually be funded
-  // until Swich's own Pay In callback confirms it, which happens after the
-  // client returns from a page this app does not control.
-  const fund = useAsyncAction(async () => {
-    const result = await contracts.fund(contract.id, milestone.id);
-    window.location.href = result.checkout_url;
+  const fund = useAsyncAction(async (referenceNote: string) => {
+    onChanged(await contracts.fund(contract.id, milestone.id, referenceNote));
+    setFunding(false);
   });
   const release = useAsyncAction(async () => {
     onChanged(await contracts.release(contract.id, milestone.id));
@@ -142,21 +159,24 @@ function MilestoneRow({
 
       {/* Actions available to whichever side is next to act. */}
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        {isClient && milestone.status === "pending" && contract.status === "active" && (
-          <Button size="sm" loading={fund.pending} onClick={() => void fund.run()}>
-            <Icon name="lock" className="size-3.5" />
-            Fund <Money amount={milestone.amount} />
-          </Button>
-        )}
+        {isClient &&
+          milestone.status === "pending" &&
+          contract.status === "active" &&
+          (funding ? (
+            <BankTransferPanel
+              amount={milestone.amount}
+              pending={fund.pending}
+              onConfirm={(referenceNote) => void fund.run(referenceNote)}
+              onCancel={() => setFunding(false)}
+            />
+          ) : (
+            <Button size="sm" onClick={() => setFunding(true)}>
+              <Icon name="lock" className="size-3.5" />
+              Fund <Money amount={milestone.amount} /> into escrow
+            </Button>
+          ))}
 
-        {isClient && milestone.status === "awaiting_payment" && (
-          <p className="text-[12.5px] text-muted">
-            Waiting for payment to be confirmed — this updates automatically once Swich
-            confirms it.
-          </p>
-        )}
-
-        {!isClient && (milestone.status === "pending" || milestone.status === "awaiting_payment") && (
+        {!isClient && milestone.status === "pending" && (
           <p className="text-[12.5px] text-caution">
             Not funded yet — do not start work on this milestone.
           </p>
@@ -213,15 +233,11 @@ function MilestoneRow({
         )}
 
         {isClient && milestone.status === "delivered" && (
-          <>
-            <Button size="sm" loading={release.pending} onClick={() => void release.run()}>
-              <Icon name="check" className="size-3.5" strokeWidth={2.4} />
-              Accept and release payment
-            </Button>
-            <span className="text-[12.5px] text-subtle">
-              Releasing pays the freelancer and cannot be undone.
-            </span>
-          </>
+          <ReleasePanel
+            amount={milestone.amount}
+            pending={release.pending}
+            onRelease={() => void release.run()}
+          />
         )}
 
         {milestone.status === "released" && (
@@ -242,7 +258,7 @@ function MilestoneRow({
       {blockedCode === "two_factor_required" && (
         <div className="mt-4">
           <TwoFactorRequiredPrompt
-            onComplete={() => void (fund.code ? fund.run() : release.run())}
+            onComplete={() => void (fund.code ? fund.run("") : release.run())}
           />
         </div>
       )}
@@ -567,36 +583,6 @@ export default function ContractDetailPage() {
     (next: ContractDetail) => setData((current) => (current ? { ...current, detail: next } : current)),
     [setData],
   );
-
-  // The client lands back here straight from Swich's hosted checkout
-  // (`successRedirectUrl`), but the milestone is not necessarily `funded`
-  // yet — that only happens once Swich's own server-to-server callback
-  // arrives, which can trail the browser redirect by a second or two.
-  // Poll briefly rather than tell the client to refresh the page by hand.
-  const returnedFromCheckout = useSearchParams().get("funded") === "1";
-  React.useEffect(() => {
-    if (!returnedFromCheckout) return;
-    let cancelled = false;
-    let attempts = 0;
-    const poll = async () => {
-      if (cancelled) return;
-      const detail = await contracts.detail(params.id).catch(() => null);
-      if (cancelled || !detail) return;
-      applyContract(detail);
-      attempts += 1;
-      const stillWaiting = detail.milestones.some(
-        (milestone) => milestone.status === "awaiting_payment",
-      );
-      if (stillWaiting && attempts < 6) {
-        setTimeout(poll, 2000);
-      }
-    };
-    void poll();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [returnedFromCheckout]);
 
   const accept = useAsyncAction(async () => {
     applyContract(await contracts.accept(contract!.id));

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import timedelta
 from decimal import Decimal
 
@@ -166,18 +165,11 @@ class GigViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated, CanMoveMoney])
     @transaction.atomic
     def order(self, request, pk=None):
-        """Buy a package — starts a Swich checkout session (Phase 3, D41).
-        Checked before anything is written, not after: this method is
-        `@transaction.atomic`, and an early `return` (unlike a raised
-        exception) does not roll back what came before it — a lesson this
-        codebase already paid for once, in `Contract.create_from_proposal`
-        (see the milestone-total validation test in `contracts/tests.py`).
-        """
-        from payments.providers import swich
-
-        if not swich.is_enabled():
-            return _bad("Payments are not enabled in this environment.", "payments_unavailable")
-
+        """Buy a package. The buyer has transferred payment directly to
+        the platform's own bank account (see
+        `GET /payments/bank-transfer-instructions/`) — this call is them
+        confirming that, the same trust basis `contracts.fund_milestone`
+        runs on (Phase 3, D42)."""
         gig = self.get_object()
         allowed, reason = gig.accepts_order_from(request.user)
         if not allowed:
@@ -211,15 +203,22 @@ class GigViewSet(viewsets.ModelViewSet):
         milestone = Milestone.objects.create(
             contract=contract, order=0, title=package.name or "Delivery", amount=total
         )
-        # A gig purchase needs no separate freelancer acceptance, so the
-        # contract is live immediately — but the milestone is not funded
-        # until Swich confirms a real charge (Phase 3, D41). The seller is
-        # not notified of the order yet either; that happens once the
-        # payment callback actually lands
-        # (`payments.views.swich_payin_callback`), the same reasoning as
-        # `contracts.fund_milestone`: a buyer's own request is proof they
-        # started paying, never proof they did.
+        # A gig purchase is paid up front and needs no separate freelancer
+        # acceptance, so the contract is live and the milestone funded
+        # from the moment the order exists — the buyer has already
+        # transferred the money to the platform's own account by the time
+        # this request is made (Phase 3, D42).
         contract.accept()
+
+        from payments.models import EscrowFunding
+
+        EscrowFunding.objects.create(
+            milestone=milestone,
+            amount=milestone.amount,
+            reference_note=str(request.data.get("reference_note", ""))[:200],
+            funded_by=request.user,
+        )
+        milestone.fund()
 
         order = Order.objects.create(
             gig=gig,
@@ -241,48 +240,26 @@ class GigViewSet(viewsets.ModelViewSet):
             },
         )
         order.extras.set(extras)
-        # `orders_count`, the "Order placed and funded" event, and the
-        # seller's notification all wait for the Pay In callback
-        # (`payments.views.swich_payin_callback`) — none of them should be
-        # true yet for a checkout the buyer has not actually completed.
-
-        from django.conf import settings as django_settings
-
-        from payments.models import EscrowCharge
-
-        customer_transaction_id = f"fund-{milestone.id}-{uuid.uuid4().hex[:16]}"
-        checkout_url = swich.build_checkout_url(
-            customer_transaction_id=customer_transaction_id,
-            amount=str(milestone.amount),
-            item=f"Gig: {gig.title}"[:500],
-            description=f'SkilRize order for "{gig.title}"'[:500],
-            payee_name=request.user.display_name or request.user.handle,
-            email=request.user.email,
-            msisdn=request.user.phone_number or "03000000000",
-            success_redirect_url=f"{django_settings.FRONTEND_URL}/orders/{order.id}?funded=1",
-        )
-        EscrowCharge.objects.create(
-            milestone=milestone,
-            customer_transaction_id=customer_transaction_id,
-            amount=milestone.amount,
-        )
-        milestone.status = Milestone.Status.AWAITING_PAYMENT
-        milestone.save(update_fields=["status", "updated_at"])
+        Gig.objects.filter(pk=gig.pk).update(orders_count=F("orders_count") + 1)
 
         ContractEvent.log(
             contract,
-            ContractEvent.Kind.STATUS,
+            ContractEvent.Kind.FUNDED,
             actor=request.user,
-            body="Order started. Waiting for payment.",
+            body="Order placed and funded — held in escrow. Waiting for requirements.",
         )
         AuditLog.record(
             actor=request.user, action=AuditLog.Action.CREATE, target=order, request=request
         )
+        dispatch(
+            gig.seller,
+            NotificationCategory.ORDER,
+            "New order received",
+            f"{request.user.display_name} ordered “{gig.title}”.",
+            data={"order_id": order.id},
+        )
         return Response(
-            {
-                **OrderSerializer(order, context={"request": request}).data,
-                "checkout_url": checkout_url,
-            },
+            OrderSerializer(order, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
         )
 
@@ -432,7 +409,15 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=["post"])
     def accept(self, request, pk=None):
-        """Accept the delivery, which releases the money."""
+        """Accept the delivery, which releases the escrowed money and
+        queues the seller's payout — the platform's commission split out,
+        the same arithmetic `contracts.release_milestone` uses (Phase 3,
+        D42). Not gated on the seller having a complete `PayoutProfile`
+        first: that is the seller's gap to close, not something the buyer
+        accepting their own delivery should be blocked by — the `Payout`
+        row is created regardless and simply sits `PENDING` until there
+        is somewhere to send it.
+        """
         order = self.get_object()
         if order.buyer_id != request.user.pk:
             return _forbidden("Only the buyer accepts a delivery.")
@@ -442,6 +427,19 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
         milestone = order.contract.milestones.first()
         if milestone and milestone.status == Milestone.Status.DELIVERED:
             milestone.release()
+
+            from decimal import Decimal
+
+            from django.conf import settings as django_settings
+
+            from payments.models import Payout
+
+            payout = Payout.compute(
+                milestone=milestone,
+                freelancer=order.seller,
+                commission_percent=Decimal(str(django_settings.PLATFORM_COMMISSION_PERCENT)),
+            )
+            payout.save()
         order.contract.complete()
         order.complete()
 
@@ -449,7 +447,7 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
             order.contract,
             ContractEvent.Kind.RELEASED,
             actor=request.user,
-            body=f"Order accepted. {order.price} released.",
+            body=f"Order accepted. Rs {order.price} released from escrow.",
         )
         AuditLog.record(
             actor=request.user,

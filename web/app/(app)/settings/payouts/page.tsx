@@ -20,51 +20,39 @@ import {
 import { payments, type Payout } from "@/lib/api";
 import { formatRelative, useAsyncAction, useLoader } from "@/lib/session";
 
-const STATUS_TONE: Record<Payout["status"], "neutral" | "accent" | "positive" | "critical"> = {
+const STATUS_TONE: Record<Payout["status"], "neutral" | "positive"> = {
   pending: "neutral",
-  processing: "accent",
   paid: "positive",
-  failed: "critical",
 };
 
 /**
- * Where a freelancer's released milestones actually get paid — set up once,
- * verified once (the bank tells us whose name is on the account before we
- * save it, not the other way round), then it just sits behind every future
- * release (Phase 3, D41).
+ * Where a freelancer's released milestones actually get paid — typed in
+ * once, then read by whoever on the platform side sends the manual bank
+ * transfer on release (Phase 3, D42). Nothing here verifies the account;
+ * there is no gateway to ask.
  */
 function PayoutProfileForm() {
   const { data: profile, loading, reload } = useLoader(() => payments.payoutProfile(), []);
 
   const [form, setForm] = React.useState({
-    bank_code: "",
     bank_name: "",
+    account_title: "",
     account_number: "",
     cnic: "",
     msisdn: "",
   });
-  const [verifiedTitle, setVerifiedTitle] = React.useState<string | null>(null);
+  const [saved, setSaved] = React.useState(false);
 
   const update = <K extends keyof typeof form>(key: K, value: string) =>
-    setForm((current) => {
-      setVerifiedTitle(null);
-      return { ...current, [key]: value };
-    });
-
-  const verify = useAsyncAction(async () => {
-    const result = await payments.verifyPayoutTitle(form);
-    setVerifiedTitle(result.account_title);
-  });
+    setForm((current) => ({ ...current, [key]: value }));
 
   const save = useAsyncAction(async () => {
     await payments.savePayoutProfile({ ...form, cnic: form.cnic.replace(/[^0-9]/g, "") });
-    setForm({ bank_code: "", bank_name: "", account_number: "", cnic: "", msisdn: "" });
-    setVerifiedTitle(null);
+    setForm({ bank_name: "", account_title: "", account_number: "", cnic: "", msisdn: "" });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
     await reload();
   });
-
-  const error = verify.error ?? save.error;
-  const blockedCode = verify.code ?? save.code;
 
   if (loading) return <Skeleton className="h-64 w-full" />;
 
@@ -72,7 +60,7 @@ function PayoutProfileForm() {
     <Card>
       <CardHeader
         title="Payout account"
-        description="Where money goes when a client releases a milestone — sent automatically, the same day it's released."
+        description="Where money goes when a client releases a milestone — sent manually by our team, once you've told us where."
         action={
           profile?.is_complete ? (
             <Badge tone="positive">Set up</Badge>
@@ -84,9 +72,8 @@ function PayoutProfileForm() {
       <div className="space-y-5 p-5">
         {profile?.is_complete && (
           <div className="rounded-md border border-line bg-sunken p-3.5 text-[13px] text-muted">
-            Currently paying out to{" "}
-            <span className="font-medium text-fg">{profile.verified_account_title}</span> at{" "}
-            {profile.bank_name}. Saving a new account below replaces this one.
+            Currently paying out to <span className="font-medium text-fg">{profile.account_title}</span>{" "}
+            at {profile.bank_name}. Saving a new account below replaces this one.
           </div>
         )}
 
@@ -94,20 +81,12 @@ function PayoutProfileForm() {
           className="max-w-md space-y-4"
           onSubmit={(event) => {
             event.preventDefault();
-            void (verifiedTitle ? save.run() : verify.run());
+            void save.run();
           }}
         >
-          {error && blockedCode !== "two_factor_required" && <Alert tone="critical">{error}</Alert>}
-
-          <Field label="Bank code" htmlFor="bank_code" hint="From your bank's IBFT listing, e.g. HABB.">
-            <Input
-              id="bank_code"
-              value={form.bank_code}
-              onChange={(event) => update("bank_code", event.target.value.toUpperCase())}
-              placeholder="HABB"
-              required
-            />
-          </Field>
+          {save.error && save.code !== "two_factor_required" && (
+            <Alert tone="critical">{save.error}</Alert>
+          )}
 
           <Field label="Bank name" htmlFor="bank_name">
             <Input
@@ -115,6 +94,16 @@ function PayoutProfileForm() {
               value={form.bank_name}
               onChange={(event) => update("bank_name", event.target.value)}
               placeholder="Habib Bank"
+              required
+            />
+          </Field>
+
+          <Field label="Account title" htmlFor="account_title" hint="The name on the account.">
+            <Input
+              id="account_title"
+              value={form.account_title}
+              onChange={(event) => update("account_title", event.target.value)}
+              placeholder="Ahmed Raza"
               required
             />
           </Field>
@@ -145,33 +134,24 @@ function PayoutProfileForm() {
               value={form.msisdn}
               onChange={(event) => update("msisdn", event.target.value)}
               placeholder="03001234567"
-              required
             />
           </Field>
 
-          {verifiedTitle && (
-            <Alert tone="positive">
-              This account belongs to <strong>{verifiedTitle}</strong>. Save it if that&apos;s you.
-            </Alert>
-          )}
-
-          <div className="flex gap-3">
-            {verifiedTitle ? (
-              <Button type="submit" loading={save.pending}>
-                Save payout account
-              </Button>
-            ) : (
-              <Button type="submit" loading={verify.pending}>
-                Verify account
-              </Button>
+          <div className="flex items-center gap-3">
+            <Button type="submit" loading={save.pending}>
+              Save payout account
+            </Button>
+            {saved && (
+              <span className="inline-flex items-center gap-1.5 text-[13px] text-positive">
+                <Icon name="check" className="size-4" strokeWidth={2.6} />
+                Saved
+              </span>
             )}
           </div>
         </form>
 
-        {blockedCode === "two_factor_required" && (
-          <TwoFactorRequiredPrompt
-            onComplete={() => void (verifiedTitle ? save.run() : verify.run())}
-          />
+        {save.code === "two_factor_required" && (
+          <TwoFactorRequiredPrompt onComplete={() => void save.run()} />
         )}
       </div>
     </Card>
@@ -184,7 +164,7 @@ function PayoutHistory() {
 
   return (
     <Card>
-      <CardHeader title="Payout history" description="What's been sent, and what hasn't yet." />
+      <CardHeader title="Payout history" description="What's been released, and what's been sent." />
       {loading ? (
         <div className="p-5">
           <Skeleton className="h-24 w-full" />
@@ -204,16 +184,14 @@ function PayoutHistory() {
                   {payout.milestone_title}
                 </p>
                 <p className="mt-0.5 text-[12px] text-subtle">
-                  {formatRelative(payout.created_at)}
-                  {payout.status === "failed" && payout.failure_reason
-                    ? ` — ${payout.failure_reason}`
-                    : ""}
+                  {formatRelative(payout.created_at)} · Rs {payout.gross_amount} minus{" "}
+                  {payout.commission_percent}% fee
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <Icon name="wallet" className="size-3.5 text-subtle" />
                 <span className="text-[13.5px] font-semibold text-fg">
-                  <Money amount={payout.amount} />
+                  <Money amount={payout.net_amount} />
                 </span>
                 <Badge tone={STATUS_TONE[payout.status]}>{payout.status}</Badge>
               </div>

@@ -1401,6 +1401,135 @@ student ID card: one genuine external-browser need, one dependency).
 `next build` and `eslint` clean on the web payout-profile page and both
 checkout redirects (gig order, milestone fund).
 
+**Superseded by D42.** Everything above stayed true through Phase 3's
+first build and real sandbox verification — the removal that follows is
+not because any of this was wrong, but because Swich's *production*
+merchant account turned out to need something the client will not
+currently provide.
+
+---
+
+## D42 · Swich removed: custodial escrow instead, at the client's direction
+
+**D41 built Phase 3 for real, against a real sandbox. This decision tears
+that integration out and replaces it with something structurally simpler,
+on explicit client instruction — not because Swich broke, but because of
+what its production account requires.**
+
+*The trigger.* The client asked for an alternative "where I don't have to
+give an NTN number." NTN (Pakistan's National Tax Number) is not a line
+item in Swich's onboarding that a different vendor sidesteps — SBP/FBR
+requires it of any licensed payment gateway operating in Pakistan as a
+condition of a *production* (not sandbox) merchant account. Asked to
+clarify whether this meant "register a company but skip the NTN
+paperwork" or "no real gateway at all right now," the client answered with
+the second, and specified the replacement directly: the client's own bank
+account collects the money, a human releases it to the freelancer by hand
+minus a platform cut, and the product still presents the whole thing to
+users as escrow.
+
+*What came out.* `payments/providers/` (the Swich adapter — checkout URL
+construction, checksum verification, token caching, IBFT payout) and
+`payments/tasks.py` (`process_payout`, the Celery-async payout call) are
+deleted, not disabled behind a flag. `EscrowCharge` (a Pay In attempt,
+`ForeignKey` because a checkout could retry) is gone; so is the
+`swich_payin_callback` webhook view and the `AWAITING_PAYMENT` milestone
+status that existed only to mark time between checkout-session creation
+and webhook confirmation. `SWICH_ENABLED`/`SWICH_CLIENT_ID`/
+`SWICH_CLIENT_SECRET`/`SWICH_SECRET_KEY` are gone from settings.
+
+*What replaced it.* `EscrowFunding` — a client's own declaration that
+they've transferred a milestone's money to the platform's bank account,
+`OneToOne` on `Milestone` rather than `ForeignKey` (unlike a gateway
+charge, there is nothing here to retry — it is a fact, not an attempt).
+`Payout` keeps the same shape D41 gave it (bank/CNIC behind
+`EncryptedTextField`) but drops everything Swich-specific
+(`customer_transaction_id`, `swich_response`, `failure_reason`) in favour
+of a commission split computed once and snapshotted:
+`Payout.compute(milestone, freelancer, commission_percent)` returns
+`gross_amount`/`commission_amount`/`net_amount`, quantized to the cent,
+never recomputed later even if the platform's commission rate changes.
+`bank_transfer_instructions` is the one new endpoint — it just echoes
+`PLATFORM_BANK_NAME`/`PLATFORM_BANK_ACCOUNT_TITLE`/
+`PLATFORM_BANK_ACCOUNT_NUMBER`/`PLATFORM_COMMISSION_PERCENT` from
+settings. `fund_milestone` and `gigs.order` both create an `EscrowFunding`
+and call `milestone.fund()` synchronously, in the same request, before
+returning — no checkout redirect, no webhook, no polling loop on the
+frontend waiting for one. `release_milestone` still executes on the
+client's approval alone (unconditional, same as D41), but refuses to
+queue a `Payout` without a complete `PayoutProfile` on file — a `Payout`
+with nowhere to send the money is worse than one that doesn't exist yet,
+so this half of the D41 gate carries over even though nothing downstream
+of it is automated anymore. On release, an admin (`payments.admin.PayoutAdmin`,
+`mark_paid` action) sends the transfer by hand and marks it paid — the
+`Payout.Status.PENDING`/`PAID` pair replaces D41's automated
+`PENDING`/`PAID`/`FAILED` triggered by `process_payout`.
+
+*Presented as escrow, not as "we'll pay you eventually."* Every UI surface
+that touched Swich language now talks about the platform's own account
+instead, without softening what's actually true: `BankTransferPanel` (web)
+and `showBankTransferDialog` (mobile) show the account details and a
+reference-note field, both labelled "into escrow"; `ReleaseEstimate` shows
+the freelancer's net amount and the commission taken before the client
+confirms release, labelled "from escrow." Notifications and
+`ContractEvent` log entries say "funded — held in escrow" and "released
+from escrow," matching what a client relying only on the UI would already
+believe. Nothing claims automation that isn't there — the payout history
+screens say plainly that a released amount is *pending* until paid, not
+that it has been sent.
+
+*A second bug found in this pass, not introduced by it.* `gigs.OrderViewSet.accept`
+(the buyer accepting a gig delivery) calls `milestone.release()` directly,
+bypassing `contracts.views.release_milestone` entirely — which means it
+never created a `Payout` row, in the original pre-Phase-3 code *and*
+throughout the entire D41 Swich build. Nobody caught it because nothing
+in either payments implementation asserted on it. Fixed here by adding
+the same `Payout.compute(...)` call directly into `accept()`, deliberately
+*not* gated on the seller's `PayoutProfile` being complete — the buyer
+accepting their own delivery should not be blocked by a gap that is the
+seller's to close, so the `Payout` row is created regardless and simply
+sits `PENDING` until there is somewhere to send it.
+
+*What stays true from D41, and what doesn't.* The market research — Stripe
+and Rapyd need a foreign-registered entity, Airwallex the same, Safepay's
+public docs show no payout API — is still accurate context for why no
+drop-in gateway currently fits, and stays relevant if a real integration
+is revisited later. What no longer holds: the automated collection and
+automated payout D41 delivered are both gone. This is a deliberate step
+back from that automation, done at the client's explicit request, not a
+regression to paper over — re-adding a real gateway later means wiring
+`fund_milestone`/`release_milestone`/`gigs.order` to it again; the
+`EscrowFunding`/`Payout` bookkeeping shape barely has to change to support
+it.
+
+*Verification.* `payments/tests.py` rewritten from scratch (17 Swich tests
+— checksums, callback replay/forgery, token caching — replaced with 17
+new ones covering `Payout.compute` arithmetic, `PayoutProfile.is_complete`,
+`bank_transfer_instructions`, fund/release through the new endpoints, and
+the fund-twice/release-before-delivery/no-payout-profile refusal paths).
+`contracts/tests.py`, `gigs/tests.py`, and `marketplace/tests.py` (the
+trial-lifecycle test) updated off the old `_fund_via_swich`/
+`override_settings(**_SWICH_TEST_SETTINGS)` pattern onto a plain `_fund`
+helper that just POSTs and asserts 200 — no checksum, no callback
+simulation, because there is nothing left to simulate. The gig-order
+`accept()` fix is asserted directly: `test_the_full_delivery_and_acceptance_loop`
+now checks a `Payout` exists with the right split after a buyer accepts.
+**359 backend tests pass** (19 of them the cross-tenant leakage gate, run
+again on its own as its own CI step), migrations regenerated cleanly
+(`payments.0001_initial` dropped and rebuilt against the new model shape,
+plus a `contracts` migration for dropping the now-unused
+`AWAITING_PAYMENT` milestone status), `ruff check`/`ruff format --check`
+clean on every touched file. `flutter analyze` and `flutter test` clean
+on mobile (`url_launcher`, added for Swich's checkout hand-off, removed
+again — nothing else in the app needs an external browser launch).
+`next build`, `eslint`, and `tsc --noEmit`-via-build clean on web. Beyond
+the test suite: the full fund → deliver → release loop was run against a
+live local stack in an actual browser — sign in, confirm a bank transfer,
+sign in as the freelancer, deliver, sign in as the client, and release —
+and the `Payout` row it produced (`gross 5000.00, commission 500.00 (10%),
+net 4500.00, status pending`) matched the UI's own pre-release estimate
+exactly.
+
 ---
 
 ## Not mine to take
@@ -1418,7 +1547,11 @@ external engagement neither of us can substitute for.
    foreign entity is registered specifically to route payment through it.
 3. ~~**Choose the payment rails.**~~ **Done — Swich**, a Pakistan-native
    platform whose `Payouts API` and `Payment Gateway` cover both halves of
-   escrow without a second entity. Phase 3 is built on it — see D41.
+   escrow without a second entity (D41) — **then removed at the client's
+   direction** over its production account's NTN requirement, replaced
+   with a custodial bank-transfer model that automates neither collection
+   nor payout (D42). Choosing and wiring a real gateway again, if one is
+   revisited, is still open.
 4. **Buy the domain** in D1.
 5. **Confirm or override the launch campus** in D4.
 6. **Recruit the seed cohort** — roughly 30 committed student sellers and one

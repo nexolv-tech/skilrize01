@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../api/api_error.dart';
 import '../models/models.dart';
 import '../state/session.dart';
 import '../theme.dart';
+import '../widgets/bank_transfer_dialog.dart';
 import '../widgets/money_gate.dart';
 
 /// Contracts the signed-in user is a party to, and their milestones.
@@ -177,26 +177,20 @@ class _ContractDetailScreenState extends State<ContractDetailScreen> {
     }
   }
 
-  /// Starts a Swich checkout session and opens it in the system browser —
-  /// money changes hands there, not inside this app, the same reasoning
-  /// that keeps this client out of PCI scope entirely (Phase 3, D41). The
-  /// milestone will not actually be funded until Swich's own callback
-  /// confirms it, which `_load` on return from the browser will pick up.
-  Future<void> _fund(int contractId, int milestoneId) async {
-    setState(() {
-      _busyMilestoneId = milestoneId;
-      _actionError = null;
-    });
-    try {
-      final result = await widget.session.api.fundMilestone(contractId, milestoneId);
-      await _load();
-      final uri = Uri.parse(result.checkoutUrl);
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } on ApiError catch (e) {
-      setState(() => _actionError = e);
-    } finally {
-      if (mounted) setState(() => _busyMilestoneId = null);
-    }
+  /// Shows the platform's bank transfer instructions, then marks the
+  /// milestone funded once the client confirms they've sent the money —
+  /// there is no gateway behind this to verify it landed (Phase 3, D42).
+  Future<void> _fund(int contractId, int milestoneId, String amount) async {
+    final reference = await showBankTransferDialog(
+      context,
+      session: widget.session,
+      amount: amount,
+    );
+    if (reference == null) return;
+    await _act(
+      milestoneId,
+      () => widget.session.api.fundMilestone(contractId, milestoneId, referenceNote: reference),
+    );
   }
 
   @override
@@ -303,37 +297,44 @@ class _ContractDetailScreenState extends State<ContractDetailScreen> {
     final busy = _busyMilestoneId == milestone.id;
     final actions = <Widget>[];
 
-    // Client funds a pending milestone — CanMoveMoney. Opens Swich's hosted
-    // checkout rather than funding directly; see `_fund`.
+    // Client funds a pending milestone — CanMoveMoney. Shows bank transfer
+    // instructions rather than funding directly; see `_fund`.
     if (milestone.status == 'pending' && contract.myRole == 'client') {
       actions.add(FilledButton.tonal(
-        onPressed: busy ? null : () => _fund(contract.id, milestone.id),
-        child: Text(busy ? 'Starting payment…' : 'Fund this milestone'),
+        onPressed: busy ? null : () => _fund(contract.id, milestone.id, milestone.amount),
+        child: Text(busy ? 'Funding…' : 'Fund into escrow'),
       ));
     }
 
-    if (milestone.status == 'awaiting_payment') {
+    if (milestone.status == 'pending' && contract.myRole != 'client') {
       actions.add(
-        Text(
-          contract.myRole == 'client'
-              ? 'Waiting for payment to be confirmed — pull to refresh.'
-              : 'Not funded yet — do not start work on this milestone.',
-          style: const TextStyle(fontSize: 12.5),
+        const Text(
+          'Not funded yet — do not start work on this milestone.',
+          style: TextStyle(fontSize: 12.5),
         ),
       );
     }
 
     // Client releases a delivered milestone — CanMoveMoney.
     if (milestone.status == 'delivered' && contract.myRole == 'client') {
-      actions.add(FilledButton(
-        onPressed: busy
-            ? null
-            : () => _act(
-                  milestone.id,
-                  () => widget.session.api.releaseMilestone(contract.id, milestone.id),
-                ),
-        child: Text(busy ? 'Releasing…' : 'Release payment'),
-      ));
+      actions.add(
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            FilledButton(
+              onPressed: busy
+                  ? null
+                  : () => _act(
+                        milestone.id,
+                        () => widget.session.api.releaseMilestone(contract.id, milestone.id),
+                      ),
+              child: Text(busy ? 'Releasing…' : 'Release from escrow'),
+            ),
+            const SizedBox(height: 4),
+            ReleaseEstimate(session: widget.session, amount: milestone.amount),
+          ],
+        ),
+      );
     }
 
     if (actions.isEmpty) return const [];

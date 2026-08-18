@@ -16,7 +16,7 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 0 · Foundations | ✅ | Auth, security, tenancy, files, notifications |
 | 1 · Projects & bidding | ✅ | Post a brief, compare proposals, award, contract |
 | 2 · Gigs | ✅ | Productised services, packages, order lifecycle |
-| 3 · Payments & escrow | ✅ | Real escrow via Swich — client charge, automated freelancer payout, checksummed webhook confirmation — see below |
+| 3 · Payments & escrow | ✅ | Custodial escrow — client transfers to the platform's own bank account, admin-fulfilled payout on release, commission split — see below |
 | 4 · Student portals | ✅ | Verification, surface switching, leakage gate |
 | 5 · Communities & social | ✅ | Discussion, chat, events, resources, messaging, feed |
 | 6 · Search, reputation & trust | ✅ | FTS, ranking, JSS, seller levels, integrity, promotion |
@@ -28,10 +28,10 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 12 · Hire after trial | ✅ | A paid trial task before the full project — see below for what "converts" does and does not mean yet |
 | 13 · Proof-of-work challenges | ✅ | Timed briefs, human-reviewed scoring, ranked badges — automated Lighthouse grading built but off by default, see below |
 
-**362 backend tests pass, plus 11 Dart tests and a 4-test live suite for the
-mobile client** (`flutter analyze` clean across all ~32 screens; the live
-suite runs against a real stack — see `mobile/README.md`). Migration check
-and production build are clean.
+**359 backend tests pass (19 of them the cross-tenant leakage gate), plus 11
+Dart tests and a 4-test live suite for the mobile client** (`flutter analyze`
+clean across all ~32 screens; the live suite runs against a real stack — see
+`mobile/README.md`). Migration check and production build are clean.
 Lint and format are clean on every file this session touched; `api/challenges`
 and `api/core/tasks.py` carry pre-existing lint debt from Phase 13, unrelated
 to Phases 10–11, tracked separately rather than folded into any of these
@@ -43,37 +43,45 @@ error in any file this repo owns. `next build`'s own internal type-check,
 which is what actually gates a real build, passes clean on the identical
 route tree.
 
-### Phase 3 has landed: real money moves now
+### Phase 3, rebuilt: custodial escrow, not a gateway
 
-Phase 3 was deferred at the client's direction until three external
-blockers cleared — a corporate lawyer engaged on the escrow question, the
-company registered (in Pakistan), and a payment rail chosen. All three are
-now done (D41), and **Swich** is the rail: a Pakistan-native payment
-platform whose `Payouts API` explicitly targets "gig economy workers," and
-whose `Corporate Pay-Out` (domestic IBFT) sits alongside its `Payment
-Gateway` (Pay In) as one integration rather than two separate vendors.
+Phase 3 originally landed on **Swich** (D41) — a real Pakistan-native
+payment gateway, verified against its actual sandbox. That integration was
+torn out at the client's explicit direction (D42): Swich's *production*
+merchant account requires an NTN (Pakistan's business tax number), which
+the client does not have and does not want to register for right now. NTN
+is not a Swich quirk — it is an SBP/FBR requirement on every licensed
+payment gateway operating in Pakistan, so no drop-in gateway replacement
+would have avoided it.
 
-What actually moves now: a client funding a milestone is sent to Swich's
-real hosted checkout; the milestone only becomes `FUNDED` once Swich's own
-webhook confirms the charge with a checksum this server verifies — a
-client's own request is never trusted as proof of payment. Releasing a
-milestone is unconditional on the client's approval, but the automated
-payout to the freelancer refuses to start without a complete, bank-verified
-payout profile (`fetch_title` confirms whose name is on the account before
-it is ever saved). Every piece has been verified against Swich's real
-sandbox — a genuine bearer token, a real account balance, and an actual
-37 KB hosted checkout page rendered by their server — not only mocked.
+What runs now instead: the platform's own bank account **is** the escrow
+account. A client funding a milestone sees that account's details in the
+UI and transfers the money directly to it, then confirms in the app that
+they've sent it — the same trust basis the pre-Phase-3 code always ran on,
+just framed honestly rather than hidden behind gateway language. Releasing
+a milestone computes a transparent commission split (freelancer's net,
+platform's cut, both shown before the client confirms) and queues a
+`Payout` row; a human on the platform side sends that transfer by hand and
+marks it paid. Nothing here is faked as automated — the UI still calls it
+"escrow" throughout, because structurally it is: money sits in the
+platform's account, held, until a release decision moves it out.
 
-**One honest gap remains, documented rather than guessed around.** The
-exact bank code/name pairing Swich's IBFT payout endpoint expects is not
-the same list used for Pay In, and is not published — a support ticket to
-Swich integration support is the only way to close it; see D41.
+**This is a deliberate step back from D41's automation, not a hidden
+regression.** The Swich integration code, its checksum verification, and
+its automated IBFT payout are gone, not disabled behind a flag — the
+client asked for Swich removed, not parked. D41's market research (why
+Stripe/Rapyd/Airwallex don't work for a Pakistan-registered entity, why
+Safepay alone wasn't enough) stays valid context for *why* nothing
+automated currently sits in this gap; it just is not wired to anything
+right now. Re-adding a real gateway later is a matter of wiring
+`fund_milestone`/`release_milestone`/`gigs.order` to it again — the
+`EscrowFunding`/`Payout` bookkeeping shape barely has to change.
 
 By phase count the project is 14 of 14 phases built. Phase 8's
-subscriptions are a separate, still-unwired integration — Phase 3 landed
-real payment for contract escrow specifically, not for plan billing, and
-the pricing page and retainer catalogue still say so rather than presenting
-a checkout that silently charges zero.
+subscriptions are a separate, still-unwired integration — Phase 3 covers
+contract/gig escrow specifically, not plan billing, and the pricing page
+and retainer catalogue still say so rather than presenting a checkout that
+silently charges zero.
 
 ---
 
@@ -125,31 +133,33 @@ reputation" true instead of aspirational.
 
 | Delivered | Where |
 | --- | --- |
-| Swich adapter — Pay In checkout, IBFT payout, webhook checksum verification, token caching | `api/payments/providers/swich.py` |
-| `EscrowCharge` / `Payout` / `PayoutProfile` models — money-in, money-out, and where money-out actually goes | `api/payments/models.py` |
-| Contract milestone funding routes through a real Swich checkout session, confirmed only by webhook | `api/contracts/views.py` (`fund_milestone`), `api/payments/views.py` (`swich_payin_callback`) |
-| Gig ordering routes through the same checkout — no longer funds itself on request | `api/gigs/views.py` (`order`) |
-| Milestone release triggers an automated IBFT payout, refusing to start without a complete, bank-verified payout profile | `api/contracts/views.py` (`release_milestone`), `api/payments/tasks.py` (`process_payout`) |
-| Freelancer payout profile — bank/CNIC verified against Swich's own `fetch_title` before it can be saved | `api/payments/views.py`, `web/app/(app)/settings/payouts/`, `mobile/lib/src/screens/payouts_screen.dart` |
+| `EscrowFunding` — a client's own declaration that they've transferred a milestone's money to the platform's bank account | `api/payments/models.py` |
+| `Payout` / `PayoutProfile` — the commission split computed and snapshotted at release, and where a freelancer's money actually goes | `api/payments/models.py` |
+| `bank_transfer_instructions` — the one real piece of payment infrastructure this phase has: the platform's own account details | `api/payments/views.py`, `api/payments/urls.py` |
+| Contract milestone funding is an immediate, client-confirmed declaration — no checkout redirect, no webhook | `api/contracts/views.py` (`fund_milestone`) |
+| Gig ordering funds the same way, synchronously, before any contract/order rows are created | `api/gigs/views.py` (`order`) |
+| Milestone release computes the commission split and queues a `Payout`, refusing to start without a complete payout profile — fulfilled by hand, marked paid in the admin | `api/contracts/views.py` (`release_milestone`), `api/payments/admin.py` (`mark_paid`) |
+| Freelancer payout profile — bank/CNIC, encrypted at rest, nothing echoed back through the API | `api/payments/views.py`, `web/app/(app)/settings/payouts/`, `mobile/lib/src/screens/payouts_screen.dart` |
+| Gig-order acceptance (`OrderViewSet.accept`) creates its `Payout` on its own release path — a gap that existed since before Phase 3 even under Swich, caught and fixed in this pass | `api/gigs/views.py` (`OrderViewSet.accept`) |
 
-**Real money moves now, not a state-machine stand-in.** A client funding a
-milestone or buying a gig is sent to Swich's actual hosted checkout page;
-the underlying `Milestone` only becomes `FUNDED` once Swich's own
-server-to-server callback arrives with a checksum this server independently
-verifies — a client's own request is never trusted as proof of payment,
-and a callback with a wrong checksum, an unknown transaction, or one that
-has already been processed is refused or no-op'd rather than acted on
-(`payments/tests.py` covers all three). Releasing a milestone is
-unconditional on the client's approval, but the automated payout to the
-freelancer will not even attempt to run without a bank account whose name
-Swich has confirmed matches the freelancer's payout profile.
+**Framed as escrow throughout the product, because structurally it still
+is one.** A client funding a milestone or buying a gig sees the platform's
+bank details and confirms once they've sent the transfer — `EscrowFunding`
+records that declaration, and nothing downstream pretends a gateway
+verified it. Releasing a milestone is unconditional on the client's
+approval; the `Payout` it queues is not — release refuses outright without
+a complete `PayoutProfile` on file, since a `Payout` row with nowhere to
+send the money is worse than one that doesn't exist yet. The commission
+split (`Payout.compute`) is the one place that arithmetic lives, so the
+web/mobile "you'll receive Rs X after our Y% fee" estimate and what
+actually gets recorded at release can never drift apart — confirmed by
+running the whole fund → deliver → release loop against a live local
+stack, not only the test suite.
 
-**Verified against Swich's real sandbox, not only mocks** — a genuine
-bearer token, a real account balance, and an actual 37 KB hosted checkout
-page rendered by their server, all hit for real before a single test was
-written against a mock. See D41 for the full research trail (why Safepay
-alone wasn't enough, why Rapyd and Airwallex don't work with a
-Pakistan-registered entity, and the one genuine gap that's left).
+See D42 for why Swich (D41's real, sandbox-verified gateway) was removed
+rather than kept running: an NTN requirement on its production merchant
+account, which applies to any licensed Pakistani gateway, not a Swich
+defect.
 
 ### Phase 4 — Student portals
 
@@ -549,9 +559,14 @@ Everything below is what exists, not how to use it.
 | Nightly DB + upload backups to Backblaze B2 | `deploy/backup.sh`, `deploy/crontab.example` |
 | The only command that should ever update the live site | `deploy/deploy.sh` |
 
-Payments (Phase 3) are not part of this — the infrastructure above gets a
-live, reachable site with working auth, email, uploads, and 2FA. Don't
-advertise it as open for business until Phase 3 ships; see D32.
+The infrastructure above gets a live, reachable site with working auth,
+email, uploads, and 2FA; see D32. Phase 3's custodial escrow (D42) adds one
+more production requirement on top of it: `PLATFORM_BANK_NAME`,
+`PLATFORM_BANK_ACCOUNT_TITLE`, and `PLATFORM_BANK_ACCOUNT_NUMBER` in
+`production.env` have to point at a real account the platform controls
+before launch — every other setting in this list has a safe default or
+can stay disabled, but a blank bank account here means the bank-transfer
+panel shows nothing to transfer to.
 
 ---
 

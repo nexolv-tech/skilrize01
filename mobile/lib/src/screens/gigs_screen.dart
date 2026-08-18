@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../api/api_error.dart';
 import '../models/gigs.dart';
 import '../state/session.dart';
 import '../widgets/async_list.dart';
+import '../widgets/bank_transfer_dialog.dart';
 import '../widgets/money_gate.dart';
 
 class GigsScreen extends StatelessWidget {
@@ -70,20 +70,32 @@ class _GigDetailScreenState extends State<GigDetailScreen> {
     }
   }
 
-  /// **Money-moving.** `orderGig` is gated `CanMoveMoney` and starts a real
-  /// Swich checkout — opened in the system browser, the same reasoning
-  /// that keeps this app out of PCI scope entirely (Phase 3, D41). The
-  /// order is not actually paid for until Swich's callback confirms it.
+  /// **Money-moving.** `orderGig` is gated `CanMoveMoney`. Shows the
+  /// platform's bank transfer instructions, then places the order once
+  /// the buyer confirms they've sent the money — paid up front, the same
+  /// trust basis as `ContractsScreen._fund` (Phase 3, D42).
   Future<void> _order() async {
     if (_selected == null) return;
+    final reference = await showBankTransferDialog(
+      context,
+      session: widget.session,
+      amount: _selected!.price,
+    );
+    if (reference == null) return;
+
     setState(() {
       _ordering = true;
       _orderError = null;
     });
     try {
-      final result = await widget.session.api.orderGig(widget.gigId, package: _selected!.id);
-      await launchUrl(Uri.parse(result.checkoutUrl), mode: LaunchMode.externalApplication);
-      if (mounted) Navigator.of(context).pop();
+      await widget.session.api
+          .orderGig(widget.gigId, package: _selected!.id, referenceNote: reference);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Order placed. See it under Orders.')),
+        );
+        Navigator.of(context).pop();
+      }
     } on ApiError catch (e) {
       setState(() => _orderError = e);
     } finally {

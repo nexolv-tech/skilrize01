@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 import { CoverArt, motifFor } from "@/components/artwork";
 import {
@@ -21,6 +21,7 @@ import {
   Tag,
   cn,
 } from "@/components/ui";
+import { BankTransferPanel } from "@/components/payments";
 import { TwoFactorRequiredPrompt } from "@/components/two-factor";
 import { gigs, type GigDetail, type Package, type Tier } from "@/lib/api";
 import { useAsyncAction, useLoader } from "@/lib/session";
@@ -33,6 +34,7 @@ function PackagePanel({ gig }: { gig: GigDetail }) {
   const active = gig.packages.filter((p) => p.is_active);
   const [tier, setTier] = React.useState<Tier>(active[0]?.tier ?? "basic");
   const [chosenExtras, setChosenExtras] = React.useState<number[]>([]);
+  const [funding, setFunding] = React.useState(false);
 
   const selected: Package | undefined = active.find((p) => p.tier === tier) ?? active[0];
   const extras = gig.extras.filter((e) => e.is_active);
@@ -49,13 +51,14 @@ function PackagePanel({ gig }: { gig: GigDetail }) {
       .filter((extra) => chosenExtras.includes(extra.id))
       .reduce((sum, extra) => sum + extra.extra_days, 0);
 
-  // Starting a checkout session leaves the browser (Phase 3, D41) — the
-  // order exists once this returns, but is not paid for until Swich's own
-  // callback confirms it, which happens after the buyer returns from a
-  // page this app does not control.
-  const buy = useAsyncAction(async () => {
-    const order = await gigs.order(gig.id, { package: selected!.id, extras: chosenExtras });
-    window.location.assign(order.checkout_url);
+  const router = useRouter();
+  const buy = useAsyncAction(async (referenceNote: string) => {
+    const order = await gigs.order(gig.id, {
+      package: selected!.id,
+      extras: chosenExtras,
+      reference_note: referenceNote,
+    });
+    router.push(`/orders/${order.id}`);
   });
 
   if (!selected) {
@@ -176,7 +179,7 @@ function PackagePanel({ gig }: { gig: GigDetail }) {
             error. */}
         {buy.code === "two_factor_required" ? (
           <div className="mt-4">
-            <TwoFactorRequiredPrompt onComplete={() => void buy.run()} />
+            <TwoFactorRequiredPrompt onComplete={() => void buy.run("")} />
           </div>
         ) : buy.code === "device_cooloff" ? (
           <Alert tone="caution" title="This device is new" className="mt-4">
@@ -200,9 +203,20 @@ function PackagePanel({ gig }: { gig: GigDetail }) {
             This is your own service.
           </Alert>
         ) : gig.can_order ? (
-          <Button block size="lg" className="mt-4" loading={buy.pending} onClick={() => void buy.run()}>
-            Continue · <Money amount={total} />
-          </Button>
+          funding ? (
+            <div className="mt-4">
+              <BankTransferPanel
+                amount={String(total)}
+                pending={buy.pending}
+                onConfirm={(referenceNote) => void buy.run(referenceNote)}
+                onCancel={() => setFunding(false)}
+              />
+            </div>
+          ) : (
+            <Button block size="lg" className="mt-4" onClick={() => setFunding(true)}>
+              Continue · <Money amount={total} />
+            </Button>
+          )
         ) : (
           <Alert tone="caution" className="mt-4">
             {gig.order_blocked_reason}
@@ -210,7 +224,7 @@ function PackagePanel({ gig }: { gig: GigDetail }) {
         )}
 
         <p className="mt-3 text-center text-[11.5px] leading-relaxed text-subtle">
-          Your payment is held securely and only released when you accept the delivery.
+          Your payment is held in escrow and only released when you accept the delivery.
         </p>
       </div>
     </Card>
