@@ -27,16 +27,31 @@ export class ApiError extends Error {
   }
 }
 
-function readCookie(name: string): string | null {
-  if (typeof document === "undefined") return null;
-  const match = document.cookie.match(new RegExp(`(^|;\\s*)${name}=([^;]*)`));
-  return match?.[2] ? decodeURIComponent(match[2]) : null;
-}
+/**
+ * Held in memory rather than read back from `document.cookie` on every
+ * unsafe request. The API sets `csrftoken` as a cookie too, but that cookie
+ * belongs to the API's own origin — `document.cookie` only ever exposes the
+ * *current* page's cookies, so JS running on a web app deployed to a
+ * different domain than the API (Vercel + Render, D44) could never read it
+ * back regardless of CORS or credentials settings. The `/auth/csrf/`
+ * response body works from anywhere, so that's the one source of truth.
+ */
+let csrfToken: string | null = null;
 
-/** Ask Django to set the CSRF cookie. Safe to call more than once. */
+/** Ask Django for a CSRF token. Safe to call more than once — only the
+ * first call (per page load) actually hits the network. */
 export async function primeCsrf(): Promise<void> {
-  if (readCookie("csrftoken")) return;
-  await fetch(`${API}/auth/csrf/`, { credentials: "include" }).catch(() => undefined);
+  if (csrfToken) return;
+  try {
+    const response = await fetch(`${API}/auth/csrf/`, { credentials: "include" });
+    const data: unknown = await response.json();
+    if (data && typeof data === "object" && typeof (data as { csrfToken?: unknown }).csrfToken === "string") {
+      csrfToken = (data as { csrfToken: string }).csrfToken;
+    }
+  } catch {
+    // Left null — the caller sends no X-CSRFToken header, and the server
+    // rejects the write with a clear CSRF error rather than a silent one.
+  }
 }
 
 const UNSAFE = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -91,11 +106,11 @@ let refreshInFlight: Promise<boolean> | null = null;
 function refreshSession(): Promise<boolean> {
   refreshInFlight ??= (async () => {
     try {
-      const csrf = readCookie("csrftoken");
+      await primeCsrf();
       const response = await fetch(`${API}/auth/refresh/`, {
         method: "POST",
         credentials: "include",
-        headers: csrf ? { "X-CSRFToken": csrf } : {},
+        headers: csrfToken ? { "X-CSRFToken": csrfToken } : {},
       });
       return response.ok;
     } catch {
@@ -162,8 +177,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   if (UNSAFE.has(method)) {
     await primeCsrf();
-    const token = readCookie("csrftoken");
-    if (token) headers["X-CSRFToken"] = token;
+    if (csrfToken) headers["X-CSRFToken"] = csrfToken;
   }
 
   const response = await fetch(`${API}${path}`, {

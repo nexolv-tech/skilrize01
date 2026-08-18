@@ -190,6 +190,45 @@ def test_login_succeeds_and_sets_httponly_cookies(client, user):
 
 
 @pytest.mark.django_db
+def test_the_csrf_endpoint_returns_the_token_in_the_body(client):
+    """A web client on a different domain than the API (D44's free
+    Render+Vercel deployment) can never read `document.cookie` for a
+    cookie the API's own domain set — only the response body works
+    regardless of deployment topology, so that's what the client reads
+    from. Caught live rather than by a test until now; see D45."""
+    response = client.get("/api/v1/auth/csrf/")
+    assert response.status_code == 200
+    assert isinstance(response.data["csrfToken"], str)
+    assert len(response.data["csrfToken"]) > 0
+
+
+@pytest.mark.django_db
+def test_an_unsafe_cookie_authenticated_request_needs_the_csrf_header(user):
+    """The `client` fixture's default APIClient() never actually enforces
+    CSRF (Django's test client bypasses it unless told not to), so the
+    bug this fix closes — a client that cannot read the csrftoken cookie
+    back off document.cookie stays permanently unable to make a second
+    authenticated write — could pass every existing test while being
+    completely broken live. A client built with enforce_csrf_checks=True
+    exercises the real path CookieJWTAuthentication._enforce_csrf runs."""
+    client = APIClient(enforce_csrf_checks=True)
+    client.post("/api/v1/auth/login/", {"email": user.email, "password": PASSWORD}, format="json")
+
+    # The access cookie is now set, so this write is cookie-authenticated —
+    # and refused without a CSRF header, the same refusal a client that
+    # could never read the cookie back would hit on every write, forever.
+    response = client.post("/api/v1/auth/logout/")
+    assert response.status_code == 403
+    assert "CSRF" in response.data["detail"]
+
+    # The token straight from the /csrf/ response body — not read back off
+    # a cookie — is what actually unblocks it.
+    token = client.get("/api/v1/auth/csrf/").data["csrfToken"]
+    response = client.post("/api/v1/auth/logout/", HTTP_X_CSRFTOKEN=token)
+    assert response.status_code == 200
+
+
+@pytest.mark.django_db
 def test_login_with_a_wrong_password_is_rejected(client, user):
     response = client.post(
         "/api/v1/auth/login/",

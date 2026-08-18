@@ -10,6 +10,7 @@ from django.contrib.auth import authenticate
 from django.core import signing
 from django.core.mail import send_mail
 from django.db.models import Q
+from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -138,8 +139,16 @@ def _authenticated_response(
 @permission_classes([AllowAny])
 @ensure_csrf_cookie
 def csrf(request):
-    """Hand the client a CSRF token before any cookie-authenticated write."""
-    return Response({"detail": "ok"})
+    """Hand the client a CSRF token before any cookie-authenticated write.
+
+    Returned in the body as well as set as a cookie — a web client on the
+    API's own origin could read the cookie directly, but one deployed to a
+    different domain outright (the free Render+Vercel path, D44) can never
+    read a cookie a different domain set, `document.cookie` only ever
+    exposes the current page's own. The body value works regardless of
+    topology, so the client reads from here rather than the cookie.
+    """
+    return Response({"detail": "ok", "csrfToken": get_token(request)})
 
 
 # --- Registration and sign-in ---------------------------------------------

@@ -1718,6 +1718,102 @@ matching logic `django-cors-headers` and Django actually use.
 
 ---
 
+## D45 · The CSRF double-submit cookie never worked across two real domains
+
+**Deploying D44's test path surfaced a real bug that had nothing to do
+with the test deployment itself: the web client's CSRF handling only
+ever worked because every environment that had exercised it so far
+happened to put the web app and the API on the same hostname. Two
+genuinely different domains — exactly what D44 requires — broke it
+outright, and D32's real production deployment was never actually
+proven safe from the same failure.**
+
+*The symptom.* First sign-in after a fresh deploy would succeed. Every
+attempt after that — including just trying to sign in again — failed
+with "CSRF check failed: rejected." Not intermittent, not a caching
+artifact: deterministic, and it got worse (locked out entirely) exactly
+once a session had ever been established.
+
+*The mechanism.* `web/lib/api.ts` read the CSRF token by calling
+`document.cookie` for `csrftoken` before every unsafe request. That
+cookie is set by the API (`accounts.views.csrf`, via
+`@ensure_csrf_cookie`) with no `CSRF_COOKIE_DOMAIN` configured anywhere
+in `config/settings.py` — so it defaults to Django's own behaviour of
+scoping the cookie to the exact host that set it. `document.cookie`
+itself only ever exposes the *current page's own* cookies, regardless of
+CORS or `credentials: "include"` — that isn't a Django setting to tune,
+it's how cookies work. A page on `skilrize01.vercel.app` can no more
+read a cookie `skilrize-api.onrender.com` set than it could read one set
+by a website it has never visited.
+
+`accounts.auth.CookieJWTAuthentication._enforce_csrf` only runs once an
+access-token cookie is present on the request — which is exactly why the
+*first* request after a fresh session ever worked: no access cookie yet,
+so the check never ran. The moment login succeeded and set that cookie,
+every subsequent unsafe request (another login attempt with the stale
+cookie still attached, funding a milestone, anything) hit the check —
+and `document.cookie` had never been able to supply a token to answer it
+with, ever, on this deployment shape. The `X-CSRFToken` header the
+client sent was silently empty the entire time.
+
+*Why this was never caught before D44.* Every prior test of this path —
+local dev, the Docker Compose stack, D32's own verification —
+ran the web app and the API on `localhost` at two different *ports*.
+Cookies are scoped by host, not port, so `localhost:3000` and
+`localhost:8000` share a cookie jar for anything neither side explicitly
+domain-scopes — the exact case that made this look like it worked. D32's
+real deployment puts the two on subdomains of one domain
+(`api.skilrize.com` / the marketing domain), which is a **different**
+host from the API's own perspective too, and `CSRF_COOKIE_DOMAIN` was
+never set to the shared parent domain there either. Nothing in this repo
+had ever actually exercised an authenticated write against that
+deployment from a real browser before this pass — D32's own verification
+was infrastructure-level (the stack boots, TLS works), not this. This
+was latent in the real production path as much as the test one; D44's
+deploy just happened to be what finally ran the write.
+
+*The fix, chosen to work for both topologies rather than patched around
+D44 specifically.* Scoping the cookie to a shared parent domain
+(`CSRF_COOKIE_DOMAIN=.skilrize.com`) would fix D32's subdomain case but
+does nothing for D44's — Vercel and Render share no parent domain to
+scope to at all, cross-domain cookie sharing via the `Domain` attribute
+is not something any setting can produce. So the fix stops depending on
+`document.cookie` for the token value entirely: `accounts.views.csrf`
+now returns the token in the JSON body (`get_token(request)`) as well as
+setting the cookie, and `web/lib/api.ts` reads it from there instead —
+held in a module-level variable (`csrfToken`), populated once by
+`primeCsrf()` and reused, rather than re-read from a cookie before every
+request. This works identically regardless of whether the web app and
+API share a host, share a parent domain, or share nothing at all. Fixed
+the same bug `refreshSession` had independently: it read the CSRF cookie
+directly without ever calling `primeCsrf()` first, so a silent
+token-refresh triggered before any other CSRF-priming call would have
+sent no header even in the working, same-host case.
+
+*Verification, deliberately built to fail on the old code first.* The
+`client` fixture used throughout `accounts/tests.py` is `APIClient()`
+with `enforce_csrf_checks` at its default (`False`) — Django's test
+client bypasses CSRF checking entirely unless told not to, which means
+every existing test in the suite, including the login tests, would have
+kept passing against the broken version of this code without noticing
+anything was wrong. Two new tests close that gap:
+`test_the_csrf_endpoint_returns_the_token_in_the_body` (the endpoint
+actually returns a `csrfToken` in the JSON, not just the cookie) and
+`test_an_unsafe_cookie_authenticated_request_needs_the_csrf_header`,
+built against a dedicated `APIClient(enforce_csrf_checks=True)` so it
+exercises the real path — it logs in, confirms a subsequent write
+(`logout`) is refused without a `X-CSRFToken` header despite a valid
+access cookie (the exact failure the live bug produced), then confirms
+the token taken from the `/csrf/` body — never read back off a cookie —
+un-refuses it. 364 backend tests pass (362 plus these two), `ruff`
+clean, `eslint`/`tsc --noEmit` clean on web, a full `VERCEL=1` build
+still succeeds. Not yet verified at the point of writing this: the
+actual deployed pair, `skilrize01.vercel.app` against
+`skilrize-api.onrender.com` — that happens after this pushes and Render
+redeploys, the same two-step dance every change to this path requires.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, a personal relationship, or an

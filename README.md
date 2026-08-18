@@ -28,7 +28,7 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 12 · Hire after trial | ✅ | A paid trial task before the full project — see below for what "converts" does and does not mean yet |
 | 13 · Proof-of-work challenges | ✅ | Timed briefs, human-reviewed scoring, ranked badges — automated Lighthouse grading built but off by default, see below |
 
-**362 backend tests pass (19 of them the cross-tenant leakage gate), plus 11
+**364 backend tests pass (19 of them the cross-tenant leakage gate), plus 11
 Dart tests and a 4-test live suite for the mobile client** (`flutter analyze`
 clean across all ~32 screens; the live suite runs against a real stack — see
 `mobile/README.md`). Migration check and production build are clean.
@@ -612,6 +612,20 @@ pointed at this repo (it reads `render.yaml` on its own), deploy `web/`
 to Vercel with `NEXT_PUBLIC_API_URL` set to the Render URL, then go back
 and point the API's `FRONTEND_URL`/`CORS_ALLOWED_ORIGINS` at the real
 Vercel URL. `render.yaml`'s own comments walk through this in order.
+
+Actually deploying this surfaced a real bug that has nothing to do with
+free tiers specifically: the web client read its CSRF token from
+`document.cookie`, which only ever works when the web app and the API
+share a hostname — true of every environment that had exercised this
+path before (`localhost` at two ports locally, subdomains of one domain
+in D32's real deployment, neither of which actually tests two genuinely
+different domains reading each other's cookies). Vercel and Render broke
+it outright: the first request after a fresh session works, then every
+one after that fails CSRF, permanently, because a page on one domain
+can never read a cookie a different domain set. Fixed in D45 by having
+the API hand back the token in the response body instead of relying on
+the client reading it off a cookie — works the same regardless of
+whether the two sides share a domain, a subdomain, or nothing at all.
 
 ---
 
