@@ -32,16 +32,15 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 Dart tests and a 4-test live suite for the mobile client** (`flutter analyze`
 clean across all ~32 screens; the live suite runs against a real stack — see
 `mobile/README.md`). Migration check and production build are clean.
-Lint and format are clean on every file this session touched; `api/challenges`
-and `api/core/tasks.py` carry pre-existing lint debt from Phase 13, unrelated
-to Phases 10–11, tracked separately rather than folded into any of these
-commits.
-`tsc --noEmit` run standalone currently fails on Next's own auto-generated
-`.next/types/validator.ts` — a typed-routes quirk that appeared with Phase 9's
-nested `admin/layout.tsx` (the first nested layout under `(app)/`), not an
-error in any file this repo owns. `next build`'s own internal type-check,
-which is what actually gates a real build, passes clean on the identical
-route tree.
+`ruff check`/`ruff format --check` are clean across every file in `api/` —
+the `api/challenges`/`api/core/tasks.py` debt from Phase 13 that earlier
+sessions tracked separately rather than fix inline is gone, closed once CI
+actually surfaced it (13 `E501`/`S607`/`B015` findings, none behavioural:
+long lines wrapped, a `noqa` moved onto the line ruff actually anchors
+`S607` to, and one test's dangling `is None` comparison turned into a plain
+assertion of "doesn't raise"). `tsc --noEmit` run standalone is clean too —
+the typed-routes quirk against `.next/types/validator.ts` a prior session
+hit does not reproduce.
 
 ### Phase 3, rebuilt: custodial escrow, not a gateway
 

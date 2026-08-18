@@ -131,7 +131,9 @@ class Participation(TimestampedModel):
         #: at 0 for exactly this reason should never look like a bug.
         UNAVAILABLE = "unavailable", "Unavailable"
 
-    challenge = models.ForeignKey(Challenge, on_delete=models.CASCADE, related_name="participations")
+    challenge = models.ForeignKey(
+        Challenge, on_delete=models.CASCADE, related_name="participations"
+    )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="challenge_participations"
     )
@@ -275,12 +277,17 @@ class Participation(TimestampedModel):
         if not (auto_ready and human_ready):
             return
 
-        has_auto = self.automated_status == self.AutomatedStatus.COMPLETE and self.automated_score is not None
+        has_auto = (
+            self.automated_status == self.AutomatedStatus.COMPLETE
+            and self.automated_score is not None
+        )
         has_human = self.human_score is not None
 
         if has_auto and has_human:
             weight = self.challenge.automated_weight
-            score = round(self.automated_score * weight / 100 + self.human_score * (100 - weight) / 100)
+            score = round(
+                self.automated_score * weight / 100 + self.human_score * (100 - weight) / 100
+            )
         elif has_auto:
             score = self.automated_score
         elif has_human:
@@ -302,7 +309,9 @@ class Badge(TimestampedModel):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="challenge_badges"
     )
     challenge = models.ForeignKey(Challenge, on_delete=models.CASCADE, related_name="badges")
-    participation = models.OneToOneField(Participation, on_delete=models.CASCADE, related_name="badge")
+    participation = models.OneToOneField(
+        Participation, on_delete=models.CASCADE, related_name="badge"
+    )
     final_score = models.PositiveSmallIntegerField()
     #: 8 means "top 8%" — rank 1 of N scales to 100/N, rounded up, never 0.
     top_percent = models.PositiveSmallIntegerField()
@@ -311,7 +320,9 @@ class Badge(TimestampedModel):
     class Meta:
         ordering = ["-awarded_at"]
         constraints = [
-            models.UniqueConstraint(fields=["user", "challenge"], name="one_badge_per_user_per_challenge")
+            models.UniqueConstraint(
+                fields=["user", "challenge"], name="one_badge_per_user_per_challenge"
+            )
         ]
 
     def __str__(self) -> str:

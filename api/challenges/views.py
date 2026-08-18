@@ -44,7 +44,14 @@ class ChallengeViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "patch", "head", "options"]
 
     def get_permissions(self):
-        if self.action in ("create", "update", "partial_update", "submissions", "review", "finalize"):
+        if self.action in (
+            "create",
+            "update",
+            "partial_update",
+            "submissions",
+            "review",
+            "finalize",
+        ):
             return [IsStaffOrAdmin()]
         if self.action in ("join", "submit", "mine"):
             return [IsAuthenticated()]
@@ -89,9 +96,7 @@ class ChallengeViewSet(viewsets.ModelViewSet):
         participation = Participation.objects.create(
             challenge=challenge, user=request.user, deadline=deadline
         )
-        return Response(
-            ParticipationSerializer(participation).data, status=status.HTTP_201_CREATED
-        )
+        return Response(ParticipationSerializer(participation).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"])
     def submit(self, request, slug=None):

@@ -18,7 +18,15 @@ class ParticipationInline(admin.TabularInline):
 
 @admin.register(Challenge)
 class ChallengeAdmin(admin.ModelAdmin):
-    list_display = ["title", "skill", "status", "automated_weight", "opens_at", "closes_at", "participant_count"]
+    list_display = [
+        "title",
+        "skill",
+        "status",
+        "automated_weight",
+        "opens_at",
+        "closes_at",
+        "participant_count",
+    ]
     list_filter = ["status"]
     search_fields = ["title", "brief"]
     prepopulated_fields = {"slug": ("title",)}
@@ -80,4 +88,11 @@ class BadgeAdmin(admin.ModelAdmin):
     list_display = ["user", "challenge", "final_score", "top_percent", "awarded_at"]
     list_filter = ["challenge"]
     search_fields = ["user__handle", "user__email", "challenge__title"]
-    readonly_fields = ["user", "challenge", "participation", "final_score", "top_percent", "awarded_at"]
+    readonly_fields = [
+        "user",
+        "challenge",
+        "participation",
+        "final_score",
+        "top_percent",
+        "awarded_at",
+    ]

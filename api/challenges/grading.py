@@ -63,7 +63,9 @@ def grade_url(url: str) -> dict:
 
     try:
         completed = subprocess.run(  # noqa: S603 — argv is a fixed list, url is the one variable and is SSRF-checked above
-            [
+            [  # noqa: S607 — "lighthouse" is resolved via PATH deliberately; the
+                # container image is the one place its absolute path is guaranteed,
+                # and that image doesn't exist yet either (LIGHTHOUSE_ENABLED is off)
                 "lighthouse",
                 url,
                 "--output=json",

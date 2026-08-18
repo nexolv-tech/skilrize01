@@ -20,7 +20,9 @@ from .models import Badge, Challenge, Participation, finalize_challenge
 from .url_safety import UnsafeURLError, assert_safe_url
 
 
-def make_challenge(*, automated_weight=50, duration_hours=24, closes_in_hours=168, **extra) -> Challenge:
+def make_challenge(
+    *, automated_weight=50, duration_hours=24, closes_in_hours=168, **extra
+) -> Challenge:
     author = extra.pop("created_by", None) or make_user(
         f"author{Challenge.objects.count()}@example.com", is_staff=True
     )
@@ -63,8 +65,8 @@ def test_unsafe_url_rejects_private_and_loopback_addresses(url):
 
 def test_unsafe_url_accepts_a_public_address():
     # An IP literal, not a hostname — resolved with no real DNS lookup, so
-    # this test has no network dependency.
-    assert_safe_url("http://8.8.8.8/") is None
+    # this test has no network dependency. Success is simply not raising.
+    assert_safe_url("http://8.8.8.8/")
 
 
 def test_unsafe_url_rejects_credentials_in_the_url():
@@ -167,7 +169,9 @@ def test_human_only_challenge_finalizes_on_review_alone():
     participation.submit(submission_url="https://example-deploy.vercel.app/")
     assert participation.automated_status == Participation.AutomatedStatus.UNAVAILABLE
 
-    participation.apply_human_review(score=88, notes="Clean, accessible, on brief.", reviewer=reviewer)
+    participation.apply_human_review(
+        score=88, notes="Clean, accessible, on brief.", reviewer=reviewer
+    )
     participation.refresh_from_db()
     assert participation.status == Participation.Status.GRADED
     assert participation.final_score == 88

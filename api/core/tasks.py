@@ -204,7 +204,9 @@ def grade_challenge_submission(self, participation_id: int) -> str:
     try:
         result = grade_url(participation.submission_url)
     except GradingUnavailable as exc:
-        logger.info("challenge_grading_unavailable participation=%s reason=%s", participation_id, exc)
+        logger.info(
+            "challenge_grading_unavailable participation=%s reason=%s", participation_id, exc
+        )
         participation.apply_automated_result(status=Participation.AutomatedStatus.UNAVAILABLE)
         return "unavailable"
     except GradingFailed as exc:
