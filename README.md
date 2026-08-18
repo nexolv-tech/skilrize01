@@ -613,6 +613,18 @@ to Vercel with `NEXT_PUBLIC_API_URL` set to the Render URL, then go back
 and point the API's `FRONTEND_URL`/`CORS_ALLOWED_ORIGINS` at the real
 Vercel URL. `render.yaml`'s own comments walk through this in order.
 
+Email verification and password-reset links deliver for real, through
+Gmail SMTP — a free Google Account App Password, set by hand in Render's
+dashboard rather than committed to this file (`EMAIL_HOST_USER`/
+`EMAIL_HOST_PASSWORD`/`DEFAULT_FROM_EMAIL` are `sync: false` in
+`render.yaml` for exactly that reason). Phone OTP has no equivalent:
+every real SMS provider only sends free-trial messages to a number
+pre-verified in that provider's own console, and sending to an arbitrary
+number a user actually types in costs real money at every provider —
+not a gap specific to this deployment, a fact about how SMS is priced
+everywhere. The code still logs (`ENVIRONMENT=test` unlocks the same log
+line `DEBUG` does locally), readable from Render's Logs tab.
+
 Actually deploying this surfaced a real bug that has nothing to do with
 free tiers specifically: the web client read its CSRF token from
 `document.cookie`, which only ever works when the web app and the API

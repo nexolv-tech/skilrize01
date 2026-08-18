@@ -35,6 +35,16 @@
 #      / skilrize01.vercel.app). Deploying this blueprint fresh under
 #      different service names needs those three edited to match, then a
 #      "Manual Deploy" -> "Deploy latest commit" to restart with it applied.
+#   7. Email needs one more manual step, since a real credential can't live
+#      in this file: turn on 2-Step Verification on a Gmail account, create
+#      an "App Password" for it (Google Account -> Security -> App
+#      passwords), then set EMAIL_HOST_USER (the Gmail address),
+#      EMAIL_HOST_PASSWORD (the app password), and DEFAULT_FROM_EMAIL
+#      ("SkilRize <that same Gmail address>") in the skilrize-api service's
+#      Environment tab. Phone OTP still has no real SMS provider — it
+#      prints to Render's Logs tab instead (search for "phone_otp").
+#      Sending real SMS to a number nobody has pre-verified costs money at
+#      every provider, so that one is a deliberate choice, not a gap.
 
 databases:
   - name: skilrize-db
@@ -113,13 +123,30 @@ services:
         value: local
       - key: STORAGE_ROOT
         value: .storage
-      # No SMTP account for a test deploy — verification links and OTP
-      # codes print to the container's log instead, readable from Render's
-      # own log viewer for whoever is signed in as the tester.
+      # Real delivery via Gmail SMTP, using a Google Account App Password —
+      # free, no card, and it actually lands in a real inbox rather than
+      # printing to Render's log viewer. EMAIL_HOST_USER/EMAIL_HOST_PASSWORD/
+      # DEFAULT_FROM_EMAIL are `sync: false` on purpose: a real credential
+      # has no business living in this file or its git history, so Render
+      # leaves them alone on every blueprint sync and only the dashboard
+      # value (set by hand, once) is ever used. Gmail's SMTP relay enforces
+      # that the From address matches the authenticated account, so
+      # DEFAULT_FROM_EMAIL has to be that same Gmail address, not an
+      # arbitrary "no-reply@" one.
       - key: EMAIL_BACKEND
-        value: django.core.mail.backends.console.EmailBackend
+        value: django.core.mail.backends.smtp.EmailBackend
+      - key: EMAIL_HOST
+        value: smtp.gmail.com
+      - key: EMAIL_PORT
+        value: "587"
+      - key: EMAIL_USE_TLS
+        value: "True"
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
       - key: DEFAULT_FROM_EMAIL
-        value: "SkilRize <no-reply@skilrize.test>"
+        sync: false
       # Shortened from the real 2-hour default (Section 8.4's new-device
       # hold on money-adjacent actions) purely so a solo tester isn't stuck
       # waiting two hours after their first sign-in to try funding a
