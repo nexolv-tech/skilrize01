@@ -651,8 +651,11 @@ def set_phone(request):
         digits=6,
     )
     # The SMS provider is connected in a later phase. Until then the code is
-    # logged in development only, and never returned in an API response.
-    if settings.DEBUG:
+    # logged rather than sent, and never returned in an API response — in
+    # DEBUG for local work, or on a disposable test deployment
+    # (ENVIRONMENT=test, D44) where there's no real phone to receive it
+    # either but the tester still needs the code from somewhere.
+    if settings.DEBUG or settings.ENVIRONMENT == "test":
         logging.getLogger(__name__).info("phone_otp user=%s code=%s", request.user.pk, code)
     return Response({"detail": "A verification code has been sent."})
 
