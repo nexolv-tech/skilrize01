@@ -27,7 +27,7 @@ python-decouple==3.8
 # Outbound calls to third-party integration APIs (Zoom, Google, GitHub,
 # Figma, Notion) — Phase 10. First HTTP client in this codebase; every prior
 # outbound call (ClamAV, Lighthouse) went over a raw socket or a CLI.
-requests==2.32.5
+requests==2.33.0
 
 # Error tracking — Phase 11. Inert with no SENTRY_DSN configured (the
 # SDK's own no-op behaviour, not code written here); see SENTRY_DSN in
