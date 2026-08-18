@@ -39,8 +39,13 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   // Production Docker image runs the standalone server output (a pruned
-  // node_modules + server.js), not `next start` against the full build.
-  output: "standalone",
+  // node_modules + server.js), not `next start` against the full build —
+  // but only there. Vercel supplies its own serverless bundling and this
+  // setting changes the build output shape in a way that actively breaks
+  // Vercel's own trace step (an ENOENT on a missing .nft.json), so it's
+  // skipped whenever `VERCEL` is set — Vercel sets that env var on every
+  // build automatically, so nothing has to be configured by hand per target.
+  output: process.env.VERCEL ? undefined : "standalone",
   // Next 16.3 writes AGENTS.md and CLAUDE.md into the app directory on every
   // dev start. This repository documents itself in README.md and DECISIONS.md;
   // generated files that reappear after every `npm run dev` are noise in a
