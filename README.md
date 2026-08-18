@@ -590,6 +590,29 @@ before launch — every other setting in this list has a safe default or
 can stay disabled, but a blank bank account here means the bank-transfer
 panel shows nothing to transfer to.
 
+### Free test deploy (not production)
+
+`render.yaml` at the repo root is a second, much smaller deployment
+path — a Render Blueprint that fits Render's free web-service tier plus a
+free Postgres, for kicking the tyres on a real deployment without paying
+anything. No platform gives a free background worker, so this drops
+Redis and Celery's worker process entirely: `config/settings.py` already
+falls back to Django's in-process cache and Celery's synchronous "eager"
+mode whenever `REDIS_URL` is unset, which is exactly the condition
+`render.yaml` sets up. What that trades away — no periodic sweeps
+(reindexing, reputation refresh, promotion, challenge deadlines), an idle
+service that sleeps after 15 minutes and takes under a minute to wake,
+a free database Render deletes after 90 days, and uploads that don't
+survive a redeploy — is documented in comments at the top of the file
+itself, not just here.
+
+Render can't be signed up for or connected on anyone's behalf, so the
+steps from here are manual: push to GitHub, create a Render Blueprint
+pointed at this repo (it reads `render.yaml` on its own), deploy `web/`
+to Vercel with `NEXT_PUBLIC_API_URL` set to the Render URL, then go back
+and point the API's `FRONTEND_URL`/`CORS_ALLOWED_ORIGINS` at the real
+Vercel URL. `render.yaml`'s own comments walk through this in order.
+
 ---
 
 ## Architecture

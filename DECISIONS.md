@@ -1627,6 +1627,97 @@ were left in place as the real reference data they are, not test fixtures.
 
 ---
 
+## D44 · A free test deployment path, separate from D32's real one
+
+**Asked for a way to put the whole platform somewhere free "just for
+testing." Wix was the platform actually named, and it can't run this —
+it has no path to arbitrary backend code, Docker, Postgres, or a task
+queue at any price point, so there was no configuration of it that would
+have worked. What follows instead is the closest thing to "free and
+complete" that a real host can offer.**
+
+*Why not Railway or Fly.io.* Checked current terms (August 2026) rather
+than assumed: Railway's free tier is a one-time $5 trial credit that
+expires in 30 days, after which it reverts to $1/month of credit — not
+enough to keep a multi-service app running. Fly.io removed its free
+allowance for new accounts in 2024 entirely; a card is required after a
+2-hour trial and even the smallest always-on machine runs about
+$1.94/month. Neither is "free," just free-for-a-while or free-until-a-card.
+Render's free web service and free Postgres are genuinely free with no
+card, which is why it's the one this targets — at the cost of two real
+limits: the free database is deleted 90 days after creation, and there is
+no free tier for a background worker anywhere, on any of these platforms.
+That last point isn't a Render gap to shop around for a fix to — a
+worker is compute that has to run continuously, and continuous compute is
+what every free tier draws its line in front of.
+
+*What makes "no worker" survivable rather than disqualifying:* Section
+24's "notifications are always queued, never sent inline" already runs
+through Celery's `.delay()`, and `config/settings.py` already had a
+`CELERY_TASK_ALWAYS_EAGER` flag (defaulting to `DEBUG`) for exactly this
+kind of environment — eager mode runs a task's body synchronously inside
+the caller, no broker involved. The one piece that didn't already have an
+escape hatch was the cache: `CACHES` pointed at `REDIS_URL` unconditionally,
+which would fail outright with no Redis at all. Fixed by making `REDIS_URL`
+itself optional (default `""` instead of `redis://localhost:6379/0`) and
+branching `CACHES` between `RedisCache` and Django's built-in `LocMemCache`
+depending on whether it's set — and tying `CELERY_TASK_ALWAYS_EAGER`'s
+default to `DEBUG or not REDIS_URL` rather than `DEBUG` alone, so a
+deployment with no Redis gets eager mode automatically instead of needing
+a second env var to remember. Every real environment this repo runs
+(`docker-compose.yml`, `.env`, `deploy/docker-compose.prod.yml`) sets
+`REDIS_URL` explicitly, so none of them notice this branch exists — it
+only activates when the variable is genuinely absent, which was true of
+no environment before this decision.
+
+*What still doesn't run without a worker, named rather than glossed
+over:* `CELERY_BEAT_SCHEDULER`'s periodic tasks — search reindexing,
+reputation refresh, promotion sweeps, challenge-deadline sweeps — need an
+actual `celery worker -B` process to fire on a schedule, and eager mode
+doesn't substitute for that; it only covers tasks a request triggers
+directly. A workerless deploy is for clicking through the product, not
+for testing anything that depends on a cron-like sweep having run.
+
+*`render.yaml`, at the repo root:* a Render Blueprint — one free web
+service (Docker build, `migrate && collectstatic && gunicorn` as the
+start command, matching D32's production command apart from Redis) and
+one free Postgres, wired together with `fromDatabase` references so no
+connection string has to be copied by hand. `SECRET_KEY`, `FILE_SIGNING_KEY`,
+and `FIELD_ENCRYPTION_KEY` all get `generateValue: true` rather than
+sharing one secret three ways. `ALLOWED_HOSTS` is set to `.onrender.com`
+(Django's leading-dot syntax, matching any subdomain) since the exact
+hostname isn't known until Render assigns it; `FRONTEND_URL` and
+`CORS_ALLOWED_ORIGINS` are left as placeholders with a comment, since
+`django-cors-headers`' `CORS_ALLOWED_ORIGINS` is an exact-match list, not
+a pattern, and the real Vercel URL doesn't exist until after the web
+frontend's own deploy — a two-step dance documented in the file itself,
+not assumed obvious. `DEVICE_COOLOFF_SECONDS` is shortened from the real
+7200-second default to 60, called out explicitly as a testing-only
+convenience so a solo tester isn't blocked for two hours after their
+first sign-in before they can try funding a milestone — not a claim that
+60 seconds is the right value anywhere else.
+
+*This is not D32.* The real production path — Redis, a Celery worker,
+ClamAV, Caddy, backups — is unchanged and still the only one meant to
+serve real users. `render.yaml` exists next to it, not instead of it, and
+says so in its own header comment.
+
+*Verification, and its honest limit.* The Redis-optional branch is
+verified for real: `python manage.py check`, the full 362-test suite, and
+the cross-tenant gate all pass identically with `REDIS_URL` unset, and a
+cache round-trip plus an eager Celery task (`sweep_promotions`) were both
+run by hand against that configuration and behaved correctly — same
+362-test pass count with `REDIS_URL` set, so nothing in the normal path
+regressed either. What is **not** verified is `render.yaml` itself
+against Render's actual blueprint parser — that requires a Render account
+to apply it, which is not something to sign up for or connect on someone
+else's behalf. The file is correct against everything checkable without
+one: valid YAML, every `config()` call in `settings.py` with no default
+accounted for, `ALLOWED_HOSTS`/CORS reasoning checked against the exact
+matching logic `django-cors-headers` and Django actually use.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, a personal relationship, or an

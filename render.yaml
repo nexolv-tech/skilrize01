@@ -1,0 +1,121 @@
+# Render Blueprint for a free, testing-only deployment of the API + database.
+#
+# This is NOT the production deployment (see deploy/ for that — a self-hosted
+# VM stack with Redis, a Celery worker, ClamAV, and Caddy). This is the
+# minimal shape that fits Render's free tier: one web service, one Postgres
+# instance, nothing else. It works because config/settings.py already falls
+# back to an in-process cache and Celery "eager" mode (tasks run inline, no
+# broker needed) whenever REDIS_URL is unset — see that file for why.
+#
+# What this means in practice, worth knowing before you rely on it for
+# anything but a quick click-through:
+#   - No Celery worker means no Celery Beat, so nothing scheduled to run
+#     periodically (search reindexing, reputation refresh, promotion sweeps,
+#     challenge-deadline sweeps) actually runs. Everything triggered by a
+#     request still works, since eager mode runs it inline.
+#   - The free web service spins down after 15 minutes idle and takes
+#     roughly 30-60 seconds to wake back up on the next request.
+#   - The free Postgres database is deleted by Render 90 days after
+#     creation, with no grace period. Fine for test data, not for anything
+#     you'd mind losing.
+#   - Uploaded files (project attachments, ID verification photos, gig
+#     galleries) live on the container's local disk, which does not
+#     persist across deploys or restarts on Render's free tier.
+#
+# Deploy steps (Render can't be signed up to or connected on your behalf):
+#   1. Push this repo to GitHub (already done).
+#   2. In the Render dashboard: New -> Blueprint -> connect this repo.
+#      Render reads this file and proposes the two resources below.
+#   3. Apply it. First deploy takes a few minutes (image build + migrate).
+#   4. Note the API's URL (something like https://skilrize-api-xxxx.onrender.com).
+#   5. Deploy web/ to Vercel with NEXT_PUBLIC_API_URL set to that URL.
+#   6. Back in Render, edit the api service's FRONTEND_URL and
+#      CORS_ALLOWED_ORIGINS env vars to the real Vercel URL, then
+#      "Manual Deploy" -> "Deploy latest commit" to restart with it applied.
+
+databases:
+  - name: skilrize-db
+    databaseName: skilrize
+    user: skilrize
+    plan: free
+    postgresMajorVersion: "17"
+
+services:
+  - type: web
+    name: skilrize-api
+    runtime: docker
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: ./api
+    plan: free
+    healthCheckPath: /healthz
+    dockerCommand: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput &&
+             gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60"
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: FILE_SIGNING_KEY
+        generateValue: true
+      # Encrypts payout bank details/CNIC and OTP secrets at rest
+      # (core.crypto.EncryptedTextField). Defaults to SECRET_KEY if unset,
+      # but a test deploy gets its own generated value anyway rather than
+      # relying on that fallback.
+      - key: FIELD_ENCRYPTION_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: ENVIRONMENT
+        value: "test"
+      # Matches any *.onrender.com host, since the exact one isn't known
+      # until Render assigns it on first deploy (Django's leading-dot
+      # ALLOWED_HOSTS syntax matches any subdomain).
+      - key: ALLOWED_HOSTS
+        value: ".onrender.com"
+      # Placeholders — Render can't know the Vercel URL yet at blueprint
+      # time. Update both to the real one after step 5 above.
+      - key: FRONTEND_URL
+        value: "https://your-app.vercel.app"
+      - key: CORS_ALLOWED_ORIGINS
+        value: "https://your-app.vercel.app"
+      - key: POSTGRES_DB
+        fromDatabase: {name: skilrize-db, property: database}
+      - key: POSTGRES_USER
+        fromDatabase: {name: skilrize-db, property: user}
+      - key: POSTGRES_PASSWORD
+        fromDatabase: {name: skilrize-db, property: password}
+      - key: POSTGRES_HOST
+        fromDatabase: {name: skilrize-db, property: host}
+      - key: POSTGRES_PORT
+        fromDatabase: {name: skilrize-db, property: port}
+      # Deliberately unset — this is what puts the app on the Redis-less
+      # path (in-process cache, Celery eager mode) instead of failing to
+      # boot for want of a broker that costs money everywhere.
+      - key: REDIS_URL
+        value: ""
+      - key: STORAGE_BACKEND
+        value: local
+      - key: STORAGE_ROOT
+        value: .storage
+      # No SMTP account for a test deploy — verification links and OTP
+      # codes print to the container's log instead, readable from Render's
+      # own log viewer for whoever is signed in as the tester.
+      - key: EMAIL_BACKEND
+        value: django.core.mail.backends.console.EmailBackend
+      - key: DEFAULT_FROM_EMAIL
+        value: "SkilRize <no-reply@skilrize.test>"
+      # Shortened from the real 2-hour default (Section 8.4's new-device
+      # hold on money-adjacent actions) purely so a solo tester isn't stuck
+      # waiting two hours after their first sign-in to try funding a
+      # milestone. Not a stand-in for the real value in any environment
+      # that isn't a disposable test deploy.
+      - key: DEVICE_COOLOFF_SECONDS
+        value: "60"
+      - key: PLATFORM_COMMISSION_PERCENT
+        value: "10.0"
+      - key: PLATFORM_BANK_NAME
+        value: "Test Bank"
+      - key: PLATFORM_BANK_ACCOUNT_TITLE
+        value: "SkilRize Test Escrow"
+      - key: PLATFORM_BANK_ACCOUNT_NUMBER
+        value: "0000000000"

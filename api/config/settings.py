@@ -111,14 +111,24 @@ DATABASES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-REDIS_URL = config("REDIS_URL", default="redis://localhost:6379/0")
+REDIS_URL = config("REDIS_URL", default="")
 
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": REDIS_URL,
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+        }
     }
-}
+else:
+    # No Redis configured — true of a minimal free-tier deployment with no
+    # broker at all, not of any environment this repo actually runs
+    # (docker-compose and .env both set REDIS_URL). Falls back to an
+    # in-process cache so `cache.get`/`cache.set` calls (rate limiting,
+    # Phase 11) don't need a service that isn't there; lost on every
+    # process restart, which is fine for a single-instance test deploy and
+    # wrong for anything with more than one web process.
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 
 
 # --- Authentication --------------------------------------------------------
@@ -441,15 +451,24 @@ EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=True, cast=bool)
 
 # --- Async -----------------------------------------------------------------
 
-CELERY_BROKER_URL = REDIS_URL
-CELERY_RESULT_BACKEND = REDIS_URL
+# `memory://` is Kombu's built-in in-process broker — never actually
+# connected to when `CELERY_TASK_ALWAYS_EAGER` is on (eager mode runs a
+# task's body directly instead of publishing it), just a valid value so
+# nothing errors constructing the Celery app when `REDIS_URL` is unset.
+CELERY_BROKER_URL = REDIS_URL or "memory://"
+CELERY_RESULT_BACKEND = REDIS_URL or "cache+memory://"
 CELERY_TASK_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TIMEZONE = "UTC"
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # Notifications are always queued, never sent inline with a web request
-# (Section 24).
-CELERY_TASK_ALWAYS_EAGER = config("CELERY_TASK_ALWAYS_EAGER", default=DEBUG, cast=bool)
+# (Section 24) — except with no Redis to queue them on, where eager is the
+# only way they run at all. A worker process still has to exist for
+# `CELERY_BEAT_SCHEDULER`'s periodic tasks to fire regardless of this
+# setting; there is no substitute for that one on a workerless deploy.
+CELERY_TASK_ALWAYS_EAGER = config(
+    "CELERY_TASK_ALWAYS_EAGER", default=DEBUG or not REDIS_URL, cast=bool
+)
 
 
 # --- Locale ----------------------------------------------------------------
