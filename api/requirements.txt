@@ -1,10 +1,10 @@
-Django==6.0.7
-djangorestframework==3.17.1
+Django==6.1
+djangorestframework==3.18.0
 djangorestframework-simplejwt==5.5.1
 django-cors-headers==4.9.0
-psycopg[binary]==3.2.12
+psycopg[binary]==3.3.4
 
-celery==5.6.0
+celery==5.6.3
 redis==7.1.0
 django-celery-beat==2.9.0
 
@@ -14,7 +14,7 @@ argon2-cffi==25.1.0
 # — report Section 7.3.
 cryptography==50.0.0
 # TOTP second factor — report Section 6.4.
-pyotp==2.9.0
+pyotp==2.10.0
 # Renders the enrolment QR server-side. Generating it here rather than shipping
 # a QR library to the browser keeps the shared secret out of a third-party
 # bundle's reach and off the client's dependency surface entirely.
@@ -27,12 +27,12 @@ python-decouple==3.8
 # Outbound calls to third-party integration APIs (Zoom, Google, GitHub,
 # Figma, Notion) — Phase 10. First HTTP client in this codebase; every prior
 # outbound call (ClamAV, Lighthouse) went over a raw socket or a CLI.
-requests==2.33.0
+requests==2.34.2
 
 # Error tracking — Phase 11. Inert with no SENTRY_DSN configured (the
 # SDK's own no-op behaviour, not code written here); see SENTRY_DSN in
 # settings.py.
-sentry-sdk==2.68.0
+sentry-sdk==2.68.1
 
 # Service-account OAuth2 for Firebase Cloud Messaging — Phase 7. FCM's HTTP
 # v1 API needs a signed-JWT-for-bearer-token exchange with a refresh
@@ -43,12 +43,12 @@ google-auth==2.56.3
 
 # Production WSGI server — runserver is single-threaded and explicitly unsafe
 # for real traffic.
-gunicorn==26.0.0
+gunicorn==26.2.0
 # Serves STATIC_ROOT straight from the Django process with cache-busting
 # hashes and gzip, so production needs no separate static file server.
 whitenoise==6.12.0
 
 # Dev / CI
-ruff==0.15.0
-pytest==9.0.3
-pytest-django==4.11.1
+ruff==0.16.4
+pytest==9.1.1
+pytest-django==4.14.0
