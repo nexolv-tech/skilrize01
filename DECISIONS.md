@@ -1960,10 +1960,13 @@ and *firozi* — the turquoise of Multan tilework — reserved for campus
 portals so the student surface is recognisable at a glance. Type is
 Archivo at a condensed width for display and Martian Mono for labels and
 every figure, so amounts line up. Motion is limited to the ticket's
-sequence, which replays on its own every eight seconds while it is on
-screen, with a Pause control (anything that moves for more than five
-seconds must be stoppable, WCAG 2.2.2); under `prefers-reduced-motion`
-it shows the finished slip and never loops. Remaining gradient and
+sequence. It waits on its first frame until the slip is in view — the
+slip sits below the fold, so a pass begun on page load would be over
+before anyone reached it — then plays at once and replays after a
+two-second hold for as long as it stays on screen. The owner chose a
+continuous loop without a Pause control, which departs from WCAG 2.2.2
+(motion lasting over five seconds should be stoppable); under
+`prefers-reduced-motion` it shows the finished slip and never loops. Remaining gradient and
 "sparkle" treatments in the app were removed rather than restyled.
 
 ## D50 · Every service shows the work: a required picture, an optional video

@@ -45,6 +45,9 @@ function subscribeReducedMotion(onChange: () => void) {
   return () => query.removeEventListener("change", onChange);
 }
 
+/** How much of the slip must be on screen before a pass plays. */
+const PLAY_RATIO = 0.4;
+
 /** True while `ref` is at least partly on screen — a loop nobody can see is
  *  wasted work, and restarting where the visitor is not looking is pointless. */
 function useOnScreen(ref: React.RefObject<HTMLElement | null>) {
@@ -62,8 +65,8 @@ function useOnScreen(ref: React.RefObject<HTMLElement | null>) {
 export function EscrowTicket({ className }: { className?: string }) {
   const [run, setRun] = React.useState(0);
   const [fading, setFading] = React.useState(false);
+  const [playing, setPlaying] = React.useState(true);
   const figureRef = React.useRef<HTMLElement>(null);
-  const visible = useOnScreen(figureRef);
   // Reduced motion shows the finished slip at once (globals.css), so there
   // is nothing to loop.
   const reducedMotion = React.useSyncExternalStore(
@@ -74,10 +77,33 @@ export function EscrowTicket({ className }: { className?: string }) {
   const price = 18000;
   const fee = Math.round((price * BUSINESS.commissionPercent) / 100);
 
+  // The slip sits below the fold, so a pass that began on page load would be
+  // over before anyone scrolled to it. Once it is wholly off screen it rewinds
+  // and waits at the start; the pass begins as soon as enough of it is in view.
+  React.useEffect(() => {
+    const node = figureRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry) return;
+        if (!entry.isIntersecting) {
+          setPlaying(false);
+          setFading(false);
+          setRun((value) => value + 1);
+        } else if (entry.intersectionRatio >= PLAY_RATIO) {
+          setPlaying(true);
+        }
+      },
+      { threshold: [0, PLAY_RATIO] },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
   // Each pass schedules the next: fade the finished slip out, then remount it
   // (the `key` below) so every CSS animation starts again from zero.
   React.useEffect(() => {
-    if (reducedMotion || !visible) return;
+    if (reducedMotion || !playing) return;
     const fade = window.setTimeout(() => setFading(true), CYCLE_MS - FADE_MS);
     const next = window.setTimeout(() => {
       setFading(false);
@@ -87,7 +113,7 @@ export function EscrowTicket({ className }: { className?: string }) {
       window.clearTimeout(fade);
       window.clearTimeout(next);
     };
-  }, [run, reducedMotion, visible]);
+  }, [run, reducedMotion, playing]);
 
   return (
     <figure ref={figureRef} className={cn("relative", className)}>
@@ -97,6 +123,8 @@ export function EscrowTicket({ className }: { className?: string }) {
           "ticket-edge relative rounded-t-xl border border-b-0 border-line bg-raised px-6 pt-6 pb-9 shadow-e3",
           "transition-opacity duration-300",
           fading && "opacity-0",
+          // Held on its first frame; beats the inline `animation` shorthand.
+          !playing && !reducedMotion && "[&_*]:[animation-play-state:paused]!",
         )}
       >
         <div className="flex items-baseline justify-between gap-4">
