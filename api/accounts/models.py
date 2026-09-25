@@ -654,11 +654,11 @@ class KnownDevice(TimestampedModel):
     at the same moment is what makes the window useful: it gives the real owner
     time to revoke before a thief can spend anything.
 
-    The fingerprint is a keyed hash of the user agent. That is a weak
-    identifier and is treated as one: it is a heuristic for "have we seen this
-    before", never an authentication factor. Two identical browsers on the same
-    OS collapse into one device, which errs toward fewer alerts rather than
-    toward trusting something unseen.
+    The fingerprint is a keyed hash of a random id the device keeps: a
+    long-lived cookie in a browser, secure storage in the app
+    (`accounts.devices`). Rows from before D52 were keyed by the user agent and
+    are re-keyed to the id the next time that device signs in. It is a
+    heuristic for "have we seen this before", never an authentication factor.
     """
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="devices")

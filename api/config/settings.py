@@ -194,9 +194,11 @@ REQUIRE_NEW_DEVICE_VERIFICATION = config("REQUIRE_NEW_DEVICE_VERIFICATION", defa
 # A password that has just been used from an unrecognised device is the exact
 # signature of a freshly stolen credential. Rather than block the session — the
 # legitimate case is common and blocking it is hostile — the device may browse
-# everything and simply cannot move money until the window closes. That leaves
-# the real user a couple of hours to read the alert email and revoke.
-DEVICE_COOLOFF_SECONDS = config("DEVICE_COOLOFF_SECONDS", default=7200, cast=int)  # 2 hours
+# everything and simply cannot move money until the window closes. Half an hour
+# is enough for the real user to see the alert email and revoke, and short
+# enough not to cost a genuine new laptop its afternoon (D52; it was 2 hours).
+# The device an account is created on is never held.
+DEVICE_COOLOFF_SECONDS = config("DEVICE_COOLOFF_SECONDS", default=1800, cast=int)  # 30 minutes
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
@@ -296,6 +298,7 @@ CORS_ALLOW_HEADERS = (
     *cors_default_headers,
     "x-skilrize-surface",
     "x-skilrize-client",
+    "x-skilrize-device",
 )
 
 SECURE_CONTENT_TYPE_NOSNIFF = True

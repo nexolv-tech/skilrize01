@@ -574,8 +574,10 @@ def test_a_recognised_device_skips_the_emailed_code(client, user, verifying):
         HTTP_USER_AGENT=agent,
     )
 
-    # Second sign-in from the same device: straight through, no code.
+    # Second sign-in from the same device (a fresh session, the same device
+    # cookie): straight through, no code.
     again = APIClient()
+    again.cookies["skilrize_device"] = client.cookies["skilrize_device"].value
     response = again.post(
         "/api/v1/auth/login/",
         {"email": user.email, "password": PASSWORD},
@@ -791,6 +793,148 @@ def test_transactions_unlock_once_the_hold_expires(client, settings):
 
     response = client.get("/api/v1/proposals/quota/")
     assert response.status_code == 200
+
+
+def _sign_in_from(client, user, agent, **extra):
+    return client.post(
+        "/api/v1/auth/login/",
+        {"email": user.email, "password": PASSWORD},
+        format="json",
+        HTTP_USER_AGENT=agent,
+        **extra,
+    )
+
+
+@pytest.mark.django_db
+def test_the_device_an_account_is_created_on_is_not_held(client, settings):
+    """A brand-new account has nothing to steal; the hold is for a known
+    account turning up somewhere new."""
+    from accounts.models import KnownDevice
+
+    settings.DEVICE_COOLOFF_SECONDS = 1800
+
+    response = client.post(
+        "/api/v1/auth/signup/",
+        {"email": "fresh@example.com", "password": PASSWORD, "accept_terms": True},
+        format="json",
+        HTTP_USER_AGENT="Mozilla/5.0 (FirstLaptop)",
+    )
+
+    assert response.status_code == 201
+    assert response.data["device_cooloff_seconds"] == 0
+    assert response.cookies["skilrize_device"]["httponly"]
+    device = KnownDevice.objects.get(user__email="fresh@example.com")
+    assert device.is_trusted
+    assert client.get("/api/v1/auth/me/").data["device_cooloff_seconds"] == 0
+
+
+@pytest.mark.django_db
+def test_a_browser_update_is_not_a_new_device(client, user, settings):
+    """The same browser after an update sends a new user agent but the same
+    device cookie. Before D52 that was a new device: a code, an alert and a
+    fresh hold after every Chrome release."""
+    from accounts.models import KnownDevice
+    from core.models import Notification
+
+    settings.DEVICE_COOLOFF_SECONDS = 1800
+    _sign_in_from(client, user, "Mozilla/5.0 Chrome/140.0.0.0")
+    KnownDevice.objects.filter(user=user).update(trusted_at=timezone.now())
+    alerts = Notification.objects.filter(user=user).count()
+
+    response = _sign_in_from(client, user, "Mozilla/5.0 Chrome/141.0.0.0")
+
+    assert response.data["device_cooloff_seconds"] == 0
+    assert KnownDevice.objects.filter(user=user).count() == 1
+    assert Notification.objects.filter(user=user).count() == alerts
+
+
+@pytest.mark.django_db
+def test_the_same_browser_string_elsewhere_is_still_a_new_device(client, user, settings):
+    """Every copy of one browser version shares a user agent; the device
+    cookie is what tells them apart."""
+    from accounts.models import KnownDevice
+
+    settings.DEVICE_COOLOFF_SECONDS = 1800
+    agent = "Mozilla/5.0 Chrome/140.0.0.0"
+    _sign_in_from(client, user, agent)
+
+    elsewhere = _sign_in_from(APIClient(), user, agent)
+
+    assert elsewhere.data["device_cooloff_seconds"] > 0
+    assert KnownDevice.objects.filter(user=user).count() == 2
+
+
+@pytest.mark.django_db
+def test_a_device_recorded_by_its_agent_is_recognised_once_and_rekeyed(client, user, verifying):
+    """Rows from before device ids were keyed by the user agent. That device
+    signs straight in, and from then on is known by its new cookie."""
+    from accounts import devices
+    from accounts.models import KnownDevice
+
+    agent = "Mozilla/5.0 (OldFriend)"
+    legacy = KnownDevice.objects.create(
+        user=user,
+        fingerprint=devices._keyed(agent),
+        trusted_at=timezone.now(),
+    )
+
+    response = _sign_in_from(client, user, agent)
+
+    assert "device_verification_required" not in response.data
+    assert response.data["device_cooloff_seconds"] == 0
+    legacy.refresh_from_db()
+    assert legacy.fingerprint == devices._keyed(
+        f"device:{response.cookies['skilrize_device'].value}"
+    )
+    assert KnownDevice.objects.filter(user=user).count() == 1
+
+
+@pytest.mark.django_db
+def test_a_signed_in_browser_from_before_device_ids_is_given_one(client, user):
+    """Its session outlives the deploy; without an id the next browser update
+    would make it a stranger mid-session."""
+    from accounts import devices
+    from accounts.models import KnownDevice
+
+    agent = "Mozilla/5.0 (StillSignedIn)"
+    _sign_in_from(client, user, agent)
+    # Wind the row and the browser back to how they were before device ids.
+    del client.cookies["skilrize_device"]
+    KnownDevice.objects.filter(user=user).update(fingerprint=devices._keyed(agent))
+
+    response = client.get("/api/v1/auth/me/", HTTP_USER_AGENT=agent)
+
+    value = response.cookies["skilrize_device"].value
+    assert KnownDevice.objects.get(user=user).fingerprint == devices._keyed(f"device:{value}")
+
+
+@pytest.mark.django_db
+def test_the_app_is_known_by_the_id_it_sends(client, user, settings):
+    """The app keeps its own id in secure storage and sends it on every
+    request; no cookie is involved."""
+    from accounts.models import KnownDevice
+
+    settings.DEVICE_COOLOFF_SECONDS = 1800
+    phone = {"HTTP_X_SKILRIZE_CLIENT": "native", "HTTP_X_SKILRIZE_DEVICE": "p" * 43}
+    first = _sign_in_from(APIClient(), user, "Dart/3.5 (dart:io)", **phone)
+    KnownDevice.objects.filter(user=user).update(trusted_at=timezone.now())
+
+    again = _sign_in_from(APIClient(), user, "Dart/3.6 (dart:io)", **phone)
+
+    assert "skilrize_device" not in first.cookies
+    assert again.data["device_cooloff_seconds"] == 0
+    assert KnownDevice.objects.filter(user=user).count() == 1
+
+
+@pytest.mark.django_db
+def test_the_alert_states_the_hold_in_minutes(client, user, settings):
+    from core.models import Notification, NotificationCategory
+
+    settings.DEVICE_COOLOFF_SECONDS = 1800
+    _sign_in_from(client, user, "Mozilla/5.0 (UnfamiliarDevice)")
+
+    alert = Notification.objects.get(user=user, category=NotificationCategory.SECURITY)
+    assert "30 minutes after sign-in" in alert.body
 
 
 @pytest.mark.django_db

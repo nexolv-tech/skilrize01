@@ -62,6 +62,7 @@ class ApiClient {
       if (json) 'Content-Type': 'application/json',
       if (surface != 'global') 'X-Skilrize-Surface': surface,
       if (access != null) 'Authorization': 'Bearer $access',
+      'X-Skilrize-Device': await tokens.deviceId(),
       ...nativeClientHeader,
     };
   }

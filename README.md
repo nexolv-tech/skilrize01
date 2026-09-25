@@ -765,7 +765,7 @@ argument is about the numbers rather than where they live.
 | Password policy | 12 characters, all four character classes, no runs or keyboard walks |
 | Hashing | Argon2id, cost factors **pinned** rather than inherited from Django defaults |
 | Brute force | 5 failures locks an account 30 min; 10 failures from one address blocks it 1 hour |
-| New devices | Emailed OTP when no authenticator is enrolled; 2-hour hold on transactions either way |
+| New devices | Emailed OTP when no authenticator is enrolled; 30-minute hold on transactions either way, none on the device an account is created on; a device is a random id it keeps, not its user agent (D52) |
 | 2FA | TOTP with server-rendered QR, replay-protected; **required before money moves** |
 | Transport | Nonce-based CSP, HSTS preload, COOP/CORP, strict Permissions-Policy |
 | Uploads | Magic-byte validation, re-encoding, ClamAV — **fails closed** if no scanner |

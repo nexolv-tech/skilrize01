@@ -131,5 +131,23 @@ void main() {
 
       expect(await client.delete('/integrations/zoom/disconnect/'), isNull);
     });
+
+    test('every request names the same device, before and after signing out', () async {
+      final seen = <String?>[];
+      final mock = MockClient((request) async {
+        seen.add(request.headers['X-Skilrize-Device']);
+        return http.Response(jsonEncode({'ok': true}), 200);
+      });
+      final tokens = MemoryTokenStore();
+      final client = ApiClient(baseUrl: 'http://test.local', tokens: tokens, httpClient: mock);
+
+      await client.get('/projects/');
+      await tokens.clear();
+      await client.get('/projects/');
+
+      // The shape accounts/devices.py accepts: 32 to 64 URL-safe characters.
+      expect(seen.first, matches(RegExp(r'^[A-Za-z0-9_-]{32,64}$')));
+      expect(seen.last, seen.first);
+    });
   });
 }

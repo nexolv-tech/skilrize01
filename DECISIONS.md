@@ -264,7 +264,9 @@ been quietly downgraded to whatever the inbox is worth. The client never picks
 *Known cost:* the hold stacks with the emailed code rather than replacing it,
 at the CEO's direction. A user who has just proved inbox control still waits
 two hours before bidding. Setting `DEVICE_COOLOFF_SECONDS=0` for OTP-verified
-devices is a one-line change if that friction proves too high.
+devices is a one-line change if that friction proves too high. (Superseded in
+part by D52: the hold is now 30 minutes, and never applies to the device an
+account is created on.)
 
 ---
 
@@ -2038,6 +2040,39 @@ repositories only; private ones would need a GitHub App with read-only
 contents permission rather than the all-or-nothing `repo` scope. The
 disabled state reads "Coming soon", and each row says what connecting it
 does.
+
+---
+
+## D52 · A device is what it keeps, and a new account is not held
+
+The owner asked for the new-device hold to apply only to a sign-in from a
+new device, and for 30 minutes rather than two hours. Checking it turned up
+why it appeared more often than that:
+
+- **Signing up counted as a new device.** The account's first device was
+  held like any other, so a person who had just registered could not buy or
+  bid for two hours. The device an account is created on is now trusted at
+  once; a new account has no history or money to protect.
+- **A device was its user agent.** Chrome's version is in that string, so
+  every monthly update made the same laptop a new device: an emailed code,
+  an alert and a fresh hold. And two people on the same browser version
+  shared one "device". A device is now a random id it keeps: an HttpOnly
+  cookie (`skilrize_device`, 400 days, renewed at each sign-in) in a
+  browser, secure storage in the app, sent as `X-Skilrize-Device`. The
+  stored fingerprint is a keyed hash of that id.
+
+Existing rows are keyed by user agent. A sign-in whose agent still matches
+one is recognised and re-keyed to the new id on the spot, and a browser
+already signed in is given its id the next time it loads `/auth/me/`, so
+nobody is locked out by the switch. The fallback keeps the old weakness (a
+matching agent is enough) only for rows no one has signed in with since.
+An app build too old to send the header is still known by its agent, and is
+never minted an id it would not keep.
+
+The hold itself is 30 minutes (`DEVICE_COOLOFF_SECONDS=1800`). It still
+applies after the emailed code, as D16 chose, and the alert now states the
+wait in minutes. The cookie is listed in the Cookie Policy as strictly
+necessary.
 
 ---
 

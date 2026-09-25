@@ -21,6 +21,7 @@ const COOKIES: Array<[string, string, string]> = [
   ["skilrize_access", "Proves you are signed in. It cannot be read by scripts on the page.", "15 minutes"],
   ["skilrize_refresh", "Keeps you signed in between visits by renewing the cookie above. It cannot be read by scripts on the page.", "30 days, or until you sign out"],
   ["csrftoken", "Protects your forms from being submitted by another website pretending to be you.", "1 year"],
+  ["skilrize_device", "Recognises this browser as one you have signed in from before, so a sign-in from a new device can be checked and a browser update is not mistaken for one. A random value; it cannot be read by scripts on the page.", "400 days, renewed each time you sign in"],
 ];
 
 const STORAGE: Array<[string, string]> = [

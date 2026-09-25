@@ -108,7 +108,15 @@ def _authenticated_response(
     in an authenticated session — and, since Phase 7, the single place a native
     client is handed its bearer tokens.
     """
-    device, is_new = devices.register(user, request)
+    # A browser gets a device id if it has none, set as a cookie below. The
+    # app sends its own; an old build that does not is recognised by its
+    # user agent, as before, rather than given an id it would never keep.
+    native = _wants_tokens_in_body(request)
+    device_id = "" if native else devices.issue_device_id(request)
+    # The device an account is created on starts trusted: a brand-new account
+    # has nothing to steal, and holding its first purchase for half an hour
+    # would only punish the person who just signed up.
+    device, is_new = devices.register(user, request, trusted=created)
     if is_new and not created and not verified_by_email:
         # Skipped on signup: the account was created seconds ago from this very
         # device, and "we noticed a new device" would be nonsense as the first
@@ -116,7 +124,7 @@ def _authenticated_response(
         #
         # Skipped after an emailed code too: that email went to the same inbox
         # moments ago and already carried the warning. The cool-off still
-        # applies in both cases.
+        # applies after the code.
         devices.send_new_device_alert(user, request, device)
 
     access, refresh = tokens.issue(user, request)
@@ -136,6 +144,8 @@ def _authenticated_response(
     )
     user.last_active_at = timezone.now()
     user.save(update_fields=["last_active_at", "updated_at"])
+    if device_id:
+        devices.set_device_cookie(response, device_id)
     return tokens.set_auth_cookies(response, access, refresh)
 
 
@@ -524,7 +534,9 @@ def me(request):
     # server re-checks entitlement on every request regardless, so a client
     # that ignores it gains nothing.
     payload["surfaces"] = _surfaces_for(request.user)
-    return Response(payload)
+    response = Response(payload)
+    devices.remember(request.user, request, response)
+    return response
 
 
 @api_view(["POST"])
