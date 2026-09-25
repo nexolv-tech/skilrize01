@@ -211,7 +211,7 @@ function CatalogueContent() {
             aria-label="Delivery time"
             value={filters.delivery_days}
             onChange={(event) => apply({ delivery_days: event.target.value })}
-            className="w-auto min-w-44"
+            className="w-auto! min-w-44"
           >
             {DELIVERY.map(([value, label]) => (
               <option key={value} value={value}>
@@ -224,7 +224,7 @@ function CatalogueContent() {
             aria-label="Maximum price"
             value={filters.price_max}
             onChange={(event) => apply({ price_max: event.target.value })}
-            className="w-auto min-w-40"
+            className="w-auto! min-w-40"
           >
             <option value="">Any budget</option>
             <option value="5000">Under Rs 5,000</option>
@@ -236,7 +236,7 @@ function CatalogueContent() {
             aria-label="Sort by"
             value={filters.sort}
             onChange={(event) => apply({ sort: event.target.value })}
-            className="w-auto min-w-40"
+            className="w-auto! min-w-40"
           >
             {SORTS.map(([value, label]) => (
               <option key={value} value={value}>

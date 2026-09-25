@@ -227,7 +227,7 @@ function BrowseContent() {
             aria-label="Category"
             value={filters.category}
             onChange={(event) => apply({ category: event.target.value })}
-            className="w-auto min-w-44"
+            className="w-auto! min-w-44"
           >
             <option value="">All categories</option>
             {categories.map((category) => (
@@ -241,7 +241,7 @@ function BrowseContent() {
             aria-label="Project type"
             value={filters.type}
             onChange={(event) => apply({ type: event.target.value })}
-            className="w-auto min-w-36"
+            className="w-auto! min-w-36"
           >
             <option value="">Any type</option>
             <option value="fixed">Fixed price</option>
@@ -252,7 +252,7 @@ function BrowseContent() {
             aria-label="Experience level"
             value={filters.experience}
             onChange={(event) => apply({ experience: event.target.value })}
-            className="w-auto min-w-40"
+            className="w-auto! min-w-40"
           >
             {EXPERIENCE.map(([value, label]) => (
               <option key={value} value={value}>
@@ -265,7 +265,7 @@ function BrowseContent() {
             aria-label="Sort by"
             value={filters.sort}
             onChange={(event) => apply({ sort: event.target.value })}
-            className="w-auto min-w-40"
+            className="w-auto! min-w-40"
           >
             {SORTS.map(([value, label]) => (
               <option key={value} value={value}>
