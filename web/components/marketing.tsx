@@ -33,8 +33,8 @@ const TICKET_STEPS: Array<{ label: string; detail: string }> = [
 const STEP_AT = [0.3, 0.9, 1.5, 2.1] as const;
 
 /** One pass: the last stamp lands at about 2.7s, and the finished slip then
- *  holds long enough to read before it fades and starts again. */
-const CYCLE_MS = 5500;
+ *  holds for two seconds before it fades and starts again. */
+const CYCLE_MS = 4700;
 const FADE_MS = 300;
 
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
