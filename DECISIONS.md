@@ -2003,6 +2003,44 @@ in the light theme and light in the dark, at the owner's request.
 
 ---
 
+## D51 · Connected accounts made ready to switch on
+
+Asked to enable the five connected accounts, the first finding was that
+nothing on our side could: each one needs a developer app registered with
+Zoom, Google, GitHub, Figma or Notion under the operator's own account, and
+that app's keys. Step 10 of `deploy/README.md` now walks through each
+registration with its exact redirect URL and scopes, and
+`production.env.example` carries the settings block.
+
+Readying them for real use surfaced three defects that would have shown
+only after launch:
+
+- **Tokens were never renewed.** Zoom and Google access tokens last an
+  hour, so scheduling a call would have failed an hour after connecting.
+  Every provider call now takes its token from `integrations/tokens.py`,
+  which refreshes it first when it is within two minutes of expiry. The
+  renewal holds a row lock because Zoom rotates the refresh token on every
+  use, and two renewals racing would spend the same one. A token that
+  cannot be renewed produces a "reconnect" message, not a raw HTTP error.
+  `is_expired` now means "must reconnect", not "access token past its hour".
+- **Figma asked for a deprecated scope.** `file_read` is no longer
+  accepted for OAuth apps; the adapter asks for `file_versions:read`, the
+  one scope its version-history call needs, and authenticates to the token
+  endpoint with HTTP Basic as Figma now documents.
+- **Zoom start times were labelled UTC without being converted to it.**
+  Harmless while `TIME_ZONE` is UTC, wrong the day it is not.
+
+Some limits stay on the providers' side. Zoom lets only the operator's own
+Zoom account connect until its Marketplace review passes. Google limits an
+unverified app to 100 named test users. A private Figma app works only for
+the operator's team. GitHub's `repo:status` scope reads public
+repositories only; private ones would need a GitHub App with read-only
+contents permission rather than the all-or-nothing `repo` scope. The
+disabled state reads "Coming soon", and each row says what connecting it
+does.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, a personal relationship, or an

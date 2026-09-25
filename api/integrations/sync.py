@@ -10,6 +10,7 @@ from django.utils.dateparse import parse_datetime
 
 from .models import ActivityEvent, ActivityFeedSource, IntegrationConnection
 from .providers import registry
+from .tokens import access_token
 
 
 def sync_source(source: ActivityFeedSource, connection: IntegrationConnection) -> int:
@@ -29,7 +30,7 @@ def sync_source(source: ActivityFeedSource, connection: IntegrationConnection) -
         since = source.last_synced_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     events = module.fetch_activity(
-        access_token=connection.access_token, external_ref=source.external_ref, since=since
+        access_token=access_token(connection), external_ref=source.external_ref, since=since
     )
 
     created = 0

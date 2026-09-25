@@ -30,7 +30,7 @@ class IntegrationsScreen extends StatelessWidget {
                   ? (provider.externalLabel.isEmpty ? 'Connected' : provider.externalLabel)
                   : provider.isEnabled
                       ? 'Not connected'
-                      : 'Not available yet in this environment',
+                      : 'Coming soon',
             ),
             trailing: provider.isConnected
                 ? TextButton(

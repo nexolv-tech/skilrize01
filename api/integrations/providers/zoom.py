@@ -10,7 +10,7 @@ changes.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from urllib.parse import urlencode
 
 import requests
@@ -73,6 +73,30 @@ def exchange_code(code: str, redirect_uri: str) -> dict:
     }
 
 
+def refresh(refresh_token: str) -> dict:
+    """A new access token (they last an hour). Zoom rotates the refresh token
+    on every use, so the new one must replace the old or the next refresh
+    fails."""
+    if not is_enabled():
+        raise IntegrationUnavailable("Zoom is not enabled in this environment.")
+    try:
+        response = session.post(
+            TOKEN_URL,
+            data={"grant_type": "refresh_token", "refresh_token": refresh_token},
+            auth=(settings.ZOOM_CLIENT_ID, settings.ZOOM_CLIENT_SECRET),
+            timeout=_TIMEOUT,
+        )
+        response.raise_for_status()
+        token = response.json()
+    except requests.RequestException as exc:
+        raise IntegrationError(str(exc)) from exc
+    return {
+        "access_token": token["access_token"],
+        "refresh_token": token.get("refresh_token", ""),
+        "expires_in": token.get("expires_in"),
+    }
+
+
 def create_meeting(
     *, access_token: str, topic: str, start_time: datetime, duration_minutes: int
 ) -> dict:
@@ -86,7 +110,8 @@ def create_meeting(
             json={
                 "topic": topic,
                 "type": 2,  # scheduled meeting
-                "start_time": start_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                # The trailing Z claims UTC, so the time must actually be UTC.
+                "start_time": start_time.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "duration": duration_minutes,
             },
             timeout=_TIMEOUT,

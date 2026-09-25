@@ -23,6 +23,7 @@ from .base import IntegrationError, IntegrationUnavailable, session
 
 AUTHORIZE_URL = "https://www.figma.com/oauth"
 TOKEN_URL = "https://api.figma.com/v1/oauth/token"  # noqa: S105 — an API endpoint, not a credential
+REFRESH_URL = "https://api.figma.com/v1/oauth/refresh"
 API_BASE = "https://api.figma.com/v1"
 
 _TIMEOUT = 15
@@ -40,7 +41,10 @@ def authorize_url(redirect_uri: str, state: str) -> str:
     params = {
         "client_id": settings.FIGMA_CLIENT_ID,
         "redirect_uri": redirect_uri,
-        "scope": "file_read",
+        # The one granular scope `fetch_activity` needs. Figma deprecated the
+        # broad `file_read` / `files:read` for OAuth apps, and a new app
+        # cannot request them.
+        "scope": "file_versions:read",
         "state": state,
         "response_type": "code",
     }
@@ -54,12 +58,11 @@ def exchange_code(code: str, redirect_uri: str) -> dict:
         token_response = session.post(
             TOKEN_URL,
             data={
-                "client_id": settings.FIGMA_CLIENT_ID,
-                "client_secret": settings.FIGMA_CLIENT_SECRET,
                 "redirect_uri": redirect_uri,
                 "code": code,
                 "grant_type": "authorization_code",
             },
+            auth=(settings.FIGMA_CLIENT_ID, settings.FIGMA_CLIENT_SECRET),
             timeout=_TIMEOUT,
         )
         token_response.raise_for_status()
@@ -73,6 +76,25 @@ def exchange_code(code: str, redirect_uri: str) -> dict:
         "expires_in": token.get("expires_in"),
         "external_label": "",  # Figma's OAuth response carries no profile fields
     }
+
+
+def refresh(refresh_token: str) -> dict:
+    """A new access token (they last 90 days). Figma keeps the same refresh
+    token, so none comes back."""
+    if not is_enabled():
+        raise IntegrationUnavailable("Figma is not enabled in this environment.")
+    try:
+        response = session.post(
+            REFRESH_URL,
+            data={"refresh_token": refresh_token},
+            auth=(settings.FIGMA_CLIENT_ID, settings.FIGMA_CLIENT_SECRET),
+            timeout=_TIMEOUT,
+        )
+        response.raise_for_status()
+        token = response.json()
+    except requests.RequestException as exc:
+        raise IntegrationError(str(exc)) from exc
+    return {"access_token": token["access_token"], "expires_in": token.get("expires_in")}
 
 
 def fetch_activity(*, access_token: str, external_ref: str, since=None) -> list[dict]:

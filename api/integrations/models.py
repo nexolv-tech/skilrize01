@@ -79,7 +79,11 @@ class IntegrationConnection(TimestampedModel):
 
     @property
     def is_expired(self) -> bool:
-        return bool(self.expires_at and self.expires_at <= timezone.now())
+        """The user has to reconnect: the token has run out and there is no
+        refresh token to renew it with (`integrations.tokens`)."""
+        return bool(
+            self.expires_at and self.expires_at <= timezone.now() and not self.refresh_token
+        )
 
 
 class Meeting(TimestampedModel):

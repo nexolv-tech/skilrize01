@@ -9,10 +9,10 @@
  * activity source always belongs to one contract, never to the account as a
  * whole.
  *
- * Every provider can come back `is_enabled: false` — no OAuth app has real
- * credentials in this environment yet (see `integrations.providers` in the
- * API, and `ZOOM_ENABLED` etc. in the backend settings). The UI treats that
- * as a normal, expected state ("Not available yet"), not an error.
+ * Every provider can come back `is_enabled: false` — its OAuth app has no
+ * credentials on this server yet (see `integrations.providers` in the API,
+ * and `ZOOM_ENABLED` etc. in the backend settings). The UI treats that as a
+ * normal, expected state ("Coming soon"), not an error.
  */
 
 import * as React from "react";
@@ -41,29 +41,51 @@ import { formatRelative, useAsyncAction, useLoader } from "@/lib/session";
 /* Account-wide connections                                                   */
 /* -------------------------------------------------------------------------- */
 
+/** What connecting each one lets someone do, in their terms. */
+const PROVIDER_USE: Record<IntegrationProvider, string> = {
+  zoom: "Schedule Zoom calls from a contract.",
+  google_meet: "Schedule Google Meet calls from a contract.",
+  github: "Show a client the commits and pull requests on a public repository.",
+  figma: "Show a client a design file's version history.",
+  notion: "Show a client when a shared Notion page was last edited.",
+};
+
 export function IntegrationConnectionsCard() {
   const { data, loading, reload } = useLoader(() => integrations.providers(), []);
   const rows = data ?? [];
+  // Which row's button is working, so only that one shows a spinner.
+  const [busy, setBusy] = React.useState<IntegrationProvider | null>(null);
 
   const connect = useAsyncAction(async (provider: IntegrationProvider) => {
-    const { authorize_url: authorizeUrl } = await integrations.authorize(provider);
-    window.location.href = authorizeUrl;
+    setBusy(provider);
+    try {
+      const { authorize_url: authorizeUrl } = await integrations.authorize(provider);
+      window.location.href = authorizeUrl;
+    } catch (error) {
+      setBusy(null);
+      throw error;
+    }
   });
 
   const disconnect = useAsyncAction(async (provider: IntegrationProvider) => {
-    await integrations.disconnect(provider);
-    await reload();
+    setBusy(provider);
+    try {
+      await integrations.disconnect(provider);
+      await reload();
+    } finally {
+      setBusy(null);
+    }
   });
 
   return (
     <Card>
       <CardHeader
         title="Connected accounts"
-        description="Link Zoom or Google Meet to schedule calls from a contract, or GitHub/Figma/Notion to show a client read-only progress activity."
+        description="Link Zoom or Google Meet to schedule calls from a contract, or GitHub, Figma or Notion to show a client how the work is moving. SkilRize only reads; it never changes anything in these accounts."
       />
-      {connect.error && (
+      {(connect.error || disconnect.error) && (
         <div className="px-5 pt-4">
-          <Alert tone="critical">{connect.error}</Alert>
+          <Alert tone="critical">{connect.error ?? disconnect.error}</Alert>
         </div>
       )}
       {loading ? (
@@ -76,20 +98,24 @@ export function IntegrationConnectionsCard() {
                 <Icon name="link" className="size-4" />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-[13.5px] font-medium text-fg">{row.label}</p>
-                <p className="truncate text-[12px] text-muted">
-                  {row.is_connected
-                    ? (row.external_label || "Connected")
-                    : row.is_enabled
-                      ? "Not connected"
-                      : "Not available yet in this environment"}
+                <p className="flex flex-wrap items-center gap-2 text-[13.5px] font-medium text-fg">
+                  {row.label}
+                  {row.is_connected ? (
+                    <Badge tone="positive">
+                      {row.external_label ? `Connected · ${row.external_label}` : "Connected"}
+                    </Badge>
+                  ) : (
+                    !row.is_enabled && <Badge tone="neutral">Coming soon</Badge>
+                  )}
                 </p>
+                <p className="text-[12.5px] text-muted">{PROVIDER_USE[row.provider]}</p>
               </div>
               {row.is_connected ? (
                 <Button
                   size="sm"
                   variant="ghost"
-                  loading={disconnect.pending}
+                  loading={disconnect.pending && busy === row.provider}
+                  disabled={busy !== null && busy !== row.provider}
                   onClick={() => void disconnect.run(row.provider)}
                 >
                   Disconnect
@@ -98,8 +124,8 @@ export function IntegrationConnectionsCard() {
                 <Button
                   size="sm"
                   variant="secondary"
-                  disabled={!row.is_enabled}
-                  loading={connect.pending}
+                  disabled={!row.is_enabled || (busy !== null && busy !== row.provider)}
+                  loading={connect.pending && busy === row.provider}
                   onClick={() => void connect.run(row.provider)}
                 >
                   Connect

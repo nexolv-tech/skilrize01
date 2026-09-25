@@ -87,6 +87,29 @@ def exchange_code(code: str, redirect_uri: str) -> dict:
     }
 
 
+def refresh(refresh_token: str) -> dict:
+    """A new access token (they last an hour). Google keeps the refresh token
+    it issued at consent, so none comes back."""
+    if not is_enabled():
+        raise IntegrationUnavailable("Google Meet is not enabled in this environment.")
+    try:
+        response = session.post(
+            TOKEN_URL,
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": settings.GOOGLE_CLIENT_ID,
+                "client_secret": settings.GOOGLE_CLIENT_SECRET,
+            },
+            timeout=_TIMEOUT,
+        )
+        response.raise_for_status()
+        token = response.json()
+    except requests.RequestException as exc:
+        raise IntegrationError(str(exc)) from exc
+    return {"access_token": token["access_token"], "expires_in": token.get("expires_in")}
+
+
 def create_meeting(
     *, access_token: str, topic: str, start_time: datetime, duration_minutes: int
 ) -> dict:

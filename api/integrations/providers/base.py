@@ -2,7 +2,8 @@
 provider module exposes `is_enabled()`, `authorize_url()`, `exchange_code()`,
 and either `create_meeting()` or `fetch_activity()` depending on which set it
 belongs to (`integrations.models.MEETING_PROVIDERS` /
-`ACTIVITY_PROVIDERS`)."""
+`ACTIVITY_PROVIDERS`). A provider whose access tokens expire also exposes
+`refresh()`, which `integrations.tokens` calls before a token runs out."""
 
 from __future__ import annotations
 

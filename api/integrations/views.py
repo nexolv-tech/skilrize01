@@ -39,6 +39,7 @@ from .serializers import (
     ScheduleMeetingInputSerializer,
 )
 from .sync import sync_source
+from .tokens import access_token
 
 _STATE_SALT = "integrations.oauth"
 _STATE_MAX_AGE = 600  # 10 minutes — long enough for a real OAuth consent screen
@@ -179,7 +180,7 @@ def contract_meetings(request, contract_id):
     module = registry.get(provider)
     try:
         result = module.create_meeting(
-            access_token=connection.access_token,
+            access_token=access_token(connection),
             topic=data["topic"],
             start_time=data["start_time"],
             duration_minutes=data["duration_minutes"],

@@ -150,7 +150,52 @@ discovering a typo three weeks from now when you actually need a backup:
 ./deploy/backup.sh
 ```
 
-## 10. From now on: updating the live site
+## 10. Turn on connected accounts (optional)
+
+Settings → Connected accounts lists Zoom, Google Meet, GitHub, Figma and
+Notion. Each shows "Coming soon" until you register a free developer app
+with that company and put its two keys in `deploy/production.env`. Every
+app asks for a **redirect URL**; it is always your domain followed by
+`/integrations/callback/` and the provider's name:
+
+| Provider | Redirect URL |
+| --- | --- |
+| Zoom | `https://your-domain.com/integrations/callback/zoom` |
+| Google Meet | `https://your-domain.com/integrations/callback/google_meet` |
+| GitHub | `https://your-domain.com/integrations/callback/github` |
+| Figma | `https://your-domain.com/integrations/callback/figma` |
+| Notion | `https://your-domain.com/integrations/callback/notion` |
+
+Apps that ask for a homepage, privacy policy or terms link take
+`https://your-domain.com`, `/privacy` and `/terms`.
+
+- **GitHub** — github.com → Settings → Developer settings → OAuth Apps →
+  New OAuth App. Anyone can connect as soon as it exists. Activity is read
+  from public repositories only.
+- **Zoom** — marketplace.zoom.us → Develop → Build App → General App,
+  user-managed. Add the redirect URL (also to the OAuth allow list) and the
+  scopes `meeting:write:meeting` and `user:read:user`. Until Zoom approves
+  the app in its Marketplace review, only people in your own Zoom account
+  can connect.
+- **Google Meet** — console.cloud.google.com → a new project → enable the
+  Google Calendar API → OAuth consent screen (External) with the scopes
+  `calendar.events` and `userinfo.email` → Credentials → OAuth client ID,
+  type Web application, with the redirect URL. Calendar access is a
+  "sensitive" scope: until Google verifies the app, only test users you add
+  (up to 100) can connect, and they see an "unverified app" warning.
+- **Figma** — figma.com/developers/apps → create an app with the redirect
+  URL and the scope `file_versions:read`. A private app works for your own
+  Figma team; publish it (Figma reviews it) for everyone.
+- **Notion** — notion.so/profile/integrations → New integration, type
+  Public, with the redirect URL and the legal links above, and read-content
+  capability only. Notion may ask you to submit it for review first.
+
+Put each app's client ID and secret in `deploy/production.env`, set its
+`*_ENABLED=True` (the block is in `production.env.example`), then run
+`./deploy/deploy.sh`. Only providers with both keys and the flag set leave
+"Coming soon".
+
+## 11. From now on: updating the live site
 
 Never edit files on this server. The workflow is always:
 

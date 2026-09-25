@@ -381,8 +381,14 @@ This is not five stubs — `authorize_url`, `exchange_code`, and each
 provider's action (`create_meeting` / `fetch_activity`) are genuine API v2/v3
 calls against Zoom, Google Calendar, GitHub, Figma, and Notion. The day a
 client id and secret exist for a provider, connecting it starts working with
-zero further code changes; until then, the UI shows "Not available yet," not
-a broken button.
+zero further code changes; until then, the UI shows "Coming soon," not a
+broken button. Registering each provider's app is step 10 of
+[deploy/README.md](deploy/README.md).
+
+**Expiring tokens are renewed, not left to lapse (D51).** Zoom and Google
+access tokens last an hour and Figma's ninety days; every provider call
+takes its token from `integrations/tokens.py`, which refreshes it first
+when it has run out.
 
 **Tokens are encrypted at rest**, the same `EncryptedTextField` treatment
 Section 7.3 already requires for OTP secrets and payout credentials

@@ -412,3 +412,106 @@ def test_the_shared_session_retries_a_transient_5xx_and_then_succeeds():
     assert response.status_code == 200
     assert response.text == "ok"
     assert len(attempts) == 3  # two failures the Retry adapter absorbed, then success
+
+
+# --- Expiring tokens ------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_an_expired_token_is_refreshed_before_the_provider_call(contract, parties):
+    """Zoom and Google tokens last an hour. Scheduling a meeting the day after
+    connecting must renew the token first, and keep Zoom's rotated refresh
+    token, or the next renewal fails."""
+    client_user, _ = parties
+    IntegrationConnection.objects.create(
+        user=client_user,
+        provider=Provider.ZOOM,
+        access_token="stale",
+        refresh_token="refresh-1",
+        expires_at=timezone.now() - timedelta(hours=20),
+    )
+
+    with (
+        patch(
+            "integrations.providers.zoom.refresh",
+            return_value={
+                "access_token": "fresh",
+                "refresh_token": "refresh-2",
+                "expires_in": 3600,
+            },
+        ) as refreshed,
+        patch(
+            "integrations.providers.zoom.create_meeting",
+            return_value={"join_url": "https://zoom.us/j/1", "external_id": "1"},
+        ) as created,
+    ):
+        response = sign_in(client_user).post(
+            f"/api/v1/contracts/{contract.id}/meetings/", _meeting_payload(), format="json"
+        )
+
+    assert response.status_code == 201
+    refreshed.assert_called_once_with("refresh-1")
+    assert created.call_args.kwargs["access_token"] == "fresh"
+    connection = IntegrationConnection.objects.get(user=client_user, provider=Provider.ZOOM)
+    assert connection.access_token == "fresh"
+    assert connection.refresh_token == "refresh-2"
+    assert connection.expires_at > timezone.now() + timedelta(minutes=50)
+
+
+@pytest.mark.django_db
+def test_a_token_that_cannot_be_renewed_asks_the_user_to_reconnect(contract, parties):
+    client_user, _ = parties
+    IntegrationConnection.objects.create(
+        user=client_user,
+        provider=Provider.GOOGLE_MEET,
+        access_token="stale",
+        refresh_token="revoked",
+        expires_at=timezone.now() - timedelta(minutes=5),
+    )
+    payload = {**_meeting_payload(), "provider": "google_meet"}
+
+    with (
+        patch("integrations.providers.google_meet.refresh", side_effect=IntegrationError("400")),
+        patch("integrations.providers.google_meet.create_meeting") as created,
+    ):
+        response = sign_in(client_user).post(
+            f"/api/v1/contracts/{contract.id}/meetings/", payload, format="json"
+        )
+
+    assert response.status_code == 400
+    assert response.data["code"] == "integration_error"
+    assert "Reconnect" in response.data["detail"]
+    created.assert_not_called()
+    assert not Meeting.objects.filter(contract=contract).exists()
+
+
+@pytest.mark.django_db
+def test_a_token_that_never_expires_is_used_as_is(contract, parties):
+    client_user, _ = parties
+    connection = IntegrationConnection.objects.create(
+        user=client_user, provider=Provider.GITHUB, access_token="gh-token"
+    )
+    source = ActivityFeedSource.objects.create(
+        contract=contract, provider=Provider.GITHUB, external_ref="o/r", added_by=client_user
+    )
+
+    with patch("integrations.providers.github.fetch_activity", return_value=[]) as fetched:
+        from .sync import sync_source
+
+        sync_source(source, connection)
+
+    assert fetched.call_args.kwargs["access_token"] == "gh-token"
+
+
+def test_figma_asks_only_for_version_history(settings):
+    """Figma deprecated `file_read` for OAuth apps; a new app requesting it
+    is refused at the consent screen."""
+    from urllib.parse import parse_qs, urlparse
+
+    from .providers import figma
+
+    settings.FIGMA_ENABLED = True
+    settings.FIGMA_CLIENT_ID = "id"
+    settings.FIGMA_CLIENT_SECRET = "secret"
+    url = figma.authorize_url("https://skilrize.com/integrations/callback/figma", "state")
+    assert parse_qs(urlparse(url).query)["scope"] == ["file_versions:read"]
