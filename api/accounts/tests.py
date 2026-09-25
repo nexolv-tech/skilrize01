@@ -55,7 +55,12 @@ def signed_in(client, user):
 def test_signup_creates_both_profile_faces_and_signs_in(client):
     response = client.post(
         "/api/v1/auth/signup/",
-        {"email": "New.User@Example.com", "password": PASSWORD, "full_name": "New User"},
+        {
+            "email": "New.User@Example.com",
+            "password": PASSWORD,
+            "accept_terms": True,
+            "full_name": "New User",
+        },
         format="json",
     )
 
@@ -72,7 +77,7 @@ def test_signup_creates_both_profile_faces_and_signs_in(client):
 def test_signup_rejects_a_weak_password(client):
     response = client.post(
         "/api/v1/auth/signup/",
-        {"email": "weak@example.com", "password": "password"},
+        {"email": "weak@example.com", "password": "password", "accept_terms": True},
         format="json",
     )
     assert response.status_code == 400
@@ -96,7 +101,7 @@ def test_signup_rejects_a_weak_password(client):
 def test_signup_rejects_passwords_failing_the_policy(client, password, why):
     response = client.post(
         "/api/v1/auth/signup/",
-        {"email": "policy@example.com", "password": password},
+        {"email": "policy@example.com", "password": password, "accept_terms": True},
         format="json",
     )
     assert response.status_code == 400, f"should have been rejected: {why}"
@@ -107,7 +112,7 @@ def test_signup_rejects_passwords_failing_the_policy(client, password, why):
 def test_signup_accepts_a_password_meeting_every_rule(client):
     response = client.post(
         "/api/v1/auth/signup/",
-        {"email": "strong@example.com", "password": "Tr0ubled-Marlin!Sky"},
+        {"email": "strong@example.com", "password": "Tr0ubled-Marlin!Sky", "accept_terms": True},
         format="json",
     )
     assert response.status_code == 201
@@ -118,7 +123,7 @@ def test_signup_sends_email_confirmation(client):
     mail.outbox.clear()
     client.post(
         "/api/v1/auth/signup/",
-        {"email": "confirm@example.com", "password": PASSWORD},
+        {"email": "confirm@example.com", "password": PASSWORD, "accept_terms": True},
         format="json",
     )
     assert len(mail.outbox) == 1
@@ -160,14 +165,14 @@ def test_signup_is_throttled_at_the_named_scope_rate():
     for i in range(5):
         response = APIClient().post(
             "/api/v1/auth/signup/",
-            {"email": f"throttle{i}@example.com", "password": PASSWORD},
+            {"email": f"throttle{i}@example.com", "password": PASSWORD, "accept_terms": True},
             format="json",
         )
         assert response.status_code == 201
 
     sixth = APIClient().post(
         "/api/v1/auth/signup/",
-        {"email": "throttle5@example.com", "password": PASSWORD},
+        {"email": "throttle5@example.com", "password": PASSWORD, "accept_terms": True},
         format="json",
     )
     assert sixth.status_code == 429

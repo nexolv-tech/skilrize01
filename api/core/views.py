@@ -274,5 +274,13 @@ def config(request):
             # So a mobile client can skip asking for the OS push permission
             # prompt entirely when this deployment could not deliver one.
             "push_enabled": push.is_enabled(),
+            # The versions a signup accepts — see `accounts.LegalAcceptance`.
+            "legal": {
+                "terms_version": settings.LEGAL_TERMS_VERSION,
+                "privacy_version": settings.LEGAL_PRIVACY_VERSION,
+            },
+            # Shown at checkout before sign-in, so a buyer knows the fee
+            # arithmetic before committing to anything.
+            "commission_percent": settings.PLATFORM_COMMISSION_PERCENT,
         }
     )

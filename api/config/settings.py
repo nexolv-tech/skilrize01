@@ -229,6 +229,10 @@ REST_FRAMEWORK = {
         # refresh, and on sign-in, so this is deliberately loose. It exists
         # to bound a loop, not to ration normal use.
         "push_device": "60/hour",
+        # GDPR self-service. An export is a full copy of someone's history and
+        # an erasure is irreversible; both sit behind step-up auth as well.
+        "data_export": "5/hour",
+        "account_delete": "10/hour",
     },
     "EXCEPTION_HANDLER": "core.middleware.exception_handler",
     "DEFAULT_RENDERER_CLASSES": ("rest_framework.renderers.JSONRenderer",),
@@ -434,6 +438,13 @@ PLATFORM_BANK_ACCOUNT_NUMBER = config("PLATFORM_BANK_ACCOUNT_NUMBER", default=""
 # did exactly that. Off, the number is stored but not required; email and CNIC
 # verification still are. Turn on together with a real SMS provider.
 PHONE_VERIFICATION_REQUIRED = config("PHONE_VERIFICATION_REQUIRED", default=False, cast=bool)
+
+# Legal documents (web/app/(legal)/). Bump a version on any substantive change
+# to that document: signup records which version each user accepted
+# (`accounts.LegalAcceptance`), and the client compares against these to know
+# when an existing user needs to accept a new one.
+LEGAL_TERMS_VERSION = "2026-09-25"
+LEGAL_PRIVACY_VERSION = "2026-09-25"
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"

@@ -221,6 +221,19 @@ class SignupSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True, validators=[validate_password])
     full_name = serializers.CharField(max_length=120, required=False, allow_blank=True)
+    #: One checkbox, never pre-ticked: "I'm 18 or older and I accept the Terms
+    #: of Service and Privacy Policy." Enforced here rather than trusted to the
+    #: form, because an account that never accepted the Terms has no contract
+    #: with the platform at all.
+    accept_terms = serializers.BooleanField()
+
+    def validate_accept_terms(self, value: bool) -> bool:
+        if value is not True:
+            raise serializers.ValidationError(
+                "Confirm you're 18 or older and accept the Terms of Service and Privacy "
+                "Policy to create an account."
+            )
+        return value
 
     def validate_email(self, value: str) -> str:
         value = value.strip().lower()

@@ -153,6 +153,8 @@ def _generous_scoped_throttles():
             "meeting_schedule": "1000/minute",
             "activity_sync": "1000/minute",
             "push_device": "1000/minute",
+            "data_export": "1000/minute",
+            "account_delete": "1000/minute",
         }
     )
     yield

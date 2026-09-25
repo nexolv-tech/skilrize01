@@ -27,6 +27,8 @@ urlpatterns = [
     path("me/avatar/", views.upload_avatar, name="avatar"),
     path("me/seller/", views.update_seller_profile, name="seller-profile"),
     path("me/buyer/", views.update_buyer_profile, name="buyer-profile"),
+    path("me/export/", views.export_my_data, name="data-export"),
+    path("me/delete/", views.delete_my_account, name="account-delete"),
     path("users/<slug:handle>/", views.public_profile, name="public-profile"),
     # Verification
     path("email/verify/", views.request_email_verification, name="email-verify-request"),

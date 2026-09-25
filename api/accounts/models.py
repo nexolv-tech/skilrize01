@@ -179,6 +179,10 @@ class User(AbstractBaseUser, PermissionsMixin, TimestampedModel):
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     last_active_at = models.DateTimeField(null=True, blank=True)
+    #: Set when the user erased their own account (GDPR Art. 17). Distinct from
+    #: a suspension, which also clears `is_active` but can be reversed — an
+    #: erased account has had its personal data removed and never comes back.
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     objects = UserManager()
 
@@ -251,6 +255,38 @@ class User(AbstractBaseUser, PermissionsMixin, TimestampedModel):
     def requires_two_factor(self) -> bool:
         """Mandatory for every administrative role, without exception."""
         return bool(self.admin_role) or self.is_staff or self.is_superuser
+
+
+class LegalAcceptance(TimestampedModel):
+    """A user's acceptance of one version of a legal document.
+
+    Recorded at signup, and again whenever a document's version changes and
+    the user accepts the new one — so the platform can show exactly which
+    Terms a person agreed to and when (GDPR Art. 7(1) accountability; also the
+    contract record if a dispute ever turns on what was agreed). Never edited
+    after the fact: a new version is a new row.
+    """
+
+    class Document(models.TextChoices):
+        TERMS = "terms", "Terms of Service"
+        PRIVACY = "privacy", "Privacy Policy"
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="legal_acceptances")
+    document = models.CharField(max_length=16, choices=Document.choices)
+    version = models.CharField(max_length=20)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=400, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "document", "version"], name="one_acceptance_per_document_version"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} accepted {self.document} v{self.version}"
 
 
 # --- Profile faces ---------------------------------------------------------

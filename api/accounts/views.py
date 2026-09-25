@@ -39,6 +39,13 @@ from .models import (
     User,
     VerificationStatus,
 )
+from .privacy import (
+    RETAINED,
+    erase_user,
+    erasure_blockers,
+    export_user_data,
+    record_legal_acceptance,
+)
 from .serializers import (
     AdminAuditLogSerializer,
     AdminRejectVerificationSerializer,
@@ -169,6 +176,7 @@ def signup(request):
     # choose between hiring and being hired.
     SellerProfile.objects.create(user=user)
     BuyerProfile.objects.create(user=user)
+    record_legal_acceptance(user, request)
 
     _send_email_verification(user)
     AuditLog.record(actor=user, action=AuditLog.Action.CREATE, target=user, request=request)
@@ -517,6 +525,77 @@ def me(request):
     # that ignores it gains nothing.
     payload["surfaces"] = _surfaces_for(request.user)
     return Response(payload)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@_throttled("data_export")
+def export_my_data(request):
+    """Download everything the platform holds about the caller (GDPR Arts. 15
+    and 20). Step-up is required: a stolen session alone must not be enough to
+    walk off with someone's whole history in one request."""
+    serializer = StepUpSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    if not tokens.verify_step_up(request.user, **serializer.validated_data):
+        return Response(
+            {"detail": "Verification failed.", "code": "step_up_failed"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    payload = export_user_data(request.user)
+    AuditLog.record(
+        actor=request.user,
+        action=AuditLog.Action.READ_SENSITIVE,
+        target=request.user,
+        request=request,
+        justification="Personal data export (GDPR Arts. 15, 20).",
+    )
+    response = Response(payload)
+    stamp = timezone.now().strftime("%Y-%m-%d")
+    response["Content-Disposition"] = f'attachment; filename="skilrize-my-data-{stamp}.json"'
+    return response
+
+
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+@_throttled("account_delete", writes_only=True)
+def delete_my_account(request):
+    """Erase the caller's account (GDPR Art. 17).
+
+    GET says what would stop it and what is kept regardless, so the user
+    reads both before being asked for a password. POST erases, after
+    step-up and an explicit typed confirmation.
+    """
+    user = request.user
+    blockers = erasure_blockers(user)
+    if request.method == "GET":
+        return Response({"blockers": blockers, "retained": RETAINED})
+
+    if str(request.data.get("confirm", "")).strip().upper() != "DELETE":
+        return Response(
+            {"detail": "Type DELETE to confirm.", "code": "confirmation_required"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    serializer = StepUpSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    if not tokens.verify_step_up(user, **serializer.validated_data):
+        return Response(
+            {"detail": "Verification failed.", "code": "step_up_failed"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    if blockers:
+        return Response(
+            {
+                "detail": "Settle these first, then delete your account.",
+                "code": "erasure_blocked",
+                "blockers": blockers,
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    erase_user(user, request=request)
+    security_log.info("account_erased user=%s", user.pk)
+    return tokens.clear_auth_cookies(Response({"detail": "Your account has been deleted."}))
 
 
 def _surfaces_for(user) -> list[dict]:
@@ -1469,6 +1548,14 @@ def admin_user_suspend(request, pk):
 @permission_classes([IsAuthenticated, require_admin_role(*_SUPPORT_ROLES)])
 def admin_user_reactivate(request, pk):
     user = get_object_or_404(User, pk=pk)
+    if user.deleted_at is not None:
+        return Response(
+            {
+                "detail": "This account was deleted by its owner and cannot be reactivated.",
+                "code": "account_erased",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     if user.is_active:
         return Response(
             {"detail": "This account is already active."}, status=status.HTTP_400_BAD_REQUEST
