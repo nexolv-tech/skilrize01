@@ -411,7 +411,11 @@ function SecuritySummary() {
             off: "Not set up",
           },
           { label: "Email confirmed", value: user.email_verified, on: "Yes", off: "Pending" },
-          { label: "Phone confirmed", value: user.phone_verified, on: "Yes", off: "Pending" },
+          { label: "Identity verified", value: user.identity_status === "verified", on: "Yes", off: "Pending" },
+          // Phone only while this deployment actually asks for it.
+          ...(user.missing_requirements.includes("phone") || user.phone_verified
+            ? [{ label: "Phone confirmed", value: user.phone_verified, on: "Yes", off: "Pending" }]
+            : []),
         ].map((row) => (
           <li key={row.label} className="flex items-center justify-between gap-3 px-5 py-3">
             <span className="text-[13px] text-muted">{row.label}</span>

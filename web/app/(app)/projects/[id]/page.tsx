@@ -684,18 +684,28 @@ export default function ProjectDetailPage() {
                 void load();
               }}
             />
+          ) : !user ? (
+            <Card className="p-6">
+              <h2 className="text-[16px] font-semibold text-fg">Interested in this brief?</h2>
+              <p className="mt-1.5 max-w-xl text-[14px] leading-relaxed text-muted">
+                Sign in to send a proposal. New to SkilRize? Create a free account — the same
+                account you hire with, verified once with your email and CNIC.
+              </p>
+              <div className="mt-5 flex flex-wrap gap-3">
+                <ButtonLink href={`/login?next=${encodeURIComponent(`/projects/${project.id}`)}`}>
+                  Sign in to send a proposal
+                </ButtonLink>
+                <ButtonLink
+                  href={`/signup?next=${encodeURIComponent(`/projects/${project.id}`)}`}
+                  variant="secondary"
+                >
+                  Create an account
+                </ButtonLink>
+              </div>
+            </Card>
           ) : (
             <Alert tone="caution" title="You cannot apply to this brief">
               {project.propose_blocked_reason}
-              {!user && (
-                <>
-                  {" "}
-                  <Link href="/login" className="font-medium underline underline-offset-2">
-                    Sign in
-                  </Link>{" "}
-                  to continue.
-                </>
-              )}
             </Alert>
           )}
         </div>

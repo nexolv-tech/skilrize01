@@ -208,6 +208,40 @@ function TwoFactorCard() {
 /* Sessions                                                                   */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * "Chrome on Windows" from a raw user-agent string. Only the common cases are
+ * named; anything else falls back to the string itself, so nothing is hidden.
+ */
+function describeDevice(agent: string | null | undefined): string {
+  if (!agent) return "Unknown device";
+  const browser = /Edg\//.test(agent)
+    ? "Edge"
+    : /OPR\/|Opera/.test(agent)
+      ? "Opera"
+      : /SkilRize|Dart/.test(agent)
+        ? "SkilRize app"
+        : /Firefox\//.test(agent)
+          ? "Firefox"
+          : /Chrome\/|CriOS\//.test(agent)
+            ? "Chrome"
+            : /Safari\//.test(agent)
+              ? "Safari"
+              : null;
+  const system = /Android/.test(agent)
+    ? "Android"
+    : /iPhone|iPad|iPod/.test(agent)
+      ? "iOS"
+      : /Windows/.test(agent)
+        ? "Windows"
+        : /Mac OS X|Macintosh/.test(agent)
+          ? "macOS"
+          : /Linux/.test(agent)
+            ? "Linux"
+            : null;
+  if (!browser && !system) return agent.length > 60 ? `${agent.slice(0, 57)}…` : agent;
+  return [browser ?? "Browser", system].filter(Boolean).join(" on ");
+}
+
 function SessionsCard() {
   const { signOut } = useSession();
   const { data, loading, reload } = useLoader(() => auth.sessions(), []);
@@ -256,7 +290,7 @@ function SessionsCard() {
 
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[13.5px] font-medium text-fg">
-                  {session.device_label || "Unknown device"}
+                  {describeDevice(session.device_label)}
                 </p>
                 <p className="text-[12px] text-muted">
                   {session.ip_address ?? "IP unavailable"} · seen{" "}
