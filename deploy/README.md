@@ -117,6 +117,18 @@ VM's IP), and check the Oracle console Security List from step 5.
 docker compose -f deploy/docker-compose.prod.yml --env-file deploy/production.env exec api python manage.py createsuperuser
 ```
 
+Categories and skills are seeded automatically every time the API starts
+(`manage.py seed` is idempotent). To list your own services under a real
+account — set real prices in `api/core/management/commands/create_storefront.py`
+first; the ones in the file are placeholders:
+
+```bash
+docker compose -f deploy/docker-compose.prod.yml --env-file deploy/production.env exec api python manage.py create_storefront --email you@example.com
+```
+
+The account it creates has no password. Use "Forgot password" on the site
+to set one, then finish verification from the dashboard.
+
 ## 9. Turn on nightly backups
 
 ```bash
@@ -152,12 +164,27 @@ log` on the server tells you exactly which commit went out — `git reset
 
 ## Notes on what's deliberately not here
 
-- **Payments/escrow (Phase 3)** isn't built yet. Everything else — auth,
-  email, uploads, 2FA, gigs, projects, campus portals — works live once
-  deployed. Don't advertise the site as open for business until payments
-  ship; a visitor who tries to pay for something today will hit a wall.
+- **Payments run by bank transfer to your own account** (custodial escrow,
+  D42). Set `PLATFORM_BANK_NAME`, `PLATFORM_BANK_ACCOUNT_TITLE` and
+  `PLATFORM_BANK_ACCOUNT_NUMBER` in `production.env` before opening for
+  business. Until they are set, checkout tells buyers payments are not
+  open yet and every funding endpoint refuses (D46). Refunds and payouts
+  are sent by hand: Django admin → Payments lists what is owed.
 - **Oracle's "Always Free" tier is not a contract.** It's genuinely free, but
   Oracle has a track record of reclaiming accounts it flags as suspicious,
   and free-tier capacity availability varies by region. The nightly backups
   in step 9 are what make that an inconvenience instead of a disaster —
   don't skip them.
+
+## Troubleshooting a small ARM server
+
+- **ClamAV won't start on ARM.** The official `clamav/clamav` image has no
+  arm64 build; the stack uses `clamav/clamav-debian`, which does.
+- **`npm ci` fails with `EAI_AGAIN` during the build.** Docker's build
+  containers can't resolve DNS on some Ubuntu images. Give the daemon
+  explicit resolvers in `/etc/docker/daemon.json` —
+  `{"dns": ["1.1.1.1", "8.8.8.8"]}` — then `sudo systemctl restart docker`.
+- **Builds are slow or get killed on 1 OCPU / 6 GB.** Add a swap file
+  (`sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile && sudo
+  mkswap /swapfile && sudo swapon /swapfile`, plus a line in `/etc/fstab`
+  to keep it). The first build takes 15–25 minutes; later ones are faster.

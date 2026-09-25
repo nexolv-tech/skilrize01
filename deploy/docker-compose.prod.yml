@@ -48,7 +48,11 @@ services:
       retries: 10
 
   clamav:
-    image: clamav/clamav:1.4
+    # The Debian-based image, not `clamav/clamav`: that one is published for
+    # amd64 only, and the Oracle Always Free shape is ARM (Ampere A1), where
+    # its pull fails with "no matching manifest for linux/arm64". Same
+    # publisher, same 1.4 engine, multi-arch.
+    image: clamav/clamav-debian:1.4
     restart: unless-stopped
     volumes: ["clamav-data:/var/lib/clamav"]
     # First boot downloads the full virus definition database (freshclam runs
@@ -101,8 +105,13 @@ services:
       interval: 10s
       retries: 10
       start_period: 60s
+    # `seed` (taxonomy only — it refuses `--demo` in production) runs on every
+    # boot. It is idempotent, and the first production deploy shipped without
+    # it: zero categories meant nobody could publish a service and every
+    # category link on the home page led to an empty page.
     command: >
       sh -c "python manage.py migrate --noinput &&
+             python manage.py seed &&
              python manage.py collectstatic --noinput &&
              gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60"
 
