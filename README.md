@@ -515,6 +515,14 @@ at a condensed width; labels and every figure are Martian Mono, so amounts
 line up in columns. Both are self-hosted by `next/font`. Tokens live in
 `web/app/globals.css`; light and dark themes share them.
 
+**The logo** is the owner's artwork, cut from its background into
+`web/public/brand/` (the full logo, a dark-theme version with "Skil" in
+near-white, and the S mark alone). The same artwork provides the browser
+icon, the Apple touch icon and the link-preview image (`web/app/icon.png`,
+`apple-icon.png`, `opengraph-image.png`) and the mobile app's launcher
+icons. To change it, replace those files; `Logo` in `components/ui.tsx`
+reads them.
+
 There is no stock photography any more. Every listing without a
 seller-uploaded cover renders deterministic vector art derived from its id
 and category (`web/components/artwork.tsx`), so a catalogue with two

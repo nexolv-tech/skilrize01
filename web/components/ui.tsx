@@ -18,27 +18,45 @@ export function cn(...parts: Array<string | false | null | undefined>) {
 /* Brand                                                                      */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * The SkilRize logo: the S ribbon and the wordmark, from the owner's artwork
+ * (public/brand). The wordmark's "Skil" is navy, which would vanish on the
+ * dark theme, so a variant with "Skil" in near-white swaps in there. Plain
+ * <img> rather than next/image: three small static PNGs gain nothing from
+ * the optimiser, and the theme swap has to be pure CSS so the first paint is
+ * already right.
+ */
 export function Logo({ className, showText = true }: { className?: string; showText?: boolean }) {
+  if (!showText) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src="/brand/skilrize-mark.png"
+        alt="SkilRize"
+        width={76}
+        height={120}
+        className={cn("h-8 w-auto shrink-0", className)}
+      />
+    );
+  }
   return (
-    <span className={cn("inline-flex items-center gap-2", className)}>
-      <span
-        aria-hidden
-        className="grid size-8 shrink-0 place-items-center rounded-[7px] bg-action"
-      >
-        {/* Three rising steps: skill, rising. Ink on marigold, like the
-            stamp on a paid order slip. */}
-        <svg viewBox="0 0 24 24" className="size-[18px]" fill="none">
-          <path d="M4 19h4.5v-5H4v5Zm5.75 0h4.5V9.5h-4.5V19ZM15.5 19H20V5h-4.5v14Z" fill="#1a1916" />
-        </svg>
-      </span>
-      {showText && (
-        <span
-          className="text-[20px] font-extrabold leading-none tracking-[-0.02em] text-fg"
-          style={{ fontVariationSettings: '"wdth" 76' }}
-        >
-          SkilRize
-        </span>
-      )}
+    <span className={cn("inline-flex h-8 shrink-0 items-center", className)}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/brand/skilrize-logo.png"
+        alt="SkilRize"
+        width={405}
+        height={120}
+        className="h-full w-auto dark:hidden"
+      />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/brand/skilrize-logo-dark.png"
+        alt="SkilRize"
+        width={405}
+        height={120}
+        className="hidden h-full w-auto dark:block"
+      />
     </span>
   );
 }
