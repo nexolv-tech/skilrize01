@@ -464,13 +464,7 @@ export function DualAccountCard({ active, className }: { active: Track; classNam
           </span>
         </div>
 
-        <div className="flex items-center gap-3.5 px-6 pt-4 pb-5">
-          <span
-            aria-hidden
-            className="grid size-12 shrink-0 place-items-center rounded-full bg-brand-100 text-[16px] font-bold text-brand-900"
-          >
-            AK
-          </span>
+        <div className="px-6 pt-4 pb-5">
           <div className="min-w-0">
             <p className="text-[17px] font-bold leading-tight text-fg">Ayesha Khan</p>
             <p className="mt-0.5 text-[13px] text-muted">Lahore · Web designer · 4.9 from 23 reviews</p>

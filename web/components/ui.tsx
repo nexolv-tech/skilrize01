@@ -443,39 +443,42 @@ export function Progress({ value, label }: { value: number; label?: string }) {
   );
 }
 
+/**
+ * A person's photo, only when they have uploaded one. There is no initials
+ * stand-in: every place that shows an avatar also shows the name, so without
+ * a photo the name alone says who it is. `placeholder` is for the one place a
+ * missing photo needs a visible slot — the photo setting itself.
+ */
 export function Avatar({
   name,
   src,
   size = 36,
   className,
+  placeholder = false,
 }: {
   name: string;
   src?: string | null;
   size?: number;
   className?: string;
+  placeholder?: boolean;
 }) {
-  const initials = name
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
-
+  if (!src && !placeholder) return null;
   return (
     <span
       className={cn(
-        "grid shrink-0 place-items-center overflow-hidden rounded-full bg-brand-100",
-        "text-[12px] font-bold text-brand-900 ring-1 ring-line",
+        "grid shrink-0 place-items-center overflow-hidden rounded-full",
+        src ? "ring-1 ring-line" : "border border-dashed border-line-strong text-subtle",
         className,
       )}
       style={{ width: size, height: size }}
       aria-hidden
+      title={src ? undefined : `${name} has no photo yet`}
     >
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={src} alt="" className="size-full object-cover" />
       ) : (
-        initials || "?"
+        <Icon name="user" className="size-[40%]" />
       )}
     </span>
   );

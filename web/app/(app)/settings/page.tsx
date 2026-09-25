@@ -83,7 +83,7 @@ function ProfileForm({ user }: { user: User }) {
             description="Your name, photo, and handle across both surfaces."
           />
           <div className="flex flex-wrap items-center gap-5 p-5">
-            <Avatar name={user.display_name} src={user.avatar_url} size={72} />
+            <Avatar name={user.display_name} src={user.avatar_url} size={72} placeholder />
             <div className="min-w-0">
               <p className="text-sm font-medium text-fg">{user.display_name}</p>
               <p className="text-[13px] text-muted">@{user.handle}</p>

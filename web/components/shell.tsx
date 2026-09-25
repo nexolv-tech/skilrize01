@@ -222,7 +222,9 @@ function UserMenu() {
         className="flex items-center gap-2 rounded-md p-1 transition-colors duration-150 hover:bg-sunken focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       >
         <Avatar name={user.display_name} src={user.avatar_url} size={30} />
-        <span className="hidden text-[13px] font-medium text-fg sm:block">{user.display_name}</span>
+        <span className="block max-w-[7.5rem] truncate text-[13px] font-medium text-fg sm:max-w-[12rem]">
+          {user.display_name}
+        </span>
       </button>
 
       {open && (
@@ -322,7 +324,7 @@ export function AppHeader() {
             own box instead, so the controls on the right always stay put. */}
         <nav
           aria-label="Marketplace"
-          className="ml-4 hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto md:flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="ml-4 hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto md:flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [mask-image:linear-gradient(to_right,#000_calc(100%-2.5rem),transparent)]"
         >
           {[...WORK_NAV, ...SOCIAL_NAV].map((item) => {
             const active = pathname.startsWith(item.href);
