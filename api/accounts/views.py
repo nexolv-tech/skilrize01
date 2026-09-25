@@ -657,7 +657,22 @@ def set_phone(request):
     # either but the tester still needs the code from somewhere.
     if settings.DEBUG or settings.ENVIRONMENT == "test":
         logging.getLogger(__name__).info("phone_otp user=%s code=%s", request.user.pk, code)
-    return Response({"detail": "A verification code has been sent."})
+        return Response({"detail": "A verification code has been sent."})
+    # Production with no SMS provider: nothing was sent, so say so instead of
+    # telling the user to wait for a text that will never arrive.
+    return Response(
+        {
+            "detail": (
+                "Your number is saved. Verification by SMS is not available yet"
+                + (
+                    "."
+                    if settings.PHONE_VERIFICATION_REQUIRED
+                    else " — you don't need it to buy or sell on SkilRize."
+                )
+            ),
+            "code": "sms_unavailable",
+        }
+    )
 
 
 @api_view(["POST"])

@@ -427,6 +427,14 @@ PLATFORM_BANK_NAME = config("PLATFORM_BANK_NAME", default="")
 PLATFORM_BANK_ACCOUNT_TITLE = config("PLATFORM_BANK_ACCOUNT_TITLE", default="")
 PLATFORM_BANK_ACCOUNT_NUMBER = config("PLATFORM_BANK_ACCOUNT_NUMBER", default="")
 
+# Phone verification needs an SMS provider to deliver the code, and none is
+# connected yet — every provider charges per message to an arbitrary number.
+# Until one is, a phone code can never reach a real user, so requiring it would
+# stop every account from ever buying or selling: the first production deploy
+# did exactly that. Off, the number is stored but not required; email and CNIC
+# verification still are. Turn on together with a real SMS provider.
+PHONE_VERIFICATION_REQUIRED = config("PHONE_VERIFICATION_REQUIRED", default=False, cast=bool)
+
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STORAGES = {

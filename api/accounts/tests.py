@@ -1290,8 +1290,9 @@ def test_setting_a_phone_number_issues_an_otp_and_clears_verification(signed_in,
     )
 
     assert response.status_code == 200
-    # The code itself is never returned by the API.
-    assert "code" not in response.data
+    # The OTP itself is never returned by the API — only, at most, the
+    # machine-readable reason no SMS went out.
+    assert response.data.get("code") in (None, "sms_unavailable")
     assert SecurityToken.objects.filter(
         user=user, purpose=SecurityToken.Purpose.PHONE_OTP, used_at__isnull=True
     ).exists()
@@ -1331,8 +1332,10 @@ def test_phone_verification_rejects_a_wrong_code(signed_in, user):
 
 
 @pytest.mark.django_db
-def test_profile_completion_gate(user):
-    """Browsing is always allowed; transacting is not, until all three pass."""
+def test_profile_completion_gate(user, settings):
+    """Browsing is always allowed; transacting is not, until all three pass —
+    when an SMS provider makes the phone step possible at all."""
+    settings.PHONE_VERIFICATION_REQUIRED = True
     assert user.can_transact is False
     assert set(user.missing_profile_requirements()) == {"email", "phone", "identity"}
 
@@ -1348,11 +1351,36 @@ def test_profile_completion_gate(user):
 
 
 @pytest.mark.django_db
-def test_me_reports_what_is_still_missing(signed_in):
+def test_me_reports_what_is_still_missing(signed_in, settings):
+    settings.PHONE_VERIFICATION_REQUIRED = True
     response = signed_in.get("/api/v1/auth/me/")
     assert response.data["can_transact"] is False
     assert set(response.data["missing_requirements"]) == {"email", "phone", "identity"}
     assert 0 <= response.data["profile_strength"] <= 100
+
+
+@pytest.mark.django_db
+def test_without_an_sms_provider_the_phone_is_not_required(user, settings):
+    """No SMS provider means no phone code can ever arrive. Requiring one
+    anyway locked every production account out of transacting."""
+    settings.PHONE_VERIFICATION_REQUIRED = False
+    user.email_verified = True
+    user.identity_status = VerificationStatus.VERIFIED
+    user.save()
+    assert user.missing_profile_requirements() == []
+    assert user.can_transact is True
+
+
+@pytest.mark.django_db
+def test_production_says_plainly_that_no_sms_was_sent(signed_in, settings):
+    settings.DEBUG = False
+    settings.ENVIRONMENT = "production"
+    response = signed_in.post(
+        "/api/v1/auth/phone/", {"phone_number": "+923001234567"}, format="json"
+    )
+    assert response.status_code == 200
+    assert response.data["code"] == "sms_unavailable"
+    assert "sent" not in response.data["detail"]
 
 
 # --- Universities ----------------------------------------------------------

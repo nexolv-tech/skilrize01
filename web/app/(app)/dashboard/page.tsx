@@ -212,7 +212,7 @@ function PhoneStep() {
   );
 }
 
-function IdentityStep() {
+function IdentityStep({ index }: { index: number }) {
   const { user, refresh } = useSession();
   const inputRef = React.useRef<HTMLInputElement>(null);
   const status = user?.identity_status ?? "unverified";
@@ -224,7 +224,7 @@ function IdentityStep() {
 
   return (
     <StepShell
-      index={3}
+      index={index}
       icon="id"
       title="Verify your identity"
       description="Upload your national identity card. Required of everyone, because the platform holds money on your behalf. The image is encrypted, access is logged, and it is deleted once reviewed."
@@ -272,6 +272,7 @@ function VerificationJourney() {
   if (!user) return null;
 
   const remaining = user.missing_requirements.length;
+  const showPhone = user.missing_requirements.includes("phone") || user.phone_verified;
 
   return (
     <Card>
@@ -300,8 +301,10 @@ function VerificationJourney() {
 
       <ul className="mt-2 divide-y divide-line">
         <EmailStep />
-        <PhoneStep />
-        <IdentityStep />
+        {/* Only while the deployment actually requires it — asking for a code
+            no SMS provider will send would block the account for nothing. */}
+        {showPhone && <PhoneStep />}
+        <IdentityStep index={showPhone ? 3 : 2} />
       </ul>
     </Card>
   );

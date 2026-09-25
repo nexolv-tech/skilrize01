@@ -221,11 +221,7 @@ class User(AbstractBaseUser, PermissionsMixin, TimestampedModel):
 
     @property
     def profile_complete(self) -> bool:
-        return (
-            self.email_verified
-            and self.phone_verified
-            and self.identity_status == VerificationStatus.VERIFIED
-        )
+        return not self.missing_profile_requirements()
 
     @property
     def can_transact(self) -> bool:
@@ -233,10 +229,14 @@ class User(AbstractBaseUser, PermissionsMixin, TimestampedModel):
 
     def missing_profile_requirements(self) -> list[str]:
         """What is still outstanding, so the client can say so precisely."""
+        from django.conf import settings
+
         missing = []
         if not self.email_verified:
             missing.append("email")
-        if not self.phone_verified:
+        # Required only once an SMS provider can actually deliver the code —
+        # see PHONE_VERIFICATION_REQUIRED in settings.
+        if settings.PHONE_VERIFICATION_REQUIRED and not self.phone_verified:
             missing.append("phone")
         if self.identity_status != VerificationStatus.VERIFIED:
             missing.append("identity")
