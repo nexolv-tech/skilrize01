@@ -3,12 +3,13 @@
 /**
  * The landing page.
  *
- * Its job is to get a visitor to trust the platform with money. So the hero
- * does not describe the product in the abstract; it shows the escrow slip —
- * an order moving from paid, to delivered, to approved, to released — with
- * the fee printed on it. The rest of the page answers the next questions in
- * the order people ask them: what can I buy, how does it work, where is my
- * money, and who is behind this.
+ * The hero says the one thing SkilRize does that a plain marketplace does
+ * not: a single account both hires and sells. Its switch changes what the
+ * search does (find services, or find work), and the example account beside
+ * it lights up the matching side. The rest of the page answers the next
+ * questions in the order people ask them: what can I buy, how does it work,
+ * where is my money — the escrow slip, an order moving from paid to released
+ * with the fee printed on it — and who is behind this.
  *
  * **Nothing here claims traction the platform has not earned.** No invented
  * reviews, no borrowed logos, no listing counts: the services shown are the
@@ -23,12 +24,14 @@ import Link from "next/link";
 
 import {
   CategoryTile,
+  DualAccountCard,
   EscrowTicket,
   FaqItem,
   GigCard,
   HeroSearch,
   SectionHead,
   SuggestionPills,
+  TrackAlternative,
   TrackSwitch,
   type Track,
 } from "@/components/marketing";
@@ -93,7 +96,7 @@ function AccountDeletedNotice() {
 }
 
 export default function LandingPage() {
-  const [track, setTrack] = React.useState<Track>("services");
+  const [track, setTrack] = React.useState<Track>("hire");
   const { data: live, loading } = useLoader(() => gigs.list({ sort: "newest", page_size: 8 }), []);
   const services = live?.results ?? [];
 
@@ -110,23 +113,25 @@ export default function LandingPage() {
           <div className="mx-auto grid max-w-7xl items-center gap-14 px-5 py-16 sm:py-20 lg:grid-cols-[1.15fr_0.85fr] lg:gap-16 lg:py-24">
             <div className="animate-rise">
               <p className="eyebrow">Freelance marketplace · Pakistan</p>
-              <h1 className="display-xl mt-5 max-w-[13ch]">
-                Hire skilled freelancers. Pay only when the work is approved.
+              <h1 className="display-xl mt-5 max-w-[12ch]">
+                Hire talent. Sell your skills. <span className="text-accent">One account.</span>
               </h1>
               <p className="mt-6 max-w-xl text-[17px] leading-relaxed text-muted">
-                Buy a fixed-price service, or post a brief and compare proposals. Your payment
-                waits in escrow until you accept the delivery — and comes back to you if the order
-                is cancelled.
+                SkilRize works both ways. Hire verified freelancers when you need something done,
+                and sell your own services when you have skills to offer — from the same account,
+                with one profile and one set of reviews. Every order is paid into escrow before
+                the work starts.
               </p>
 
               <div className="mt-9 max-w-xl space-y-4">
                 <TrackSwitch value={track} onChange={setTrack} />
                 <HeroSearch track={track} />
                 <SuggestionPills track={track} />
+                <TrackAlternative track={track} />
               </div>
             </div>
 
-            <EscrowTicket className="mx-auto w-full max-w-md lg:mx-0" />
+            <DualAccountCard active={track} className="mx-auto w-full max-w-md lg:mx-0" />
           </div>
 
           <div className="border-t border-line bg-raised">
@@ -221,6 +226,27 @@ export default function LandingPage() {
                 </ol>
               </div>
             ))}
+          </div>
+        </section>
+
+        {/* ============================================================ */}
+        {/* Escrow — the slip                                             */}
+        {/* ============================================================ */}
+        <section id="escrow" className="scroll-mt-24 border-t border-line">
+          <div className="mx-auto grid max-w-7xl items-center gap-14 px-5 py-16 sm:py-20 lg:grid-cols-[1.15fr_0.85fr] lg:gap-16 lg:py-24">
+            <div>
+              <p className="eyebrow">Escrow on every order</p>
+              <h2 className="display-xl mt-5 max-w-[13ch]">
+                Hire skilled freelancers. Pay only when the work is approved.
+              </h2>
+              <p className="mt-6 max-w-xl text-[17px] leading-relaxed text-muted">
+                Buy a fixed-price service, or post a brief and compare proposals. Your payment
+                waits in escrow until you accept the delivery — and comes back to you if the order
+                is cancelled.
+              </p>
+            </div>
+
+            <EscrowTicket className="mx-auto w-full max-w-md lg:mx-0" />
           </div>
         </section>
 

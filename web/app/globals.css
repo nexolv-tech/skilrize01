@@ -546,12 +546,6 @@
   }
 }
 
-/* A looping sequence the visitor has paused holds exactly where it is. */
-.motion-paused,
-.motion-paused * {
-  animation-play-state: paused !important;
-}
-
 /* Motion is decoration; it must never be a barrier. */
 @media (prefers-reduced-motion: reduce) {
   *,

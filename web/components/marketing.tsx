@@ -31,12 +31,12 @@ const TICKET_STEPS: Array<{ label: string; detail: string }> = [
 ];
 
 /** Seconds at which each step inks in. The stamp changes after the last. */
-const STEP_AT = [0.5, 1.4, 2.3, 3.2] as const;
+const STEP_AT = [0.3, 0.9, 1.5, 2.1] as const;
 
-/** One pass: the last stamp lands at about 3.8s, and the finished slip then
+/** One pass: the last stamp lands at about 2.7s, and the finished slip then
  *  holds long enough to read before it fades and starts again. */
-const CYCLE_MS = 8000;
-const FADE_MS = 400;
+const CYCLE_MS = 5500;
+const FADE_MS = 300;
 
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 
@@ -63,11 +63,10 @@ function useOnScreen(ref: React.RefObject<HTMLElement | null>) {
 export function EscrowTicket({ className }: { className?: string }) {
   const [run, setRun] = React.useState(0);
   const [fading, setFading] = React.useState(false);
-  const [paused, setPaused] = React.useState(false);
   const figureRef = React.useRef<HTMLElement>(null);
   const visible = useOnScreen(figureRef);
   // Reduced motion shows the finished slip at once (globals.css), so there
-  // is nothing to loop and no reason to offer a pause control.
+  // is nothing to loop.
   const reducedMotion = React.useSyncExternalStore(
     subscribeReducedMotion,
     () => window.matchMedia(REDUCED_MOTION).matches,
@@ -79,7 +78,7 @@ export function EscrowTicket({ className }: { className?: string }) {
   // Each pass schedules the next: fade the finished slip out, then remount it
   // (the `key` below) so every CSS animation starts again from zero.
   React.useEffect(() => {
-    if (paused || reducedMotion || !visible) return;
+    if (reducedMotion || !visible) return;
     const fade = window.setTimeout(() => setFading(true), CYCLE_MS - FADE_MS);
     const next = window.setTimeout(() => {
       setFading(false);
@@ -89,7 +88,7 @@ export function EscrowTicket({ className }: { className?: string }) {
       window.clearTimeout(fade);
       window.clearTimeout(next);
     };
-  }, [run, paused, reducedMotion, visible]);
+  }, [run, reducedMotion, visible]);
 
   return (
     <figure ref={figureRef} className={cn("relative", className)}>
@@ -97,9 +96,8 @@ export function EscrowTicket({ className }: { className?: string }) {
         key={run}
         className={cn(
           "ticket-edge relative rounded-t-xl border border-b-0 border-line bg-raised px-6 pt-6 pb-9 shadow-e3",
-          "transition-opacity duration-[400ms]",
+          "transition-opacity duration-300",
           fading && "opacity-0",
-          paused && "motion-paused",
         )}
       >
         <div className="flex items-baseline justify-between gap-4">
@@ -171,7 +169,7 @@ export function EscrowTicket({ className }: { className?: string }) {
               style={{
                 animation:
                   "stamp-in 0.42s var(--ease-out-quint) both, stamp-out 0.3s ease forwards",
-                animationDelay: `0.6s, ${STEP_AT[3] - 0.1}s`,
+                animationDelay: `0.35s, ${STEP_AT[3] - 0.1}s`,
               }}
             >
               Held in escrow
@@ -187,21 +185,8 @@ export function EscrowTicket({ className }: { className?: string }) {
         </div>
       </div>
 
-      <figcaption className="mt-5 flex items-center justify-between gap-3 text-[12.5px] text-subtle">
-        <span>How every order on SkilRize moves money.</span>
-        {/* Anything that moves on its own for more than five seconds needs a
-            way to stop it (WCAG 2.2.2). */}
-        {!reducedMotion && (
-          <button
-            type="button"
-            aria-pressed={paused}
-            onClick={() => setPaused((value) => !value)}
-            className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-md px-2 font-medium text-accent underline-offset-4 hover:underline"
-          >
-            <Icon name={paused ? "play" : "pause"} className="size-3.5" />
-            {paused ? "Play" : "Pause"}
-          </button>
-        )}
+      <figcaption className="mt-5 text-[12.5px] text-subtle">
+        How every order on SkilRize moves money.
       </figcaption>
     </figure>
   );
@@ -211,23 +196,37 @@ export function EscrowTicket({ className }: { className?: string }) {
 /* Track and search                                                           */
 /* -------------------------------------------------------------------------- */
 
-export type Track = "services" | "projects";
+/** The two sides of one account: buying work, and selling it. */
+export type Track = "hire" | "earn";
 
 export const TRACKS: Record<
   Track,
-  { label: string; placeholder: string; action: string; suggestions: string[] }
+  {
+    label: string;
+    placeholder: string;
+    action: string;
+    /** Where a search on this side lands. */
+    searchPath: string;
+    suggestions: string[];
+    /** The other way in, for someone who does not want to search. */
+    alternative: { text: string; link: string; href: string };
+  }
 > = {
-  services: {
-    label: "Buy a service",
+  hire: {
+    label: "I want to hire",
     placeholder: "Search services, e.g. “business website”",
     action: "Search",
+    searchPath: "/gigs",
     suggestions: ["Business website", "Mobile app", "Logo design", "AI chatbot"],
+    alternative: { text: "Prefer quotes?", link: "Post a brief and compare proposals", href: "/projects/new" },
   },
-  projects: {
-    label: "Post a brief",
-    placeholder: "Describe what you need done",
-    action: "Get proposals",
-    suggestions: ["Mobile app", "Data dashboard", "Brand identity", "Thesis editing"],
+  earn: {
+    label: "I want to earn",
+    placeholder: "Your skill, e.g. “web design”",
+    action: "Find work",
+    searchPath: "/projects",
+    suggestions: ["Web development", "Graphic design", "Video editing", "Tutoring"],
+    alternative: { text: "Have a service to sell?", link: "List it for free", href: "/gigs/new" },
   },
 };
 
@@ -237,12 +236,12 @@ export const TRACKS: Record<
  * it to one tab stop with arrow keys inside.
  */
 export function TrackSwitch({ value, onChange }: { value: Track; onChange: (next: Track) => void }) {
-  const order: Track[] = ["services", "projects"];
+  const order: Track[] = ["hire", "earn"];
 
   return (
     <div
       role="tablist"
-      aria-label="How you want to hire"
+      aria-label="What you want to do"
       className="inline-flex rounded-lg border border-line-strong bg-raised p-1"
     >
       {order.map((track) => {
@@ -282,11 +281,7 @@ export function HeroSearch({ track }: { track: Track }) {
   function submit(event: React.FormEvent) {
     event.preventDefault();
     const term = query.trim();
-    if (track === "projects") {
-      router.push(term ? `/projects/new?title=${encodeURIComponent(term)}` : "/projects/new");
-      return;
-    }
-    router.push(term ? `/gigs?q=${encodeURIComponent(term)}` : "/gigs");
+    router.push(term ? `${config.searchPath}?q=${encodeURIComponent(term)}` : config.searchPath);
   }
 
   return (
@@ -325,17 +320,123 @@ export function SuggestionPills({ track }: { track: Track }) {
       {TRACKS[track].suggestions.map((term) => (
         <Link
           key={term}
-          href={
-            track === "projects"
-              ? `/projects/new?title=${encodeURIComponent(term)}`
-              : `/gigs?q=${encodeURIComponent(term)}`
-          }
+          href={`${TRACKS[track].searchPath}?q=${encodeURIComponent(term)}`}
           className="inline-flex min-h-9 items-center rounded-full border border-line-strong px-3.5 text-[13px] font-medium text-fg transition-colors duration-150 hover:border-fg/40 hover:bg-sunken"
         >
           {term}
         </Link>
       ))}
     </div>
+  );
+}
+
+/** The other way in on each side, under the search. */
+export function TrackAlternative({ track }: { track: Track }) {
+  const { text, link, href } = TRACKS[track].alternative;
+  return (
+    <p className="text-[13.5px] text-muted">
+      {text}{" "}
+      <Link href={href} className="font-medium text-accent underline-offset-4 hover:underline">
+        {link} →
+      </Link>
+    </p>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* One account, both sides — the hero's picture                               */
+/* -------------------------------------------------------------------------- */
+
+const EXAMPLE_SIDES: Record<Track, { heading: string; icon: IconName; items: Array<{ title: string; status: string; amount: number }> }> = {
+  hire: {
+    heading: "Buying",
+    icon: "wallet",
+    items: [
+      { title: "Product copy for 12 listings", status: "Held in escrow", amount: 12000 },
+      { title: "Logo refresh", status: "Awaiting your review", amount: 8500 },
+    ],
+  },
+  earn: {
+    heading: "Selling",
+    icon: "briefcase",
+    items: [
+      { title: "Landing page in Webflow", status: "In progress", amount: 40000 },
+      { title: "Portfolio website", status: "Released to you", amount: 22500 },
+    ],
+  },
+};
+
+/**
+ * One person's account, hiring and selling at once. The column matching the
+ * hero's hire/earn switch lights up, so the control and the picture say the
+ * same thing: the switch changes what you are doing, not which account.
+ */
+export function DualAccountCard({ active, className }: { active: Track; className?: string }) {
+  return (
+    <figure className={cn("relative", className)}>
+      <div className="overflow-hidden rounded-xl border border-line bg-raised shadow-e3">
+        <div className="flex items-center justify-between gap-3 px-6 pt-5">
+          <p className="eyebrow">Example account</p>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-positive-soft px-2.5 py-1 text-[11.5px] font-semibold text-positive">
+            <Icon name="check" strokeWidth={2.6} className="size-3" />
+            CNIC verified
+          </span>
+        </div>
+
+        <div className="flex items-center gap-3.5 px-6 pt-4 pb-5">
+          <span
+            aria-hidden
+            className="grid size-12 shrink-0 place-items-center rounded-full bg-brand-100 text-[16px] font-bold text-brand-900"
+          >
+            AK
+          </span>
+          <div className="min-w-0">
+            <p className="text-[17px] font-bold leading-tight text-fg">Ayesha Khan</p>
+            <p className="mt-0.5 text-[13px] text-muted">Lahore · 4.9 rating from 23 reviews</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 border-t border-line">
+          {(["hire", "earn"] as const).map((side) => {
+            const { heading, icon, items } = EXAMPLE_SIDES[side];
+            const on = side === active;
+            return (
+              <div
+                key={side}
+                className={cn(
+                  "p-5 transition-colors duration-300",
+                  side === "earn" && "border-l border-line",
+                  on && "bg-accent-soft",
+                )}
+              >
+                <p className={cn("eyebrow flex items-center gap-1.5", on && "text-accent")}>
+                  <Icon name={icon} className="size-3.5" />
+                  {heading}
+                </p>
+                <ul className="mt-3 space-y-3.5">
+                  {items.map((item) => (
+                    <li key={item.title}>
+                      <p className="text-[13.5px] font-semibold leading-snug text-fg">{item.title}</p>
+                      <p className="mt-1 flex flex-wrap items-baseline justify-between gap-x-2 text-[12px] text-muted">
+                        <span>{item.status}</span>
+                        <Money amount={item.amount} className="figure text-fg" />
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+
+        <p className="border-t border-line px-6 py-3.5 text-[12.5px] text-muted">
+          One profile · one set of reviews · payouts to one bank account
+        </p>
+      </div>
+      <figcaption className="mt-5 text-[12.5px] text-subtle">
+        Hire and sell from the same account — no second profile needed.
+      </figcaption>
+    </figure>
   );
 }
 
