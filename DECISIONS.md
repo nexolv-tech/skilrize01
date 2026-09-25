@@ -1812,6 +1812,148 @@ actual deployed pair, `skilrize01.vercel.app` against
 `skilrize-api.onrender.com` — that happens after this pushes and Render
 redeploys, the same two-step dance every change to this path requires.
 
+## D46 · Settlement: every cancellation refunds, every unanswered delivery releases
+
+**Two holes in the escrow model where money went missing from the books.
+A cancelled order simply closed — nothing recorded that the buyer's
+transfer was owed back to them. And a delivery nobody answered held the
+seller's money forever, even though notifications had promised both
+sides a review window.**
+
+*Refunds.* `payments.Refund` is the mirror image of `Payout`: one per
+milestone, `pending` until an admin sends the transfer back by hand and
+marks it `refunded` (Django admin, "Mark as refunded"). Every path that
+returns escrowed money creates one through `payments.settlement.
+queue_refund` — a seller cancelling an order, a buyer cancelling before
+sending requirements or after a missed due date, a freelancer walking
+away from a funded contract. The refund is always the full amount; no fee
+is kept on cancelled work. Buyers see it on the order page and at
+`GET /payments/refunds/`.
+
+*Who may cancel* lives on the model, `Order.cancellation_allowed_for`, so
+the endpoint and the `can_cancel` / `cancel_blocked_reason` fields the
+client renders its button from can never disagree. A seller may cancel
+anything undelivered. A buyer may cancel before sending requirements, or
+once the order is late — not while the seller is working on time, because
+the seller started on the buyer's word. Nobody cancels delivered work;
+that is a review or a support case. On contracts, a freelancer may cancel
+a funded contract unless a delivery is awaiting review; a client may not
+cancel while money is held.
+
+*Auto-release.* `settlement.auto_release_lapsed` accepts deliveries whose
+window has passed — 3 days for a service order (`Order.accept_by`), 7 days
+for a contract milestone — and queues the payout. It runs hourly from the
+`auto-release-deliveries` periodic task, which a data migration
+(`core/0006`) creates, so the schedule exists on every database the moment
+it migrates rather than depending on someone adding it by hand. Release
+arithmetic moved into `settlement.queue_payout`, which is idempotent: a
+second release of the same milestone returns the existing `Payout`.
+
+*No bank account, no funding.* Every funding endpoint takes the client's
+word that they transferred money. With `PLATFORM_BANK_*` unset — as the
+production server was at the time of writing — the checkout showed a blank
+account and still accepted "I've sent the payment". Funding (orders,
+milestones, paid plans) now refuses with `503 payments_unavailable` until
+the account is configured, and `bank-transfer-instructions` reports
+`available` so the UI says so instead of showing empty fields.
+
+## D47 · GDPR as the privacy baseline, for every user
+
+**Taken as the standard to build to because it is the strictest widely
+recognised one, not because SkilRize is obliged to follow it: it gives a
+concrete, checkable answer to "is this handled properly" for every piece
+of personal data, which Pakistani law alone does not yet.**
+
+What that meant in code:
+
+- *Consent records (Art. 7(1)).* Sign-up requires `accept_terms`; each
+  acceptance is stored as a `LegalAcceptance` row with the document
+  version (`LEGAL_TERMS_VERSION`, `LEGAL_PRIVACY_VERSION`), IP and user
+  agent, so the platform can show which version someone agreed to.
+- *Access and portability (Arts. 15, 20).* `POST /auth/me/export/` returns
+  everything held about the caller as JSON. Discovery is generic — every
+  model with a foreign key to the user is found through `_meta` — so a new
+  model cannot be forgotten; secrets are omitted by name and encrypted
+  bank/CNIC fields are masked to their last four digits. Step-up is
+  required: a stolen session alone must not be able to walk off with
+  someone's history. The request is written to the audit log.
+- *Erasure (Art. 17).* `POST /auth/me/delete/` anonymises the account
+  rather than deleting the row — orders, payments and payouts must be kept
+  for tax purposes, and reviews and messages are part of other people's
+  records too — and deletes everything that is only the user's: identity
+  and portfolio files, payout details, sessions, devices, 2FA, tokens,
+  notifications, integrations. Listings are paused, open briefs closed,
+  proposals withdrawn. It refuses while money is still moving (open
+  orders, held milestones, pending payouts or refunds). `GET` on the same
+  endpoint says what would block it and what is kept, before a password is
+  ever asked for. Settings → Privacy & data is the UI for both.
+- *Cookies (ePrivacy 5(3)).* Only strictly necessary cookies are set, so a
+  notice — not a consent banner — is what the law asks for. A "reject all"
+  button that changed nothing would be a dark pattern of its own.
+- *Transparency.* A Privacy Policy with a legal basis for each purpose,
+  retention periods, processors (Oracle Cloud, Google, Backblaze),
+  transfers, automated decisions and rights; a Cookie Policy listing every
+  cookie and storage key by name.
+
+The policies were drafted from what the code actually does and checked
+against it line by line, but **they were not written by a lawyer** — see
+"Not mine to take".
+
+## D48 · Launch surfaces a payment provider can review
+
+**Swich's reviewers reported they could not reach a checkout from any
+service. The cause was not one bug but four: the production database had
+no categories and no services at all; the landing page's "featured"
+services were hard-coded and linked to gigs that did not exist; there was
+no checkout page — ordering happened inside a panel on the service page,
+behind sign-in; and search was login-walled.**
+
+- *Checkout* (`/checkout/<gig>`) is public. It shows the package, extras,
+  total, delivery time, policies and payment methods before asking anyone
+  to sign in; the selection lives in the query string, so signing in
+  mid-checkout returns to the same order. Bank transfer is the one live
+  method; card and wallets are listed as coming, which is where a gateway
+  slots in. Placing an order requires ticking the Terms and Refund policy.
+  The order page now has the cancel control and shows refund status.
+- *Business identity.* Payment networks require a merchant site to show
+  its legal operator, address and contact details, and every policy names
+  the data controller. They all read from `web/lib/business.ts`. Seven
+  pages carry them: Terms, Privacy, Refunds & Cancellation, Service
+  Delivery (the start-to-finish order flow a reviewer asks for), Cookies,
+  Contact and About, all linked from a footer on every public page.
+- *Content.* `seed` now runs on every deploy (it is idempotent), and
+  `create_storefront --email …` lists the operator's own four services
+  (websites, apps, AI automation, UI/UX) under a real account. The landing
+  page shows the live catalogue and hides the section when it is empty —
+  nothing claims traction the platform has not earned. The storefront's
+  prices are placeholders for the founder to set.
+- *Phone verification off until SMS exists.* No SMS provider is
+  configured, so a phone code could never arrive and every account was
+  blocked from transacting. `PHONE_VERIFICATION_REQUIRED` (default off)
+  removes phone from the profile requirements; the code path stays for
+  when a provider is added, and `set_phone` says plainly that no SMS was
+  sent instead of pretending.
+
+## D49 · The redesign: an escrow slip, not a gradient
+
+**The previous interface read as generated: a violet gradient accent,
+glowing orbs, and a serif-italic headline over a stock photo — the look
+most AI-built landing pages share. The redesign takes its identity from
+the one thing that makes a stranger trust a marketplace with money:
+knowing where the money is.**
+
+The signature is the *escrow ticket* — an order slip on the landing and
+sign-in pages that inks in each step (paid, delivered, approved, released)
+with the fee arithmetic printed on it; the checkout's order summary uses
+the same perforated slip. Colour is marigold (`#f2a10f`) for actions with
+ink text on it, a darker ochre for links and focus, near-neutral greys,
+and *firozi* — the turquoise of Multan tilework — reserved for campus
+portals so the student surface is recognisable at a glance. Type is
+Archivo at a condensed width for display and Martian Mono for labels and
+every figure, so amounts line up. Motion is limited to the ticket's
+sequence and respects `prefers-reduced-motion`. Remaining gradient and
+"sparkle" treatments in the app were removed rather than restyled.
+
 ---
 
 ## Not mine to take
@@ -1832,9 +1974,12 @@ external engagement neither of us can substitute for.
    escrow without a second entity (D41) — **then removed at the client's
    direction** over its production account's NTN requirement, replaced
    with a custodial bank-transfer model that automates neither collection
-   nor payout (D42). Choosing and wiring a real gateway again, if one is
-   revisited, is still open.
-4. **Buy the domain** in D1.
+   nor payout (D42). **Revisited (2026-09):** the operator now has an NTN
+   and is re-applying to Swich; D48's public checkout and policy pages
+   are what its review asked for. Wiring the gateway back in waits on
+   that merchant account.
+4. ~~**Buy the domain** in D1.~~ **Done** — `skilrize.com`, live on
+   Oracle Cloud.
 5. **Confirm or override the launch campus** in D4.
 6. **Recruit the seed cohort** — roughly 30 committed student sellers and one
    moderator at one campus. Phase 4 shipped the portals; this is what puts
@@ -1850,6 +1995,15 @@ external engagement neither of us can substitute for.
    not a code change. `SENTRY_DSN`, `SECURE_HSTS_SECONDS`, and the rest of
    D37 are the code-side half of "hardened"; this is the half that was
    never going to be.
+8. **Have a lawyer review the Terms, Privacy, Refund and Delivery
+   policies** (D47, D48). They describe what the code does accurately, but
+   liability limits, governing law and consumer-protection wording are a
+   lawyer's call, not an engineer's.
+9. **Configure the production bank account and set real prices.**
+   `PLATFORM_BANK_NAME`, `PLATFORM_BANK_ACCOUNT_TITLE` and
+   `PLATFORM_BANK_ACCOUNT_NUMBER` in the server's `production.env` —
+   funding refuses until they exist (D46) — and the storefront's
+   placeholder package prices (D48).
 
 ---
 

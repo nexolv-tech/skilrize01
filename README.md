@@ -28,7 +28,7 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 12 · Hire after trial | ✅ | A paid trial task before the full project — see below for what "converts" does and does not mean yet |
 | 13 · Proof-of-work challenges | ✅ | Timed briefs, human-reviewed scoring, ranked badges — automated Lighthouse grading built but off by default, see below |
 
-**364 backend tests pass (19 of them the cross-tenant leakage gate), plus 11
+**396 backend tests pass (19 of them the cross-tenant leakage gate), plus 11
 Dart tests and a 4-test live suite for the mobile client** (`flutter analyze`
 clean across all ~32 screens; the live suite runs against a real stack — see
 `mobile/README.md`). Migration check and production build are clean.
@@ -42,7 +42,34 @@ assertion of "doesn't raise"). `tsc --noEmit` run standalone is clean too —
 the typed-routes quirk against `.next/types/validator.ts` a prior session
 hit does not reproduce.
 
+### Launch readiness: checkout, refunds, GDPR, policies (D46–D49)
+
+Built after Swich's reviewers could not reach a checkout from any service:
+
+- **Public checkout** at `/checkout/<service>` — package, extras, total,
+  delivery time, payment methods and policies, all visible before sign-in;
+  signing in mid-checkout returns to the same order.
+- **Refunds and auto-release** — every cancellation of undelivered work
+  records a full refund for an admin to send; deliveries nobody answers are
+  accepted automatically after 3 days (orders) or 7 days (milestones).
+- **GDPR rights in the product** — consent records at sign-up, a one-click
+  data export and self-service account deletion under
+  Settings → Privacy & data, a cookie notice, and policies that say exactly
+  what the code does.
+- **Seven public pages** a payment provider checks for: Terms, Privacy,
+  Refunds & Cancellation, Service Delivery, Cookies, Contact, About — all
+  naming the operator, address and contact details from
+  `web/lib/business.ts`.
+- **A redesign** that drops the generated look for one built around the
+  escrow slip (see Visual layer).
+- **Guards** — funding refuses while no platform bank account is
+  configured; phone verification stays off until an SMS provider exists.
+
 ### Phase 3, rebuilt: custodial escrow, not a gateway
+
+*Update, September 2026: the operator now has an NTN and is re-applying to
+Swich (D48). Until that merchant account is live, the custodial model
+described here is what runs.*
 
 Phase 3 originally landed on **Swich** (D41) — a real Pakistan-native
 payment gateway, verified against its actual sandbox. That integration was
@@ -477,24 +504,21 @@ further code changes. Same adapter shape as `CLAMAV_HOST`.
 
 ### Visual layer
 
-**Marketing pages use photography.** The landing page is built on ten photos in
-`web/public/img`, served from our own origin — the CSP allows `img-src 'self'`
-and nothing else — and rendered through `next/image`, so each one ships as
-AVIF/WebP at the requested size, lazily, in a box whose height is reserved
-before it loads. All ten are under the
-[Unsplash licence](https://unsplash.com/license): free for commercial use, no
-attribution required. Replacing one is a file swap; the paths are listed in
-`web/app/page.tsx`.
+**The identity is the escrow slip (D49).** The landing and sign-in pages
+carry an order ticket that inks in each step — paid into escrow,
+delivered, approved, released — with the fee arithmetic printed on it, and
+the checkout's order summary is the same perforated slip. Marigold
+(`#f2a10f`) marks actions, a darker ochre marks links and focus, and
+*firozi* turquoise is reserved for campus portals. Display type is Archivo
+at a condensed width; labels and every figure are Martian Mono, so amounts
+line up in columns. Both are self-hosted by `next/font`. Tokens live in
+`web/app/globals.css`; light and dark themes share them.
 
-**Application pages do not.** Every listing without a seller-uploaded cover
-renders deterministic vector art derived from its id and category
-(`web/components/artwork.tsx`), so a catalogue with two listings in it still
-looks like a product. A seller's own image replaces it automatically.
-
-Headlines are set in Instrument Serif, self-hosted at build time by
-`next/font`. It is confined to marketing display type — the application chrome
-is Geist throughout, because a display serif under about 20px stops being
-elegant and starts being hard to read.
+There is no stock photography any more. Every listing without a
+seller-uploaded cover renders deterministic vector art derived from its id
+and category (`web/components/artwork.tsx`), so a catalogue with two
+listings in it still looks like a product. A seller's own image replaces it
+automatically.
 
 **Nothing on the marketing pages claims traction the platform has not earned.**
 No customer quotes, no borrowed client logos, no listing counts. An earlier
@@ -537,6 +561,16 @@ cd api && .venv/Scripts/python manage.py seed --demo
 
 Creates the taxonomy plus sample accounts. The command prints the sign-in
 credentials it used.
+
+To list the operator's own services on a fresh database (production
+included — it creates real listings, not demo ones):
+
+```bash
+cd api && .venv/Scripts/python manage.py create_storefront --email you@example.com
+```
+
+Package prices in `core/management/commands/create_storefront.py` are
+placeholders; set real ones before running it against production.
 
 ### Tests
 
@@ -587,8 +621,9 @@ more production requirement on top of it: `PLATFORM_BANK_NAME`,
 `PLATFORM_BANK_ACCOUNT_TITLE`, and `PLATFORM_BANK_ACCOUNT_NUMBER` in
 `production.env` have to point at a real account the platform controls
 before launch — every other setting in this list has a safe default or
-can stay disabled, but a blank bank account here means the bank-transfer
-panel shows nothing to transfer to.
+can stay disabled. Without a bank account every funding endpoint refuses
+with `payments_unavailable` (D46) and checkout tells buyers payments are
+not open yet — safe, but nobody can buy anything.
 
 ### Free test deploy (not production)
 
