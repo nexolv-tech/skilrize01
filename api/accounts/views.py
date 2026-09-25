@@ -1510,6 +1510,17 @@ def admin_users(request):
         queryset = queryset.filter(
             Q(email__icontains=query) | Q(handle__icontains=query) | Q(full_name__icontains=query)
         )
+    # The console's filter chips: who is suspended, who holds an admin role,
+    # whose identity document is waiting.
+    match request.query_params.get("filter"):
+        case "active":
+            queryset = queryset.filter(is_active=True)
+        case "suspended":
+            queryset = queryset.filter(is_active=False, deleted_at__isnull=True)
+        case "admins":
+            queryset = queryset.exclude(admin_role="")
+        case "identity_pending":
+            queryset = queryset.filter(identity_status=VerificationStatus.PENDING)
     paginator = StandardPagination()
     page = paginator.paginate_queryset(queryset, request)
     return paginator.get_paginated_response(AdminUserSerializer(page, many=True).data)

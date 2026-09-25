@@ -2110,6 +2110,53 @@ Cookie Policy.
 
 ---
 
+## D54 · One admin console for the whole platform
+
+The owner asked for an admin panel that controls everything. The console
+from D35 covered student checks, users, contracts and the audit log; the
+daily work of running SkilRize happened in Django's own admin, a developer
+tool, or could not happen at all:
+
+- **Identity (CNIC) checks had no review screen.** A member's upload set
+  them to pending, and only editing the field in Django's admin could
+  approve them. Nobody can transact until it is approved.
+- **Incoming payments were never checked.** A buyer's "I have paid" funds
+  the order at once (D42). `EscrowFunding` and `SubscriptionPayment` gain
+  `confirmed_at`/`confirmed_by`: the console lists unconfirmed ones oldest
+  first, to be matched against the bank statement. "Not received" voids a
+  gig order (no refund, as nothing arrived), returns a brief's milestone to
+  awaiting funding, or cancels a plan. It is refused once work is
+  delivered, when it has become a dispute.
+- **Payouts and refunds** were Django admin bulk actions with no bank
+  details in view and no message to the person paid. The console shows
+  the recipient's bank details only on request, logs each view as a
+  sensitive read with the CNIC masked to its last four digits, requires the
+  bank's transfer reference to mark one sent, and tells the recipient.
+
+Also added: every service and brief with remove, restore and close;
+categories; a platform-wide queue of community reports (community
+moderators still see their own); all service orders with their payment
+state; an account summary, "sign out everywhere" and role changes on
+users; and a read-only view of the server's configuration. Configuration
+stays in `production.env`: a settings page that could change the bank
+account payments go to would be the most valuable page on the site to
+hijack.
+
+Rules the whole console keeps: each endpoint answers to its roles through
+`require_admin_role`, Super Admin to all; each change records the reason
+in the audit log and notifies the person affected; nothing moves money,
+because the money moves at the bank and the console records that it did.
+Roles are granted only by a Super Admin, never to oneself, and granting
+one ends the account's sessions so the next sign-in meets the two-factor
+rule every admin role carries. The first Super Admin comes from
+`manage.py set_admin_role`. A Django superuser is reported to the web app
+as a Super Admin, matching what the API already allowed.
+
+The console's API is its own app, `api/console`, rather than more views on
+each model's app. The older admin endpoints stay where D35 put them.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, a personal relationship, or an

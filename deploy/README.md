@@ -111,11 +111,21 @@ Once it settles, visit `https://your-domain.com` in a browser. If it doesn't
 load: check that DNS has propagated (`dig your-domain.com` should show your
 VM's IP), and check the Oracle console Security List from step 5.
 
-## 8. Create your admin account
+## 8. Make yourself the admin
+
+Sign up on the site with the email you will run SkilRize from, then make
+that account the Super Admin:
 
 ```bash
-docker compose -f deploy/docker-compose.prod.yml --env-file deploy/production.env exec api python manage.py createsuperuser
+docker compose -f deploy/docker-compose.prod.yml --env-file deploy/production.env exec api python manage.py set_admin_role you@example.com super_admin
 ```
+
+Sign in again: you are asked to set up an authenticator app (every admin
+role requires one), and the account menu then has **Admin console**. From
+there you confirm payments, send payouts and refunds, approve identity
+checks, and give other people roles (Users → Details). Other roles:
+`finance_admin`, `verification_officer`, `moderator`, `support_agent`,
+`dispute_officer`; `none` removes one.
 
 Categories and skills are seeded automatically every time the API starts
 (`manage.py seed` is idempotent). To list your own services under a real

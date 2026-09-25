@@ -103,6 +103,7 @@ class UserSerializer(serializers.ModelSerializer):
     has_two_factor = serializers.BooleanField(read_only=True)
     profile_strength = serializers.SerializerMethodField()
     badges = serializers.SerializerMethodField()
+    admin_role = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -155,6 +156,13 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_missing_requirements(self, user: User) -> list[str]:
         return user.missing_profile_requirements()
+
+    def get_admin_role(self, user: User) -> str:
+        """A Django superuser is a Super Admin to the API
+        (`require_admin_role`), so the console treats them as one too."""
+        if user.is_superuser and not user.admin_role:
+            return User.AdminRole.SUPER_ADMIN
+        return user.admin_role
 
     def get_profile_strength(self, user: User) -> int:
         """A completion meter, because complete profiles convert far better and
@@ -404,6 +412,8 @@ class AdminUserSerializer(serializers.ModelSerializer):
 
     avatar_url = serializers.SerializerMethodField()
     university_name = serializers.CharField(source="university.name", read_only=True, default=None)
+    #: Erased by its owner (GDPR): nothing can be done to it but look.
+    is_erased = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -416,6 +426,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
             "avatar_url",
             "admin_role",
             "is_active",
+            "is_erased",
             "is_staff",
             "email_verified",
             "phone_verified",
@@ -428,6 +439,9 @@ class AdminUserSerializer(serializers.ModelSerializer):
 
     def get_avatar_url(self, user: User) -> str | None:
         return signed_url(user.avatar) if user.avatar and user.avatar.is_downloadable else None
+
+    def get_is_erased(self, user: User) -> bool:
+        return user.deleted_at is not None
 
 
 class AdminSuspendUserSerializer(serializers.Serializer):

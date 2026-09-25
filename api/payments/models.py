@@ -50,6 +50,16 @@ class EscrowFunding(TimestampedModel):
     funded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
     )
+    #: Set when an operator finds the transfer on the bank statement (admin
+    #: console, Payments). Until then the funding is the client's word only.
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    confirmed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
 
     def __str__(self) -> str:
         return f"EscrowFunding(milestone={self.milestone_id})"
@@ -73,6 +83,15 @@ class SubscriptionPayment(TimestampedModel):
     reference_note = models.CharField(max_length=200, blank=True)
     paid_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    #: As on `EscrowFunding`: set once the transfer is seen in the bank.
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    confirmed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
     )
 
     class Meta:

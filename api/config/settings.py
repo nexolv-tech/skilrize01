@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     "challenges",
     "integrations",
     "payments",
+    "console",
 ]
 
 MIDDLEWARE = [
