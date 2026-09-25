@@ -366,7 +366,7 @@ export interface LoginResult {
 export const auth = {
   me: () => api.get<User>("/auth/me/"),
   updateMe: (patch: Partial<User>) => api.patch<User>("/auth/me/", patch),
-  signup: (body: { email: string; password: string; full_name?: string }) =>
+  signup: (body: { email: string; password: string; full_name?: string; accept_terms: boolean }) =>
     api.post<{ user: User }>("/auth/signup/", body),
   login: (body: { email: string; password: string }) =>
     api.post<LoginResult>("/auth/login/", body),
@@ -429,6 +429,37 @@ export const auth = {
     api.get<{ matched: boolean; university?: University }>(
       `/auth/universities/lookup/?email=${encodeURIComponent(email)}`,
     ),
+
+  // Data-subject rights (GDPR Arts. 15, 17, 20). Both need step-up: the
+  // password, or an authenticator code when two-factor is on.
+  exportData: (body: StepUp) => api.post<Record<string, unknown>>("/auth/me/export/", body),
+  deletionPreview: () => api.get<DeletionPreview>("/auth/me/delete/"),
+  deleteAccount: (body: StepUp & { confirm: string }) =>
+    api.post<{ detail: string }>("/auth/me/delete/", body),
+};
+
+export interface StepUp {
+  password?: string;
+  code?: string;
+}
+
+export interface DeletionPreview {
+  /** What has to be settled first — money still moving, people still depending. */
+  blockers: string[];
+  /** What is kept regardless, and why. */
+  retained: string[];
+}
+
+/** Public, unauthenticated deployment facts. */
+export interface SiteConfig {
+  environment: string;
+  push_enabled: boolean;
+  legal: { terms_version: string; privacy_version: string };
+  commission_percent: string;
+}
+
+export const site = {
+  config: () => api.get<SiteConfig>("/config/"),
 };
 
 export const notifications = {

@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { PASSWORD_MIN_LENGTH, PasswordPolicy } from "@/components/password";
 import { Alert, Badge, Button, Field, Icon, Input } from "@/components/ui";
 import { auth, type University } from "@/lib/api";
+import { currentNext, nextSuffix } from "@/lib/next-path";
 import { useAsyncAction, useSession } from "@/lib/session";
 
 export default function SignupPage() {
@@ -16,6 +17,7 @@ export default function SignupPage() {
   const [fullName, setFullName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
+  const [accepted, setAccepted] = React.useState(false);
   const [university, setUniversity] = React.useState<{
     domainFor: string;
     value: University | null;
@@ -53,9 +55,14 @@ export default function SignupPage() {
   }, [lookupTarget]);
 
   const register = useAsyncAction(async () => {
-    const result = await auth.signup({ email, password, full_name: fullName });
+    const result = await auth.signup({
+      email,
+      password,
+      full_name: fullName,
+      accept_terms: accepted,
+    });
     setUser(result.user);
-    router.push("/dashboard");
+    router.push(currentNext());
   });
 
   return (
@@ -63,7 +70,17 @@ export default function SignupPage() {
       <h1 className="text-2xl font-semibold tracking-[-0.025em] text-fg">Create your account</h1>
       <p className="mt-2 text-sm text-muted">
         Already have one?{" "}
-        <Link href="/login" className="font-medium text-accent underline-offset-4 hover:underline">
+        <Link
+          href="/login"
+          onClick={(event) => {
+            const suffix = nextSuffix();
+            if (suffix) {
+              event.preventDefault();
+              router.push(`/login${suffix}`);
+            }
+          }}
+          className="font-medium text-accent underline-offset-4 hover:underline"
+        >
           Sign in
         </Link>
       </p>
@@ -147,13 +164,42 @@ export default function SignupPage() {
             hard requirements, so a user who cannot see them is just guessing. */}
         {password.length > 0 && <PasswordPolicy password={password} />}
 
-        <Button type="submit" block size="lg" loading={register.pending}>
+        {/* Never pre-ticked, and required by the server as well as here: an
+            account that did not actively accept the Terms has no contract with
+            the platform (see accounts.LegalAcceptance). */}
+        <div className="space-y-1.5">
+          <label className="flex cursor-pointer items-start gap-3 rounded-md border border-line bg-raised p-3.5">
+            <input
+              type="checkbox"
+              name="accept_terms"
+              checked={accepted}
+              onChange={(event) => setAccepted(event.target.checked)}
+              aria-invalid={Boolean(register.fieldErrors.accept_terms) || undefined}
+              aria-describedby={register.fieldErrors.accept_terms ? "accept_terms-error" : undefined}
+              className="mt-0.5 size-4 shrink-0 cursor-pointer accent-[var(--accent)]"
+            />
+            <span className="text-[13px] leading-relaxed text-fg">
+              I&apos;m 18 or older and I accept the{" "}
+              <Link href="/terms" target="_blank" className="font-medium text-accent underline underline-offset-2">
+                Terms of Service
+              </Link>{" "}
+              and the{" "}
+              <Link href="/privacy" target="_blank" className="font-medium text-accent underline underline-offset-2">
+                Privacy Policy
+              </Link>
+              .
+            </span>
+          </label>
+          {register.fieldErrors.accept_terms && (
+            <p id="accept_terms-error" role="alert" className="text-[13px] text-critical">
+              {register.fieldErrors.accept_terms}
+            </p>
+          )}
+        </div>
+
+        <Button type="submit" block size="lg" loading={register.pending} disabled={!accepted}>
           Create account
         </Button>
-
-        <p className="text-center text-[12px] leading-relaxed text-subtle">
-          By continuing you agree to the Terms of Service and Privacy Policy.
-        </p>
       </form>
     </div>
   );
