@@ -39,7 +39,16 @@ const SORTS = [
   ["proposals", "Fewest proposals"],
 ] as const;
 
+/** How a brief that is not taking proposals reads to the person who posted it. */
+const STATUS_BADGE: Partial<Record<ProjectSummary["status"], { label: string; tone: "neutral" | "caution" | "positive" }>> = {
+  draft: { label: "Draft", tone: "neutral" },
+  paused: { label: "Paused", tone: "caution" },
+  closed: { label: "Closed", tone: "neutral" },
+  awarded: { label: "Hired", tone: "positive" },
+};
+
 function ProjectCard({ project }: { project: ProjectSummary }) {
+  const badge = STATUS_BADGE[project.status];
   return (
     <Card
       as="article"
@@ -47,6 +56,11 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
+          {badge && (
+            <Badge tone={badge.tone} className="mb-2">
+              {badge.label}
+            </Badge>
+          )}
           <h3 className="text-[16px] font-semibold leading-snug tracking-[-0.01em] text-fg">
             <Link
               href={`/projects/${project.id}`}
@@ -141,6 +155,8 @@ function BrowseContent() {
       type: params.get("type") ?? "",
       experience: params.get("experience") ?? "",
       sort: params.get("sort") ?? "newest",
+      // The briefs this user posted, drafts and closed ones included.
+      mine: params.get("mine") === "true" ? "true" : "",
     }),
     [params],
   );
@@ -180,23 +196,36 @@ function BrowseContent() {
     <>
       <div className="flex flex-wrap items-end justify-between gap-4 pb-6">
         <div>
-          <h1 className="display-md text-fg">Find work</h1>
+          <h1 className="display-md text-fg">{filters.mine ? "Your briefs" : "Find work"}</h1>
           <p className="mt-1 text-sm text-muted">
             {loading
-              ? "Loading open briefs…"
-              : `${page?.count ?? 0} open ${page?.count === 1 ? "brief" : "briefs"} right now`}
+              ? "Loading briefs…"
+              : filters.mine
+                ? `${page?.count ?? 0} ${page?.count === 1 ? "brief" : "briefs"} you have posted`
+                : `${page?.count ?? 0} open ${page?.count === 1 ? "brief" : "briefs"} right now`}
           </p>
         </div>
         {user && (
-          <ButtonLink href="/projects/new" variant="secondary">
-            <Icon name="plus" className="size-4" />
-            Post a project
-          </ButtonLink>
+          <div className="flex flex-wrap gap-3">
+            {filters.mine ? (
+              <ButtonLink href="/projects" variant="secondary">
+                Browse open briefs
+              </ButtonLink>
+            ) : (
+              <ButtonLink href="/projects?mine=true" variant="secondary">
+                Your briefs
+              </ButtonLink>
+            )}
+            <ButtonLink href="/projects/new">
+              <Icon name="plus" className="size-4" />
+              Post a brief
+            </ButtonLink>
+          </div>
         )}
       </div>
 
-      {/* Filter bar */}
-      <Card className="mb-6 p-4">
+      {/* Filter bar — searching your own handful of briefs needs none. */}
+      <Card className={cn("mb-6 p-4", filters.mine && "hidden")}>
         <form
           className="flex flex-wrap items-center gap-3"
           onSubmit={(event) => {
@@ -311,6 +340,15 @@ function BrowseContent() {
             </Card>
           ))}
         </div>
+      ) : filters.mine && (!page || page.results.length === 0) ? (
+        <Card>
+          <EmptyState
+            icon={<Icon name="briefcase" className="size-5" />}
+            title="You have not posted a brief yet"
+            description="Describe the work and your budget; freelancers send proposals and you choose who to hire."
+            action={<ButtonLink href="/projects/new">Post a brief</ButtonLink>}
+          />
+        </Card>
       ) : !page || page.results.length === 0 ? (
         <Card>
           <EmptyState

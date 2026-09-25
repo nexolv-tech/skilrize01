@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { PageHeading } from "@/components/shell";
 import {
@@ -37,8 +38,16 @@ const LABELS: Record<OrderStatus, string> = {
 
 type Filter = "all" | "buyer" | "seller";
 
-export default function OrdersPage() {
-  const [role, setRole] = React.useState<Filter>("all");
+function OrdersContent() {
+  // In the URL, so the header's Orders link opens on the side in use
+  // (`?role=buyer` or `?role=seller`) and the filter survives a reload.
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const requested = params.get("role");
+  const role: Filter = requested === "buyer" || requested === "seller" ? requested : "all";
+  const setRole = (next: Filter) =>
+    router.replace(next === "all" ? pathname : `${pathname}?role=${next}`, { scroll: false });
   const { data, loading } = useLoader(
     () => orders.list(role === "all" ? {} : { role }),
     [role],
@@ -142,5 +151,13 @@ export default function OrdersPage() {
         </ul>
       )}
     </>
+  );
+}
+
+export default function OrdersPage() {
+  return (
+    <React.Suspense fallback={<Skeleton className="h-24 w-full" />}>
+      <OrdersContent />
+    </React.Suspense>
   );
 }

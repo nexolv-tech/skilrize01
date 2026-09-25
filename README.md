@@ -529,6 +529,14 @@ icon, the Apple touch icon and the link-preview image (`web/app/icon.png`,
 icons. To change it, replace those files; `Logo` in `components/ui.tsx`
 reads them.
 
+**Buying and Selling (D53).** Every account is both a buyer and a seller;
+a switch beside the logo decides which side the signed-in header and the
+dashboard lead with. Buying shows Services, Your briefs, Orders, Contracts
+and Messages with "Post a brief"; Selling shows Find work, Your services,
+Proposals, Orders, Contracts and Messages with "Publish a service".
+Everything else is in the account menu. The choice is a view only
+(`web/lib/mode.ts`, kept in `localStorage`); nothing on the server reads it.
+
 There is no stock photography any more. Every listing without a
 seller-uploaded cover renders deterministic vector art derived from its id
 and category (`web/components/artwork.tsx`), so a catalogue with two

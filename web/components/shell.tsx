@@ -12,9 +12,10 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { Avatar, Badge, ButtonLink, Icon, Logo, cn, type IconName } from "@/components/ui";
+import { useMode, type Mode } from "@/lib/mode";
 import { useSession, useTheme } from "@/lib/session";
 
 interface NavItem {
@@ -34,23 +35,47 @@ const NAV: NavItem[] = [
   { href: "/settings/privacy", label: "Privacy & data", icon: "lock" as const },
 ];
 
-/** The marketplace itself, shown in the top bar. */
-const WORK_NAV = [
-  { href: "/search", label: "Search", icon: "search" as const },
-  { href: "/gigs", label: "Services", icon: "layers" as const },
-  { href: "/projects", label: "Projects", icon: "briefcase" as const },
-  { href: "/challenges", label: "Challenges", icon: "zap" as const },
-  { href: "/showcase", label: "Showcase", icon: "star" as const },
-  { href: "/orders", label: "Orders", icon: "wallet" as const },
-  { href: "/contracts", label: "Contracts", icon: "file" as const },
+/**
+ * The top bar, arranged around the side of the account in use (`lib/mode`).
+ * Ten destinations never fitted a laptop-width bar at once; each side leads
+ * with the ones it uses every hour, and the rest are in the account menu.
+ */
+const MODE_NAV: Record<Mode, NavItem[]> = {
+  buying: [
+    { href: "/gigs", label: "Services", icon: "layers" },
+    { href: "/projects?mine=true", label: "Your briefs", icon: "briefcase" },
+    { href: "/orders?role=buyer", label: "Orders", icon: "wallet" },
+    { href: "/contracts", label: "Contracts", icon: "file" },
+    { href: "/messages", label: "Messages", icon: "send" },
+  ],
+  selling: [
+    { href: "/projects", label: "Find work", icon: "briefcase" },
+    { href: "/gigs?mine=true", label: "Your services", icon: "layers" },
+    { href: "/proposals", label: "Proposals", icon: "pen" },
+    { href: "/orders?role=seller", label: "Orders", icon: "wallet" },
+    { href: "/contracts", label: "Contracts", icon: "file" },
+    { href: "/messages", label: "Messages", icon: "send" },
+  ],
+};
+
+/** Each side's main action: the header button, and the menu's on phones. */
+const MODE_ACTION: Record<Mode, { href: string; label: string }> = {
+  buying: { href: "/projects/new", label: "Post a brief" },
+  selling: { href: "/gigs/new", label: "Publish a service" },
+};
+
+/** Everything else, reached from the account menu on either side. */
+const EXPLORE_NAV: NavItem[] = [
+  { href: "/search", label: "Search", icon: "search" },
+  { href: "/showcase", label: "Showcase", icon: "star" },
+  { href: "/feed", label: "Activity", icon: "sparkles" },
+  { href: "/challenges", label: "Challenges", icon: "zap" },
+  { href: "/communities", label: "Communities", icon: "users" },
 ];
 
-/** The social layer. Separated from the work nav so the two do not compete. */
-const SOCIAL_NAV = [
-  { href: "/communities", label: "Communities", icon: "users" as const },
-  { href: "/feed", label: "Activity", icon: "sparkles" as const },
-  { href: "/messages", label: "Messages", icon: "send" as const },
-];
+function pathOf(href: string) {
+  return href.split("?")[0]!;
+}
 
 /**
  * The professional layer — tools for running the business rather than surfaces
@@ -81,6 +106,51 @@ export function ThemeToggle({ className }: { className?: string }) {
     >
       <Icon name={theme === "dark" ? "sun" : "moon"} className="size-[18px]" />
     </button>
+  );
+}
+
+/**
+ * Buying or selling. Switching goes to the dashboard, which opens on that
+ * side's summary, the way switching profiles lands on that profile's home.
+ * Filled in ink rather than raised like the Global/Campus control beside it,
+ * so the two are not read as one.
+ */
+function ModeSwitch({ className, onSwitch }: { className?: string; onSwitch?: () => void }) {
+  const [mode, setMode] = useMode();
+  const router = useRouter();
+  const pathname = usePathname();
+  const options: Array<[Mode, string]> = [
+    ["buying", "Buying"],
+    ["selling", "Selling"],
+  ];
+
+  return (
+    <div
+      role="group"
+      aria-label="Use SkilRize for"
+      className={cn("flex items-center gap-0.5 rounded-lg border border-line bg-sunken p-0.5", className)}
+    >
+      {options.map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          aria-pressed={mode === value}
+          onClick={() => {
+            onSwitch?.();
+            if (mode === value) return;
+            setMode(value);
+            if (pathname !== "/dashboard") router.push("/dashboard");
+          }}
+          className={cn(
+            "flex-1 rounded-[7px] px-2.5 py-1.5 text-[13px] font-medium",
+            "transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+            mode === value ? "bg-fg text-surface shadow-e1" : "text-muted hover:text-fg",
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -192,6 +262,7 @@ function CampusBanner() {
 
 function UserMenu() {
   const { user, signOut } = useSession();
+  const [mode] = useMode();
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
 
@@ -245,11 +316,42 @@ function UserMenu() {
               {user.is_verified_student && <Badge tone="accent">Student</Badge>}
             </div>
           </div>
-          {/* Below tablet width the header has no room for the marketplace
-              nav, so it lives here; without it a phone could not reach
-              Orders, Contracts or Messages from anywhere but the dashboard. */}
-          <div className="border-b border-line p-1 md:hidden">
-            {[...WORK_NAV, ...SOCIAL_NAV].map((item) => (
+          {/* Below tablet width the header has no room for the switch or the
+              marketplace nav, so they live here; without them a phone could
+              not reach Orders, Contracts or Messages from anywhere but the
+              dashboard. */}
+          <div className="border-b border-line p-2 md:hidden">
+            <ModeSwitch onSwitch={() => setOpen(false)} />
+            <div className="mt-1">
+              {MODE_NAV[mode].map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  role="menuitem"
+                  onClick={() => setOpen(false)}
+                  className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] text-muted transition-colors duration-150 hover:bg-sunken hover:text-fg"
+                >
+                  <Icon name={item.icon} className="size-4" />
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+          <div className="border-b border-line p-1 lg:hidden">
+            <Link
+              href={MODE_ACTION[mode].href}
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-fg transition-colors duration-150 hover:bg-sunken"
+            >
+              <Icon name="plus" className="size-4" />
+              {MODE_ACTION[mode].label}
+            </Link>
+          </div>
+          <div className="border-b border-line p-1">
+            {EXPLORE_NAV.filter(
+              (item) => !MODE_NAV[mode].some((shown) => pathOf(shown.href) === item.href),
+            ).map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -261,17 +363,6 @@ function UserMenu() {
                 {item.label}
               </Link>
             ))}
-          </div>
-          <div className="border-b border-line p-1 lg:hidden">
-            <Link
-              href="/projects/new"
-              role="menuitem"
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-fg transition-colors duration-150 hover:bg-sunken"
-            >
-              <Icon name="plus" className="size-4" />
-              Post a brief
-            </Link>
           </div>
           <div className="p-1">
             {NAV.map((item) => (
@@ -331,10 +422,29 @@ function UserMenu() {
   );
 }
 
+/** True while `ref`'s content is wider than the box it scrolls inside.
+ *  `content` names what is inside, so new children are measured too. */
+function useOverflowing(ref: React.RefObject<HTMLElement | null>, content: unknown) {
+  const [overflowing, setOverflowing] = React.useState(false);
+  React.useEffect(() => {
+    const node = ref.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const measure = () => setOverflowing(node.scrollWidth > node.clientWidth + 1);
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    for (const child of Array.from(node.children)) observer.observe(child);
+    return () => observer.disconnect();
+  }, [ref, content]);
+  return overflowing;
+}
+
 export function AppHeader() {
   const pathname = usePathname();
   const { user } = useSession();
+  const [mode] = useMode();
   const cooloff = user?.device_cooloff_seconds ?? 0;
+  const navRef = React.useRef<HTMLElement>(null);
+  const navOverflows = useOverflowing(navRef, mode);
 
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-surface/85 backdrop-blur-xl">
@@ -346,17 +456,26 @@ export function AppHeader() {
           <Logo />
         </Link>
 
+        <ModeSwitch className="ml-4 hidden md:flex" />
+
         {/* The nav is the one part allowed to give way. Nine destinations plus
             the account controls do not fit a laptop width, and the failure
             mode of a fixed-width nav is the *page* scrolling sideways — which
             pushes the user menu off-screen entirely. This scrolls inside its
             own box instead, so the controls on the right always stay put. */}
         <nav
+          ref={navRef}
           aria-label="Marketplace"
-          className="ml-6 hidden min-w-0 flex-1 items-stretch gap-5 self-stretch overflow-x-auto md:flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [mask-image:linear-gradient(to_right,#000_calc(100%-2.5rem),transparent)]"
+          className={cn(
+            "ml-4 hidden min-w-0 flex-1 items-stretch gap-4 self-stretch overflow-x-auto md:flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+            // Faded only when something is actually cut off, so a last link
+            // that just fits is not drawn as if it were.
+            navOverflows && "[mask-image:linear-gradient(to_right,#000_calc(100%-2.5rem),transparent)]",
+          )}
         >
-          {[...WORK_NAV, ...SOCIAL_NAV].map((item) => {
-            const active = pathname.startsWith(item.href);
+          {MODE_NAV[mode].map((item) => {
+            // Each side links a path once, so the path alone picks the tab.
+            const active = pathname.startsWith(pathOf(item.href));
             return (
               <Link
                 key={item.href}
@@ -379,9 +498,9 @@ export function AppHeader() {
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {/* Held back until there is room for it beside the nav: on a laptop
               it is the first thing that pushes the account controls out. */}
-          <ButtonLink href="/projects/new" size="sm" variant="secondary" className="max-lg:hidden">
+          <ButtonLink href={MODE_ACTION[mode].href} size="sm" variant="secondary" className="max-lg:hidden">
             <Icon name="plus" className="size-3.5" />
-            Post a brief
+            {MODE_ACTION[mode].label}
           </ButtonLink>
           <SurfaceSwitcher />
           <ThemeToggle />

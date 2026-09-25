@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 
 import { PageHeading } from "@/components/shell";
 import {
@@ -18,7 +19,16 @@ import {
   Skeleton,
   cn,
 } from "@/components/ui";
-import { auth, notifications as notificationsApi, uploadFile, type Notification } from "@/lib/api";
+import {
+  auth,
+  gigs,
+  marketplace,
+  notifications as notificationsApi,
+  orders,
+  uploadFile,
+  type Notification,
+} from "@/lib/api";
+import { useMode, type Mode } from "@/lib/mode";
 import { formatRelative, useAsyncAction, useLoader, useSession } from "@/lib/session";
 
 /* -------------------------------------------------------------------------- */
@@ -478,6 +488,108 @@ function NotificationsPanel() {
 
 /* -------------------------------------------------------------------------- */
 
+/* -------------------------------------------------------------------------- */
+/* The side in use                                                            */
+/* -------------------------------------------------------------------------- */
+
+const MODE_COPY: Record<
+  Mode,
+  {
+    title: string;
+    body: string;
+    primary: { href: string; label: string };
+    secondary: { href: string; label: string };
+  }
+> = {
+  buying: {
+    title: "Buying",
+    body: "Order a fixed-price service, or post a brief and compare proposals. Your payment waits in escrow until you approve the work.",
+    primary: { href: "/projects/new", label: "Post a brief" },
+    secondary: { href: "/gigs", label: "Browse services" },
+  },
+  selling: {
+    title: "Selling",
+    body: "Publish services buyers can order, and send proposals on open briefs. You are paid when the buyer approves the work.",
+    primary: { href: "/gigs/new", label: "Publish a service" },
+    secondary: { href: "/projects", label: "Find work" },
+  },
+};
+
+/** A list's total, or null when it could not be read (shown as a dash). */
+function total(request: Promise<{ count: number }>) {
+  return request.then((page) => page.count).catch(() => null);
+}
+
+function ModeSummary() {
+  const [mode] = useMode();
+  const copy = MODE_COPY[mode];
+  const { data, loading } = useLoader(async () => {
+    if (mode === "buying") {
+      const [briefs, bought] = await Promise.all([
+        total(marketplace.projects({ mine: "true" })),
+        total(orders.list({ role: "buyer" })),
+      ]);
+      return [
+        { label: "Your briefs", value: briefs, href: "/projects?mine=true" },
+        { label: "Services you ordered", value: bought, href: "/orders?role=buyer" },
+      ];
+    }
+    const [services, sold, sent] = await Promise.all([
+      total(gigs.list({ mine: "true" })),
+      total(orders.list({ role: "seller" })),
+      total(marketplace.myProposals()),
+    ]);
+    return [
+      { label: "Your services", value: services, href: "/gigs?mine=true" },
+      { label: "Orders from buyers", value: sold, href: "/orders?role=seller" },
+      { label: "Proposals sent", value: sent, href: "/proposals" },
+    ];
+  }, [mode]);
+  // Not the previous side's figures while the new ones load.
+  const stats = loading ? null : data;
+
+  return (
+    <Card className="mb-6 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="max-w-xl">
+          <p className="eyebrow">{copy.title}</p>
+          <p className="mt-2 text-[14px] leading-relaxed text-muted">{copy.body}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <ButtonLink href={copy.secondary.href} variant="secondary" size="sm">
+            {copy.secondary.label}
+          </ButtonLink>
+          <ButtonLink href={copy.primary.href} size="sm">
+            <Icon name="plus" className="size-3.5" />
+            {copy.primary.label}
+          </ButtonLink>
+        </div>
+      </div>
+      <ul className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {(stats ?? []).map((stat) => (
+          <li key={stat.label}>
+            <Link
+              href={stat.href}
+              className="block rounded-md border border-line p-4 transition-colors duration-150 hover:border-fg/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              <span className="block text-[12.5px] text-muted">{stat.label}</span>
+              <span className="figure mt-1 block text-[22px] font-semibold text-fg">
+                {stat.value ?? "–"}
+              </span>
+            </Link>
+          </li>
+        ))}
+        {!stats &&
+          [0, 1].map((slot) => (
+            <li key={slot}>
+              <Skeleton className="h-[74px] w-full" />
+            </li>
+          ))}
+      </ul>
+    </Card>
+  );
+}
+
 export default function DashboardPage() {
   const { user } = useSession();
   const firstName = user?.full_name?.split(" ")[0] ?? user?.handle ?? "there";
@@ -486,7 +598,7 @@ export default function DashboardPage() {
     <>
       <PageHeading
         title={`Welcome, ${firstName}`}
-        description="Your account, your verification status, and everything that unlocks as SkilRize is built out."
+        description="Your account at a glance. Switch between buying and selling from the top bar."
       />
 
       {user && !user.can_transact && (
@@ -495,6 +607,8 @@ export default function DashboardPage() {
           proposals, and buying are unlocked once all three checks below are passed.
         </Alert>
       )}
+
+      <ModeSummary />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="space-y-6">

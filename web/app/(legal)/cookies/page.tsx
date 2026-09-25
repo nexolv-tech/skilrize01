@@ -27,6 +27,7 @@ const COOKIES: Array<[string, string, string]> = [
 const STORAGE: Array<[string, string]> = [
   ["skilrize-theme", "Whether you chose the light or dark theme."],
   ["skilrize.surface", "For verified students, whether you were last on the global marketplace or your campus portal."],
+  ["skilrize.mode", "Whether you were last buying or selling, so the top bar and dashboard open on that side."],
   ["skilrize.cookie-notice", "That you have seen the cookie notice, so it is not shown again."],
 ];
 

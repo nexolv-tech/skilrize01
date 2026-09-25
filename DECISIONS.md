@@ -2076,6 +2076,40 @@ necessary.
 
 ---
 
+## D53 · A Buying/Selling switch in the header
+
+The owner asked for a way to switch between the buyer and the seller
+profile from the top bar. From the start one account has been both (signup
+creates both profiles), so this is a switch of view, not of account or
+permission: `web/lib/mode.ts` keeps the choice per browser, and the server
+never reads it. Anything on either side stays reachable from the account
+menu, and a URL works whichever side is selected.
+
+What it changes:
+
+- **The header leads with that side's work.** Buying: Services, Your
+  briefs, Orders, Contracts, Messages, and "Post a brief". Selling: Find
+  work, Your services, Proposals, Orders, Contracts, Messages, and
+  "Publish a service". Before, all ten destinations shared one bar and the
+  last of them were always cut off at laptop width; each side now fits
+  from 1280px, and the edge fades only when something is actually cut off.
+  Search, Showcase, Activity, Challenges and Communities moved to the
+  account menu.
+- **Switching lands on the dashboard**, which now opens with that side's
+  summary: briefs and orders placed when buying; services, orders
+  received and proposals sent when selling.
+- **The pages each side needed.** `/projects?mine=true` is "Your briefs"
+  (the API already filtered by owner; the page did not), with each brief's
+  status. The Orders filter lives in the URL, so the header's Orders link
+  opens on the right side.
+
+The switch is filled in ink rather than raised like the Global/Campus
+control beside it, so the two are not read as one control. On phones it
+sits at the top of the account menu. The stored choice is listed in the
+Cookie Policy.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, a personal relationship, or an
