@@ -8,6 +8,7 @@ import { CoverArt } from "@/components/artwork";
 import {
   Alert,
   Button,
+  ButtonLink,
   Card,
   CardHeader,
   EmptyState,
@@ -94,6 +95,11 @@ export default function OrderWorkspacePage() {
   const accept = useAsyncAction(async () => {
     setData(await orders.accept(order!.id));
   });
+  const [confirmingCancel, setConfirmingCancel] = React.useState(false);
+  const cancel = useAsyncAction(async () => {
+    setData(await orders.cancel(order!.id));
+    setConfirmingCancel(false);
+  });
 
   if (loading) {
     return (
@@ -112,9 +118,9 @@ export default function OrderWorkspacePage() {
           title="Order not available"
           description="You are not a party to this order, or it no longer exists."
           action={
-            <Link href="/orders">
-              <Button variant="secondary">Back to orders</Button>
-            </Link>
+            <ButtonLink href="/orders" variant="secondary">
+              Back to orders
+            </ButtonLink>
           }
         />
       </Card>
@@ -370,6 +376,27 @@ export default function OrderWorkspacePage() {
             </Card>
           )}
 
+          {order.status === "cancelled" && (
+            <Alert tone="neutral" title="Order cancelled">
+              {order.refund ? (
+                order.refund.status === "refunded" ? (
+                  <>
+                    <Money amount={order.refund.amount} /> was refunded to {isBuyer ? "you" : "the buyer"}
+                    {order.refund.refunded_at && ` ${formatRelative(order.refund.refunded_at)}`}.
+                  </>
+                ) : (
+                  <>
+                    A full refund of <Money amount={order.refund.amount} /> is on its way to{" "}
+                    {isBuyer ? "the account you paid from" : "the buyer"}. Refunds are sent within
+                    seven business days.
+                  </>
+                )
+              ) : (
+                "No payment was taken for this order."
+              )}
+            </Alert>
+          )}
+
           {order.status === "completed" && (
             <Alert tone="positive" title="Order complete">
               Payment has been released.{" "}
@@ -397,11 +424,9 @@ export default function OrderWorkspacePage() {
                     </p>
                   </div>
                 </div>
-                <Link href={`/contracts/${order.contract}`}>
-                  <Button size="sm" variant="secondary">
-                    Open contract
-                  </Button>
-                </Link>
+                <ButtonLink href={`/contracts/${order.contract}`} size="sm" variant="secondary">
+                  Open contract
+                </ButtonLink>
               </div>
             </Card>
           )}
@@ -465,16 +490,61 @@ export default function OrderWorkspacePage() {
             </div>
           </Card>
 
-          <Card className="p-5">
-            <div className="flex gap-3">
-              <Icon name="shield" className="mt-0.5 size-4 shrink-0 text-positive" />
-              <p className="text-[12.5px] leading-relaxed text-muted">
-                {isBuyer
-                  ? "Your payment is held until you accept the delivery. If you do nothing, it releases automatically after the review window."
-                  : "The buyer's payment is already secured. Deliver with confidence — it releases to you on acceptance."}
-              </p>
-            </div>
-          </Card>
+          {order.status !== "completed" && order.status !== "cancelled" && (
+            <Card className="p-5">
+              <div className="flex gap-3">
+                <Icon name="shield" className="mt-0.5 size-4 shrink-0 text-positive" />
+                <p className="text-[12.5px] leading-relaxed text-muted">
+                  {isBuyer
+                    ? "Your payment is held until you accept the delivery. If you do nothing, it releases automatically after the review window."
+                    : "The buyer's payment is already secured. Deliver with confidence — it releases to you on acceptance."}
+                </p>
+              </div>
+            </Card>
+          )}
+
+          {/* Cancellation — only while the order is open. The server's
+              `can_cancel` is the single source of truth for who may. */}
+          {order.status !== "completed" && order.status !== "cancelled" && (
+            <Card className="p-5">
+              <p className="text-[13px] font-medium text-fg">Cancel this order</p>
+              {order.can_cancel ? (
+                confirmingCancel ? (
+                  <div className="mt-3 space-y-3">
+                    <p className="text-[12.5px] leading-relaxed text-muted">
+                      The order closes and {isBuyer ? "you are" : "the buyer is"} refunded{" "}
+                      <Money amount={order.price} /> in full. This cannot be undone.
+                    </p>
+                    {cancel.error && <Alert tone="critical">{cancel.error}</Alert>}
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="danger" loading={cancel.pending} onClick={() => void cancel.run()}>
+                        Cancel and refund
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setConfirmingCancel(false)}>
+                        Keep the order
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
+                      {isBuyer ? "You" : "The buyer"} will be refunded in full.
+                    </p>
+                    <Button size="sm" variant="secondary" className="mt-3" onClick={() => setConfirmingCancel(true)}>
+                      Cancel order…
+                    </Button>
+                  </>
+                )
+              ) : (
+                <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
+                  {order.cancel_blocked_reason}{" "}
+                  <Link href="/refunds" className="text-accent underline-offset-2 hover:underline">
+                    Refund policy
+                  </Link>
+                </p>
+              )}
+            </Card>
+          )}
         </aside>
       </div>
     </>

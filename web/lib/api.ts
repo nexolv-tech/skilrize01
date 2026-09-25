@@ -826,6 +826,9 @@ export const contracts = {
 /* -------------------------------------------------------------------------- */
 
 export interface BankTransferInstructions {
+  /** False until the platform's receiving account is configured; every
+   *  funding endpoint refuses with `payments_unavailable` meanwhile. */
+  available: boolean;
   bank_name: string;
   account_title: string;
   account_number: string;
@@ -853,6 +856,18 @@ export interface Payout {
   created_at: string;
 }
 
+export interface Refund {
+  id: number;
+  milestone_title: string;
+  contract_id: number;
+  amount: string;
+  currency: string;
+  reason: string;
+  status: "pending" | "refunded";
+  refunded_at: string | null;
+  created_at: string;
+}
+
 export const payments = {
   // Where to actually send money to fund a milestone or order — shown
   // before the client confirms they've paid, not asked for by any
@@ -868,6 +883,7 @@ export const payments = {
     msisdn: string;
   }) => api.patch<PayoutProfile>("/payments/payout-profile/", body),
   myPayouts: () => api.get<Paginated<Payout>>("/payments/payouts/"),
+  myRefunds: () => api.get<Paginated<Refund>>("/payments/refunds/"),
 };
 
 /* -------------------------------------------------------------------------- */
@@ -989,6 +1005,10 @@ export interface GigOrder {
   completed_at: string | null;
   created_at: string;
   my_role: "buyer" | "seller";
+  /** Server-decided — see `Order.cancellation_allowed_for`. */
+  can_cancel: boolean;
+  cancel_blocked_reason: string;
+  refund: { amount: string; status: "pending" | "refunded"; refunded_at: string | null } | null;
 }
 
 export const gigs = {

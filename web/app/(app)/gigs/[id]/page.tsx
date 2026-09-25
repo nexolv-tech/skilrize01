@@ -2,14 +2,14 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 
 import { CoverArt, motifFor } from "@/components/artwork";
 import {
   Alert,
   Avatar,
   Badge,
-  Button,
+  ButtonLink,
   Card,
   CardHeader,
   EmptyState,
@@ -21,10 +21,8 @@ import {
   Tag,
   cn,
 } from "@/components/ui";
-import { BankTransferPanel } from "@/components/payments";
-import { TwoFactorRequiredPrompt } from "@/components/two-factor";
 import { gigs, type GigDetail, type Package, type Tier } from "@/lib/api";
-import { useAsyncAction, useLoader } from "@/lib/session";
+import { useLoader } from "@/lib/session";
 
 /* -------------------------------------------------------------------------- */
 /* Package picker — the buying decision                                       */
@@ -34,7 +32,6 @@ function PackagePanel({ gig }: { gig: GigDetail }) {
   const active = gig.packages.filter((p) => p.is_active);
   const [tier, setTier] = React.useState<Tier>(active[0]?.tier ?? "basic");
   const [chosenExtras, setChosenExtras] = React.useState<number[]>([]);
-  const [funding, setFunding] = React.useState(false);
 
   const selected: Package | undefined = active.find((p) => p.tier === tier) ?? active[0];
   const extras = gig.extras.filter((e) => e.is_active);
@@ -51,15 +48,9 @@ function PackagePanel({ gig }: { gig: GigDetail }) {
       .filter((extra) => chosenExtras.includes(extra.id))
       .reduce((sum, extra) => sum + extra.extra_days, 0);
 
-  const router = useRouter();
-  const buy = useAsyncAction(async (referenceNote: string) => {
-    const order = await gigs.order(gig.id, {
-      package: selected!.id,
-      extras: chosenExtras,
-      reference_note: referenceNote,
-    });
-    router.push(`/orders/${order.id}`);
-  });
+  const query = new URLSearchParams({ package: selected?.tier ?? "basic" });
+  if (chosenExtras.length) query.set("extras", chosenExtras.join(","));
+  const checkoutHref = `/checkout/${gig.id}?${query.toString()}`;
 
   if (!selected) {
     return (
@@ -174,53 +165,17 @@ function PackagePanel({ gig }: { gig: GigDetail }) {
           </span>
         </div>
 
-        {/* `two_factor_required` and `device_cooloff` are refusals with a
-            specific next step, so they get one. Everything else is a plain
-            error. */}
-        {buy.code === "two_factor_required" ? (
-          <div className="mt-4">
-            <TwoFactorRequiredPrompt onComplete={() => void buy.run("")} />
-          </div>
-        ) : buy.code === "device_cooloff" ? (
-          <Alert tone="caution" title="This device is new" className="mt-4">
-            {buy.error} If this sign-in was not you,{" "}
-            <Link
-              href="/settings/security"
-              className="font-medium text-accent underline-offset-4 hover:underline"
-            >
-              secure your account
-            </Link>
-            .
-          </Alert>
-        ) : buy.error ? (
-          <Alert tone="critical" className="mt-4">
-            {buy.error}
-          </Alert>
-        ) : null}
-
+        {/* Checkout is public, so this is offered to everyone but the seller:
+            a guest signs in from checkout, and anyone who cannot buy yet is
+            told why there, next to the order they were building. */}
         {gig.is_owner ? (
           <Alert tone="neutral" className="mt-4">
             This is your own service.
           </Alert>
-        ) : gig.can_order ? (
-          funding ? (
-            <div className="mt-4">
-              <BankTransferPanel
-                amount={String(total)}
-                pending={buy.pending}
-                onConfirm={(referenceNote) => void buy.run(referenceNote)}
-                onCancel={() => setFunding(false)}
-              />
-            </div>
-          ) : (
-            <Button block size="lg" className="mt-4" onClick={() => setFunding(true)}>
-              Continue · <Money amount={total} />
-            </Button>
-          )
         ) : (
-          <Alert tone="caution" className="mt-4">
-            {gig.order_blocked_reason}
-          </Alert>
+          <ButtonLink href={checkoutHref} block size="lg" className="mt-4">
+            Continue to checkout · <Money amount={total} />
+          </ButtonLink>
         )}
 
         <p className="mt-3 text-center text-[11.5px] leading-relaxed text-subtle">
@@ -258,9 +213,9 @@ export default function GigDetailPage() {
           title="This service is not available"
           description="It may have been paused or withdrawn by the seller."
           action={
-            <Link href="/gigs">
-              <Button variant="secondary">Back to the catalogue</Button>
-            </Link>
+            <ButtonLink href="/gigs" variant="secondary">
+              Back to the catalogue
+            </ButtonLink>
           }
         />
       </Card>

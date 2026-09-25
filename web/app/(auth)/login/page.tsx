@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { TwoFactorEnrol } from "@/components/two-factor";
 import { Alert, Button, Field, Icon, Input } from "@/components/ui";
 import { auth } from "@/lib/api";
+import { currentNext, nextSuffix } from "@/lib/next-path";
 import { useAsyncAction, useSession } from "@/lib/session";
 
 export default function LoginPage() {
@@ -55,7 +56,7 @@ export default function LoginPage() {
     }
     if (result.user) {
       setUser(result.user);
-      router.push("/dashboard");
+      router.push(currentNext());
     }
   });
 
@@ -66,7 +67,7 @@ export default function LoginPage() {
         ? await auth.loginTwoFactor(body)
         : await auth.loginVerifyDevice(body);
     setUser(result.user);
-    router.push("/dashboard");
+    router.push(currentNext());
   });
 
   if (enrolChallenge) {
@@ -97,7 +98,7 @@ export default function LoginPage() {
               setUser(result.user);
               return { recovery_codes: result.recovery_codes };
             }}
-            onComplete={() => router.push("/dashboard")}
+            onComplete={() => router.push(currentNext())}
             onCancel={() => setEnrolChallenge(null)}
           />
         </div>
@@ -187,7 +188,19 @@ export default function LoginPage() {
       <h1 className="text-2xl font-semibold tracking-[-0.025em] text-fg">Welcome back</h1>
       <p className="mt-2 text-sm text-muted">
         New here?{" "}
-        <Link href="/signup" className="font-medium text-accent underline-offset-4 hover:underline">
+        <Link
+          href="/signup"
+          onClick={(event) => {
+            // Carry the return path across, so signing up from checkout
+            // lands back on checkout rather than the dashboard.
+            const suffix = nextSuffix();
+            if (suffix) {
+              event.preventDefault();
+              router.push(`/signup${suffix}`);
+            }
+          }}
+          className="font-medium text-accent underline-offset-4 hover:underline"
+        >
           Create an account
         </Link>
       </p>
