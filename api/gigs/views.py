@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import F, Q
 from django.shortcuts import get_object_or_404
@@ -63,7 +64,7 @@ class GigViewSet(viewsets.ModelViewSet):
     pagination_class = StandardPagination
 
     def get_queryset(self):
-        queryset = Gig.objects.select_related("seller", "category").prefetch_related(
+        queryset = Gig.objects.select_related("seller", "category", "video").prefetch_related(
             "packages", "extras", "skills", "gallery"
         )
         user = self.request.user
@@ -133,8 +134,8 @@ class GigViewSet(viewsets.ModelViewSet):
         gig = self.get_object()
         if gig.seller_id != request.user.pk:
             return _forbidden("Not yours to publish.")
-        if not gig.packages.filter(is_active=True).exists():
-            return _bad("Add at least a Basic package before publishing.")
+        if blockers := gig.publish_blockers():
+            return _bad(blockers[0], "publish_blocked")
         gig.publish()
         return Response(GigDetailSerializer(gig, context={"request": request}).data)
 
@@ -148,23 +149,86 @@ class GigViewSet(viewsets.ModelViewSet):
         gig.save(update_fields=["status", "updated_at"])
         return Response(GigDetailSerializer(gig, context={"request": request}).data)
 
-    @action(detail=True, methods=["post"], parser_classes=[])
-    def gallery(self, request, pk=None):
+    # --- Pictures and video ---------------------------------------------------
+
+    def _owned_gig(self, request):
         gig = self.get_object()
         if gig.seller_id != request.user.pk:
-            return _forbidden("Not yours to edit.")
+            return None, _forbidden("Not yours to edit.")
+        return gig, None
+
+    def _media_response(self, gig, request, code=status.HTTP_200_OK):
+        gig.refresh_from_db()
+        return Response(GigDetailSerializer(gig, context={"request": request}).data, status=code)
+
+    @action(detail=True, methods=["post"])
+    def gallery(self, request, pk=None):
+        """Add pictures, up to `Gig.MAX_IMAGES`. The first one is the cover."""
+        gig, refusal = self._owned_gig(request)
+        if refusal:
+            return refusal
         uploaded = request.FILES.getlist("files")
         if not uploaded:
-            return _bad("No files were provided.")
-        stored = [
-            filestore.store(item, owner=request.user, purpose=StoredFile.Purpose.PORTFOLIO)
-            for item in uploaded
-        ]
+            return _bad("Choose at least one picture.")
+        room = Gig.MAX_IMAGES - len(gig.images())
+        if len(uploaded) > room:
+            return _bad(
+                f"A service can have up to {Gig.MAX_IMAGES} pictures"
+                + (f"; there is room for {room} more." if room else ". Remove one first."),
+                "too_many_images",
+            )
+        try:
+            stored = [
+                filestore.store(item, owner=request.user, purpose=StoredFile.Purpose.GIG_IMAGE)
+                for item in uploaded
+            ]
+        except DjangoValidationError as exc:
+            return _bad(exc.messages[0], "invalid_file")
         gig.gallery.add(*stored)
-        return Response(
-            GigDetailSerializer(gig, context={"request": request}).data,
-            status=status.HTTP_201_CREATED,
-        )
+        return self._media_response(gig, request, status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["delete"], url_path=r"gallery/(?P<file_id>\d+)")
+    def remove_image(self, request, pk=None, file_id=None):
+        gig, refusal = self._owned_gig(request)
+        if refusal:
+            return refusal
+        image = next((f for f in gig.images() if f.pk == int(file_id)), None)
+        if image is None:
+            return _bad("That picture is not on this service.", "not_found")
+        if gig.status == Gig.Status.ACTIVE and len(gig.images()) == 1:
+            return _bad(
+                "A published service needs at least one picture. Add another before "
+                "removing this one.",
+                "last_image",
+            )
+        gig.gallery.remove(image)
+        return self._media_response(gig, request)
+
+    @action(detail=True, methods=["post", "delete"])
+    def video(self, request, pk=None):
+        """Set (replacing any previous one) or remove the service's video."""
+        gig, refusal = self._owned_gig(request)
+        if refusal:
+            return refusal
+        if request.method == "DELETE":
+            gig.video = None
+            gig.save(update_fields=["video", "updated_at"])
+            return self._media_response(gig, request)
+        uploaded = request.FILES.get("file")
+        if uploaded is None:
+            return _bad("Choose a video file.")
+        try:
+            stored = filestore.store(
+                uploaded,
+                owner=request.user,
+                purpose=StoredFile.Purpose.GIG_VIDEO,
+                max_bytes=Gig.MAX_VIDEO_BYTES,
+            )
+        except DjangoValidationError as exc:
+            return _bad(exc.messages[0], "invalid_file")
+        gig.video = stored
+        gig.save(update_fields=["video", "updated_at"])
+        return self._media_response(gig, request, status.HTTP_201_CREATED)
 
     # --- Ordering ---------------------------------------------------------
 

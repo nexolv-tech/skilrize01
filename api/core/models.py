@@ -360,6 +360,8 @@ class StoredFile(TimestampedModel):
         IDENTITY = "identity", "Identity document"
         DELIVERABLE = "deliverable", "Contract deliverable"
         ATTACHMENT = "attachment", "Message attachment"
+        GIG_IMAGE = "gig_image", "Service image"
+        GIG_VIDEO = "gig_video", "Service video"
 
     class ScanStatus(models.TextChoices):
         PENDING = "pending", "Pending"

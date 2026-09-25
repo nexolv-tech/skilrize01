@@ -64,7 +64,7 @@ def search_gigs(request):
     base = (
         Gig.objects.filter(status=Gig.Status.ACTIVE)
         .select_related("seller", "seller__seller_profile", "category")
-        .prefetch_related("packages")
+        .prefetch_related("packages", "gallery")
     )
 
     matched = apply_text_search(base, term)

@@ -49,6 +49,12 @@ class Gig(ScopedModel):
     #: scannable and comparable.
     TITLE_PREFIX = "I will "
     MAX_TAGS = 5
+    #: Pictures per service, as on the large marketplaces: enough to show the
+    #: work from a few angles, few enough that the first one stays the cover.
+    MAX_IMAGES = 3
+    #: About a minute of phone video. ClamAV's default stream limit is 25 MB,
+    #: and a file the scanner cannot read in full is never released.
+    MAX_VIDEO_BYTES = 20 * 1024 * 1024
 
     seller = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="gigs"
@@ -73,7 +79,13 @@ class Gig(ScopedModel):
     #: [{"key": "brand_name", "label": "...", "type": "text", "required": true}]
     requirements = models.JSONField(default=list, blank=True)
 
+    #: The service's pictures, the first uploaded being the cover the catalogue
+    #: shows. At least one is required to publish (see `publish_blockers`).
     gallery = models.ManyToManyField("core.StoredFile", blank=True, related_name="+")
+    #: One optional short video, shown first on the service page.
+    video = models.ForeignKey(
+        "core.StoredFile", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     status = models.CharField(max_length=8, choices=Status.choices, default=Status.DRAFT)
 
     # Discovery counters, written by the platform.
@@ -151,6 +163,24 @@ class Gig(ScopedModel):
         """Orders per click. Meaningless below a handful of clicks, so the
         caller decides whether to show it."""
         return round(self.orders_count / self.clicks, 4) if self.clicks else 0.0
+
+    def images(self) -> list:
+        """The service's pictures in upload order, the first being the cover.
+
+        Sorted in Python rather than with ``order_by`` so a prefetched gallery
+        is reused instead of costing a query per card in a list.
+        """
+        files = [f for f in self.gallery.all() if f.content_type.startswith("image/")]
+        return sorted(files, key=lambda f: f.pk)
+
+    def publish_blockers(self) -> list[str]:
+        """What must be fixed before this service can go live."""
+        blockers = []
+        if not self.packages.filter(is_active=True).exists():
+            blockers.append("Add at least a Basic package before publishing.")
+        if not self.images():
+            blockers.append("Add at least one picture of your work before publishing.")
+        return blockers
 
     def accepts_order_from(self, user) -> tuple[bool, str]:
         if not self.is_orderable:

@@ -10,7 +10,9 @@ from gigs.models import Gig
 
 
 @pytest.mark.django_db
-def test_the_storefront_lists_orderable_services_and_is_rerunnable():
+def test_the_storefront_drafts_complete_services_and_is_rerunnable():
+    """Drafts, not live listings: a service needs a picture to go live, and
+    only the owner has pictures of their own work."""
     call_command("seed")
     call_command("create_storefront", "--email", "Studio@Example.com")
     call_command("create_storefront", "--email", "studio@example.com")
@@ -18,7 +20,11 @@ def test_the_storefront_lists_orderable_services_and_is_rerunnable():
     seller = User.objects.get(email="studio@example.com")
     gigs = Gig.objects.unscoped().filter(seller=seller)
     assert gigs.count() == 4
-    assert all(gig.status == Gig.Status.ACTIVE and gig.is_orderable for gig in gigs)
+    assert all(gig.status == Gig.Status.DRAFT and not gig.is_orderable for gig in gigs)
+    assert all(
+        gig.publish_blockers() == ["Add at least one picture of your work before publishing."]
+        for gig in gigs
+    )
     assert all(gig.packages.count() == 3 for gig in gigs)
     assert all(gig.faq and gig.requirements for gig in gigs)
 

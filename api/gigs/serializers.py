@@ -66,6 +66,7 @@ class GigListSerializer(serializers.ModelSerializer):
             "rating_count",
             "orders_count",
             "cover_url",
+            "status",
             "seller_name",
             "seller_handle",
             "seller_avatar",
@@ -80,7 +81,7 @@ class GigListSerializer(serializers.ModelSerializer):
         return signed_url(avatar) if avatar and avatar.is_downloadable else None
 
     def get_cover_url(self, gig: Gig) -> str | None:
-        cover = gig.gallery.first()
+        cover = next(iter(gig.images()), None)
         return signed_url(cover) if cover and cover.is_downloadable else None
 
 
@@ -91,6 +92,9 @@ class GigDetailSerializer(serializers.ModelSerializer):
     packages = PackageSerializer(many=True, read_only=True)
     extras = GigExtraSerializer(many=True, read_only=True)
     gallery_urls = serializers.SerializerMethodField()
+    images = serializers.SerializerMethodField()
+    video_url = serializers.SerializerMethodField()
+    video_status = serializers.SerializerMethodField()
     starting_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
 
     is_owner = serializers.SerializerMethodField()
@@ -112,6 +116,9 @@ class GigDetailSerializer(serializers.ModelSerializer):
             "packages",
             "extras",
             "gallery_urls",
+            "images",
+            "video_url",
+            "video_status",
             "status",
             "starting_price",
             "rating_average",
@@ -131,7 +138,26 @@ class GigDetailSerializer(serializers.ModelSerializer):
         return getattr(self.context.get("request"), "user", None)
 
     def get_gallery_urls(self, gig: Gig) -> list[str]:
-        return [signed_url(f) for f in gig.gallery.all() if f.is_downloadable]
+        return [signed_url(f) for f in gig.images() if f.is_downloadable]
+
+    def get_images(self, gig: Gig) -> list[dict]:
+        """Every picture with its id, so the owner can remove one. A picture
+        still being virus-scanned has no url yet and says so."""
+        return [
+            {
+                "id": f.pk,
+                "url": signed_url(f) if f.is_downloadable else None,
+                "status": f.scan_status,
+            }
+            for f in gig.images()
+        ]
+
+    def get_video_status(self, gig: Gig) -> str | None:
+        return gig.video.scan_status if gig.video else None
+
+    def get_video_url(self, gig: Gig) -> str | None:
+        video = gig.video
+        return signed_url(video) if video and video.is_downloadable else None
 
     def get_is_owner(self, gig: Gig) -> bool:
         viewer = self._viewer()

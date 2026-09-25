@@ -64,12 +64,32 @@ def buyer(db):
     return make_user("buyer@example.com")
 
 
+def picture(name: str = "work.png"):
+    """A real (tiny) PNG, since uploads are sniffed and re-encoded."""
+    import io as _io
+
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from PIL import Image
+
+    buffer = _io.BytesIO()
+    Image.new("RGB", (32, 20), (242, 161, 15)).save(buffer, format="PNG")
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/png")
+
+
+def publish_gig(api, gig_id: int):
+    """Publish the way a seller must: with a picture of the work first."""
+    added = api.post(f"/api/v1/gigs/{gig_id}/gallery/", {"files": [picture()]}, format="multipart")
+    assert added.status_code == 201, added.data
+    return api.post(f"/api/v1/gigs/{gig_id}/publish/")
+
+
 @pytest.fixture
 def gig(seller):
     api = sign_in(seller)
     created = api.post("/api/v1/gigs/", GIG_BODY, format="json")
     assert created.status_code == 201, created.data
-    api.post(f"/api/v1/gigs/{created.data['id']}/publish/")
+    published = publish_gig(api, created.data["id"])
+    assert published.status_code == 200, published.data
     return Gig.objects.unscoped().get(pk=created.data["id"])
 
 
@@ -511,3 +531,127 @@ def test_only_the_recipient_can_answer_a_custom_offer(buyer, seller):
         .status_code
         == 200
     )
+
+
+# --- Pictures and video --------------------------------------------------------
+
+
+def _draft(seller):
+    api = sign_in(seller)
+    created = api.post("/api/v1/gigs/", GIG_BODY, format="json")
+    return api, created.data["id"]
+
+
+@pytest.mark.django_db
+def test_a_service_cannot_go_live_without_a_picture(seller):
+    api, gig_id = _draft(seller)
+
+    refused = api.post(f"/api/v1/gigs/{gig_id}/publish/")
+    assert refused.status_code == 400
+    assert refused.data["code"] == "publish_blocked"
+    assert "picture" in refused.data["detail"]
+
+    assert publish_gig(api, gig_id).status_code == 200
+    assert Gig.objects.unscoped().get(pk=gig_id).status == Gig.Status.ACTIVE
+
+
+@pytest.mark.django_db
+def test_the_first_picture_is_the_cover_and_three_is_the_limit(seller):
+    api, gig_id = _draft(seller)
+    added = api.post(
+        f"/api/v1/gigs/{gig_id}/gallery/",
+        {"files": [picture("a.png"), picture("b.png")]},
+        format="multipart",
+    )
+    assert added.status_code == 201
+    first = added.data["images"][0]["id"]
+    assert [image["status"] for image in added.data["images"]] == ["clean", "clean"]
+
+    too_many = api.post(
+        f"/api/v1/gigs/{gig_id}/gallery/",
+        {"files": [picture("c.png"), picture("d.png")]},
+        format="multipart",
+    )
+    assert too_many.status_code == 400
+    assert too_many.data["code"] == "too_many_images"
+
+    listed = api.get("/api/v1/gigs/?mine=true").data["results"][0]
+    assert listed["cover_url"] and listed["status"] == "draft"
+    detail = api.get(f"/api/v1/gigs/{gig_id}/").data
+    assert detail["images"][0]["id"] == first
+
+
+@pytest.mark.django_db
+def test_a_live_service_keeps_at_least_one_picture(gig, seller):
+    api = sign_in(seller)
+    only = api.get(f"/api/v1/gigs/{gig.pk}/").data["images"][0]["id"]
+
+    refused = api.delete(f"/api/v1/gigs/{gig.pk}/gallery/{only}/")
+    assert refused.status_code == 400
+    assert refused.data["code"] == "last_image"
+
+    api.post(f"/api/v1/gigs/{gig.pk}/gallery/", {"files": [picture()]}, format="multipart")
+    removed = api.delete(f"/api/v1/gigs/{gig.pk}/gallery/{only}/")
+    assert removed.status_code == 200
+    assert only not in [image["id"] for image in removed.data["images"]]
+
+
+@pytest.mark.django_db
+def test_pictures_must_be_images_and_only_the_owner_adds_them(gig, buyer, seller):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    pdf = SimpleUploadedFile("brief.pdf", b"%PDF-1.7 ...", content_type="application/pdf")
+    rejected = sign_in(seller).post(
+        f"/api/v1/gigs/{gig.pk}/gallery/", {"files": [pdf]}, format="multipart"
+    )
+    assert rejected.status_code == 400
+    assert rejected.data["code"] == "invalid_file"
+
+    stranger = sign_in(buyer).post(
+        f"/api/v1/gigs/{gig.pk}/gallery/", {"files": [picture()]}, format="multipart"
+    )
+    assert stranger.status_code == 403
+
+
+@pytest.mark.django_db
+def test_a_service_takes_one_optional_mp4_video(gig, seller):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    api = sign_in(seller)
+    mp4 = SimpleUploadedFile(
+        "promo.mp4", b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64, content_type="video/mp4"
+    )
+    added = api.post(f"/api/v1/gigs/{gig.pk}/video/", {"file": mp4}, format="multipart")
+    assert added.status_code == 201, added.data
+    assert added.data["video_url"]
+
+    not_video = api.post(f"/api/v1/gigs/{gig.pk}/video/", {"file": picture()}, format="multipart")
+    assert not_video.status_code == 400
+
+    removed = api.delete(f"/api/v1/gigs/{gig.pk}/video/")
+    assert removed.status_code == 200
+    assert removed.data["video_url"] is None
+
+
+@pytest.mark.django_db
+def test_video_is_served_in_byte_ranges(gig, seller):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from rest_framework.test import APIClient
+
+    payload = b"\x00\x00\x00\x18ftypmp42" + bytes(range(200))
+    api = sign_in(seller)
+    added = api.post(
+        f"/api/v1/gigs/{gig.pk}/video/",
+        {"file": SimpleUploadedFile("promo.mp4", payload, content_type="video/mp4")},
+        format="multipart",
+    )
+    url = added.data["video_url"]
+
+    partial = APIClient().get(url, HTTP_RANGE="bytes=0-9")
+    assert partial.status_code == 206
+    assert partial["Content-Range"] == f"bytes 0-9/{len(payload)}"
+    assert partial.content == payload[:10]
+
+    whole = APIClient().get(url)
+    assert whole.status_code == 200
+    assert whole["Accept-Ranges"] == "bytes"

@@ -65,6 +65,10 @@ ALLOWED_TYPES: dict[str, frozenset[str]] = {
     "portfolio": IMAGE_TYPES | {"application/pdf", "video/mp4"},
     "deliverable": IMAGE_TYPES | {"application/pdf", "video/mp4", "application/zip"},
     "attachment": IMAGE_TYPES | {"application/pdf", "application/zip"},
+    # A service's pictures and its one optional video. GIF is left out: it
+    # is re-encoded to a still PNG, so an animation would silently freeze.
+    "gig_image": frozenset({"image/jpeg", "image/png", "image/webp"}),
+    "gig_video": frozenset({"video/mp4"}),
 }
 
 

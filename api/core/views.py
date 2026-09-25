@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.http import FileResponse, Http404, JsonResponse
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_GET
 from rest_framework import serializers, status
@@ -53,15 +55,48 @@ def serve_signed_file(request, token: str):
     except (FileNotFoundError, ValidationError) as exc:
         raise Http404 from exc
 
-    response = FileResponse(
-        iter([data]),
-        content_type=record.content_type,
-        as_attachment=True,
-        filename=record.original_name,
-    )
+    # Video is served in byte ranges when asked: Safari will not play a
+    # <video> from a server that cannot, and every browser needs it to seek.
+    partial = _byte_range(request, len(data)) if record.content_type.startswith("video/") else None
+    if partial == "unsatisfiable":
+        response = HttpResponse(status=416)
+        response["Content-Range"] = f"bytes */{len(data)}"
+        return response
+    if partial is not None:
+        start, end = partial
+        response = HttpResponse(data[start : end + 1], status=206, content_type=record.content_type)
+        response["Content-Range"] = f"bytes {start}-{end}/{len(data)}"
+        response["Content-Disposition"] = "attachment"
+    else:
+        response = FileResponse(
+            iter([data]),
+            content_type=record.content_type,
+            as_attachment=True,
+            filename=record.original_name,
+        )
+    if record.content_type.startswith("video/"):
+        response["Accept-Ranges"] = "bytes"
     response["X-Content-Type-Options"] = "nosniff"
     response["Cache-Control"] = "private, max-age=0, no-store"
     return response
+
+
+def _byte_range(request, total: int):
+    """The single ``Range: bytes=`` span asked for, as (start, end) inclusive;
+    None when no usable range was asked for; "unsatisfiable" when it lies
+    outside the file."""
+    match = re.fullmatch(r"bytes=(\d*)-(\d*)", request.META.get("HTTP_RANGE", "").strip())
+    if not match or match.groups() == ("", ""):
+        return None
+    first, last = match.groups()
+    if first == "":  # the final N bytes
+        start, end = max(0, total - int(last)), total - 1
+    else:
+        start = int(first)
+        end = min(int(last), total - 1) if last else total - 1
+    if start >= total or start > end:
+        return "unsatisfiable"
+    return start, end
 
 
 # --- Serializers -----------------------------------------------------------

@@ -20,7 +20,7 @@ from rest_framework.test import APIClient
 
 from accounts.models import LegalAcceptance, RefreshSession, TwoFactorDevice, User
 from core.models import AuditLog
-from gigs.tests import GIG_BODY, _order
+from gigs.tests import GIG_BODY, _order, publish_gig
 from marketplace.tests import PASSWORD, make_user, sign_in
 from payments.models import PayoutProfile
 
@@ -130,7 +130,7 @@ def test_export_reaches_orders_across_apps():
     seller = make_user("seller@example.com")
     buyer = make_user("buyer@example.com")
     created = sign_in(seller).post("/api/v1/gigs/", GIG_BODY, format="json")
-    sign_in(seller).post(f"/api/v1/gigs/{created.data['id']}/publish/")
+    publish_gig(sign_in(seller), created.data["id"])
     from gigs.models import Gig
 
     _order(Gig.objects.unscoped().get(pk=created.data["id"]), buyer)
@@ -176,7 +176,7 @@ def test_an_open_order_blocks_deletion():
     seller = make_user("seller@example.com")
     buyer = make_user("buyer@example.com")
     created = sign_in(seller).post("/api/v1/gigs/", GIG_BODY, format="json")
-    sign_in(seller).post(f"/api/v1/gigs/{created.data['id']}/publish/")
+    publish_gig(sign_in(seller), created.data["id"])
     from gigs.models import Gig
 
     _order(Gig.objects.unscoped().get(pk=created.data["id"]), buyer)

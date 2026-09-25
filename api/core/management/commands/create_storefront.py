@@ -400,11 +400,16 @@ class Command(BaseCommand):
                     GigExtra.objects.create(
                         gig=gig, title=title, price=Decimal(price), extra_days=days
                     )
-                gig.publish()
+                # Left as a draft: a service goes live only with a picture of
+                # the work (Gig.publish_blockers), and only the owner has one.
                 made += 1
 
         self.stdout.write(
-            self.style.SUCCESS(f"Storefront ready: {made} service(s) listed for {email}.")
+            self.style.SUCCESS(f"Storefront ready: {made} draft service(s) created for {email}.")
+        )
+        self.stdout.write(
+            "Each is a draft until it has a picture. Sign in as that account, open "
+            "Services → Your services, add at least one picture to each, and publish it."
         )
         if created:
             self.stdout.write(

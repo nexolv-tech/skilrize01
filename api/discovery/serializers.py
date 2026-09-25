@@ -47,6 +47,7 @@ class SearchGigSerializer(serializers.Serializer):
     )
     rating_count = serializers.IntegerField(read_only=True)
     starting_price = serializers.SerializerMethodField()
+    cover_url = serializers.SerializerMethodField()
     #: Labelled in the payload, not just in the UI. A paid placement that a
     #: client could render as an organic result would be an undisclosed advert.
     is_promoted = serializers.BooleanField(read_only=True)
@@ -56,6 +57,10 @@ class SearchGigSerializer(serializers.Serializer):
     def get_starting_price(self, gig) -> str | None:
         cheapest = min((package.price for package in gig.packages.all()), default=None)
         return str(cheapest) if cheapest is not None else None
+
+    def get_cover_url(self, gig) -> str | None:
+        cover = next(iter(gig.images()), None)
+        return signed_url(cover) if cover and cover.is_downloadable else None
 
 
 class SearchProjectSerializer(serializers.Serializer):
