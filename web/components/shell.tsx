@@ -230,7 +230,7 @@ function UserMenu() {
       {open && (
         <div
           role="menu"
-          className="animate-fade absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-lg border border-line bg-raised shadow-e3"
+          className="animate-fade absolute right-0 z-50 mt-2 max-h-[calc(100dvh-5rem)] w-64 overflow-y-auto rounded-lg border border-line bg-raised shadow-e3"
         >
           <div className="border-b border-line p-3">
             <p className="truncate text-sm font-medium text-fg">{user.display_name}</p>
@@ -243,6 +243,34 @@ function UserMenu() {
               )}
               {user.is_verified_student && <Badge tone="accent">Student</Badge>}
             </div>
+          </div>
+          {/* Below tablet width the header has no room for the marketplace
+              nav, so it lives here; without it a phone could not reach
+              Orders, Contracts or Messages from anywhere but the dashboard. */}
+          <div className="border-b border-line p-1 md:hidden">
+            {[...WORK_NAV, ...SOCIAL_NAV].map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                role="menuitem"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] text-muted transition-colors duration-150 hover:bg-sunken hover:text-fg"
+              >
+                <Icon name={item.icon} className="size-4" />
+                {item.label}
+              </Link>
+            ))}
+          </div>
+          <div className="border-b border-line p-1 lg:hidden">
+            <Link
+              href="/projects/new"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-fg transition-colors duration-150 hover:bg-sunken"
+            >
+              <Icon name="plus" className="size-4" />
+              Post a brief
+            </Link>
           </div>
           <div className="p-1">
             {NAV.map((item) => (
@@ -324,7 +352,7 @@ export function AppHeader() {
             own box instead, so the controls on the right always stay put. */}
         <nav
           aria-label="Marketplace"
-          className="ml-4 hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto md:flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [mask-image:linear-gradient(to_right,#000_calc(100%-2.5rem),transparent)]"
+          className="ml-6 hidden min-w-0 flex-1 items-stretch gap-5 self-stretch overflow-x-auto md:flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [mask-image:linear-gradient(to_right,#000_calc(100%-2.5rem),transparent)]"
         >
           {[...WORK_NAV, ...SOCIAL_NAV].map((item) => {
             const active = pathname.startsWith(item.href);
@@ -334,12 +362,13 @@ export function AppHeader() {
                 href={item.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-medium",
+                  "relative inline-flex shrink-0 items-center whitespace-nowrap text-[14px] font-medium",
                   "transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                  active ? "bg-sunken text-fg" : "text-muted hover:bg-sunken hover:text-fg",
+                  active
+                    ? "text-fg after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full after:bg-action"
+                    : "text-muted hover:text-fg",
                 )}
               >
-                <Icon name={item.icon} className="size-3.5" />
                 {item.label}
               </Link>
             );
@@ -349,7 +378,7 @@ export function AppHeader() {
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {/* Held back until there is room for it beside the nav: on a laptop
               it is the first thing that pushes the account controls out. */}
-          <ButtonLink href="/projects/new" size="sm" variant="secondary" className="hidden lg:inline-flex">
+          <ButtonLink href="/projects/new" size="sm" variant="secondary" className="max-lg:hidden">
             <Icon name="plus" className="size-3.5" />
             Post a brief
           </ButtonLink>
