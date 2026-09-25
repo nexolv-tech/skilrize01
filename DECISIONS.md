@@ -1960,7 +1960,10 @@ and *firozi* — the turquoise of Multan tilework — reserved for campus
 portals so the student surface is recognisable at a glance. Type is
 Archivo at a condensed width for display and Martian Mono for labels and
 every figure, so amounts line up. Motion is limited to the ticket's
-sequence and respects `prefers-reduced-motion`. Remaining gradient and
+sequence, which replays on its own every eight seconds while it is on
+screen, with a Pause control (anything that moves for more than five
+seconds must be stoppable, WCAG 2.2.2); under `prefers-reduced-motion`
+it shows the finished slip and never loops. Remaining gradient and
 "sparkle" treatments in the app were removed rather than restyled.
 
 ---

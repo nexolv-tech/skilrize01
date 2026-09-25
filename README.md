@@ -506,7 +506,8 @@ further code changes. Same adapter shape as `CLAMAV_HOST`.
 
 **The identity is the escrow slip (D49).** The landing and sign-in pages
 carry an order ticket that inks in each step — paid into escrow,
-delivered, approved, released — with the fee arithmetic printed on it, and
+delivered, approved, released — with the fee arithmetic printed on it,
+replaying on its own while it is on screen (with a Pause control), and
 the checkout's order summary is the same perforated slip. Marigold
 (`#f2a10f`) marks actions, a darker ochre marks links and focus, and
 *firozi* turquoise is reserved for campus portals. Display type is Archivo
