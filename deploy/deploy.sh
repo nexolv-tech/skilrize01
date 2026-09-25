@@ -35,6 +35,17 @@ docker compose -f deploy/docker-compose.prod.yml --env-file "$ENV_FILE" build
 echo "Migrating, collecting static files, and restarting (the api container runs both on start)..."
 docker compose -f deploy/docker-compose.prod.yml --env-file "$ENV_FILE" up -d
 
+# Caddy mounts deploy/Caddyfile as a single file, and a single-file mount
+# keeps the file it started with: `git reset` above replaces the Caddyfile
+# rather than editing it, and `up -d` leaves Caddy running because its own
+# settings did not change. So compare what Caddy has with what is on disk,
+# and restart it when they differ.
+if ! docker compose -f deploy/docker-compose.prod.yml --env-file "$ENV_FILE" exec -T caddy \
+    cat /etc/caddy/Caddyfile | cmp -s - deploy/Caddyfile; then
+  echo "The Caddyfile changed; restarting Caddy..."
+  docker compose -f deploy/docker-compose.prod.yml --env-file "$ENV_FILE" restart caddy
+fi
+
 echo "Removing now-unused images from previous deploys..."
 docker image prune -f
 

@@ -163,7 +163,8 @@ Never edit files on this server. The workflow is always:
    ```
 
 That script pulls the latest `main`, rebuilds, runs migrations, and restarts
-everything with zero manual steps. If a deploy ever breaks something, `git
+everything with zero manual steps — Caddy included, whenever the
+`Caddyfile` changed. If a deploy ever breaks something, `git
 log` on the server tells you exactly which commit went out — `git reset
 --hard <previous-commit>` and re-run `deploy.sh` gets you back.
 

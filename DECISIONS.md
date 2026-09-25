@@ -1989,7 +1989,11 @@ uploaded file, profile photos included, came back as a relative
 site's `img-src 'self'` would have blocked the API's own address too.
 Files are now served from the website's domain: Caddy routes `/files/*`
 to the API in production, and a Next rewrite does it locally and on the
-test deploy.
+test deploy. That was the first Caddyfile change since launch, and it
+showed that `deploy.sh` never applied one: Caddy mounts the file on its
+own, keeps the copy it started with when `git reset` replaces it, and is
+not restarted by `up -d`. The script now restarts Caddy whenever the
+file it is running differs from the one on disk.
 
 Sellers also had no way to see their own services after publishing. The
 service page carries a Manage your service panel for its owner
