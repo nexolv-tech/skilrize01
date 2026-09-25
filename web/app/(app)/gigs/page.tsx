@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { GigCard } from "@/components/marketing";
@@ -15,6 +14,7 @@ import {
   Skeleton,
   Tag,
   cn,
+  ButtonLink,
 } from "@/components/ui";
 import { gigs, marketplace, type Category } from "@/lib/api";
 import { useLoader, useSession } from "@/lib/session";
@@ -69,7 +69,7 @@ function CatalogueContent() {
     <>
       <div className="flex flex-wrap items-end justify-between gap-4 pb-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-[-0.025em] text-fg">
+          <h1 className="display-md text-fg">
             {activeCategory ? activeCategory.name : "Browse services"}
           </h1>
           <p className="mt-1 text-sm text-muted">
@@ -79,12 +79,10 @@ function CatalogueContent() {
           </p>
         </div>
         {user && (
-          <Link href="/gigs/new">
-            <Button variant="secondary">
-              <Icon name="plus" className="size-4" />
-              Publish a service
-            </Button>
-          </Link>
+          <ButtonLink href="/gigs/new" variant="secondary">
+            <Icon name="plus" className="size-4" />
+            Publish a service
+          </ButtonLink>
         )}
       </div>
 
@@ -221,13 +219,9 @@ function CatalogueContent() {
             description="Try another category, or be the first to publish one here."
             action={
               user ? (
-                <Link href="/gigs/new">
-                  <Button>Publish a service</Button>
-                </Link>
+                <ButtonLink href="/gigs/new">Publish a service</ButtonLink>
               ) : (
-                <Link href="/signup">
-                  <Button>Create an account</Button>
-                </Link>
+                <ButtonLink href="/signup">Create an account</ButtonLink>
               )
             }
           />

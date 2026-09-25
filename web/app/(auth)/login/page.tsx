@@ -76,7 +76,7 @@ export default function LoginPage() {
         <span className="grid size-11 place-items-center rounded-lg bg-accent-soft text-accent">
           <Icon name="shield" className="size-5" />
         </span>
-        <h1 className="mt-5 text-2xl font-semibold tracking-[-0.025em] text-fg">
+        <h1 className="mt-5 display-md text-fg">
           Set up two-factor authentication
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-muted">
@@ -113,7 +113,7 @@ export default function LoginPage() {
         <span className="grid size-11 place-items-center rounded-lg bg-accent-soft text-accent">
           <Icon name={viaEmail ? "mail" : "shield"} className="size-5" />
         </span>
-        <h1 className="mt-5 text-2xl font-semibold tracking-[-0.025em] text-fg">
+        <h1 className="mt-5 display-md text-fg">
           {viaEmail ? "Confirm it's you" : "Enter your code"}
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-muted">
@@ -185,7 +185,7 @@ export default function LoginPage() {
 
   return (
     <div className="animate-rise">
-      <h1 className="text-2xl font-semibold tracking-[-0.025em] text-fg">Welcome back</h1>
+      <h1 className="display-md text-fg">Welcome back</h1>
       <p className="mt-2 text-sm text-muted">
         New here?{" "}
         <Link

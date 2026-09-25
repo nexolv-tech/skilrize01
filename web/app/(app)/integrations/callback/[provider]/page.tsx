@@ -9,10 +9,9 @@
  */
 
 import * as React from "react";
-import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 
-import { Button, Icon, Spinner } from "@/components/ui";
+import { Icon, Spinner, ButtonLink } from "@/components/ui";
 import { integrations, type IntegrationProvider } from "@/lib/api";
 
 type State = "working" | "done" | "failed";
@@ -61,11 +60,9 @@ function Confirm() {
         </span>
         <h1 className="mt-5 text-xl font-semibold tracking-[-0.025em] text-fg">Could not connect</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted">{invalidReason}</p>
-        <Link href="/settings/integrations" className="mt-7 block">
-          <Button block size="lg">
-            Back to Integrations
-          </Button>
-        </Link>
+        <ButtonLink href="/settings/integrations" block size="lg" className="mt-7">
+          Back to Integrations
+        </ButtonLink>
       </div>
     );
   }
@@ -96,11 +93,9 @@ function Confirm() {
       <p className="mt-2 text-sm leading-relaxed text-muted">
         {success ? "That account is now linked to SkilRize." : message}
       </p>
-      <Link href="/settings/integrations" className="mt-7 block">
-        <Button block size="lg">
-          Back to Integrations
-        </Button>
-      </Link>
+      <ButtonLink href="/settings/integrations" block size="lg" className="mt-7">
+        Back to Integrations
+      </ButtonLink>
     </div>
   );
 }

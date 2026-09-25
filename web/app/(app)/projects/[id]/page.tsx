@@ -20,6 +20,7 @@ import {
   Tag,
   Textarea,
   cn,
+  ButtonLink,
 } from "@/components/ui";
 import {
   contracts,
@@ -522,9 +523,7 @@ export default function ProjectDetailPage() {
           title="This brief is not available"
           description="It may have been withdrawn, or it was never public."
           action={
-            <Link href="/projects">
-              <Button variant="secondary">Back to open work</Button>
-            </Link>
+            <ButtonLink href="/projects" variant="secondary">Back to open work</ButtonLink>
           }
         />
       </Card>

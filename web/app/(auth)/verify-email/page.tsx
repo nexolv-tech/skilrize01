@@ -1,10 +1,9 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
-import { Button, Icon, Spinner } from "@/components/ui";
+import { Icon, Spinner, ButtonLink } from "@/components/ui";
 import { auth } from "@/lib/api";
 import { useSession } from "@/lib/session";
 
@@ -49,15 +48,13 @@ function Confirm() {
         <span className="grid size-11 place-items-center rounded-lg bg-critical-soft text-critical">
           <Icon name="x" className="size-5" strokeWidth={2.4} />
         </span>
-        <h1 className="mt-5 text-2xl font-semibold tracking-[-0.025em] text-fg">Link not valid</h1>
+        <h1 className="mt-5 display-md text-fg">Link not valid</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted">
           This confirmation link is incomplete. You can request a new one from your dashboard.
         </p>
-        <Link href="/dashboard" className="mt-7 block">
-          <Button block size="lg" variant="secondary">
-            Go to dashboard
-          </Button>
-        </Link>
+        <ButtonLink href="/dashboard" block size="lg" variant="secondary" className="mt-7">
+          Go to dashboard
+        </ButtonLink>
       </div>
     );
   }
@@ -83,7 +80,7 @@ function Confirm() {
         <Icon name={success ? "check" : "x"} className="size-5" strokeWidth={2.4} />
       </span>
 
-      <h1 className="mt-5 text-2xl font-semibold tracking-[-0.025em] text-fg">
+      <h1 className="mt-5 display-md text-fg">
         {success ? "Email confirmed" : "Link not valid"}
       </h1>
       <p className="mt-2 text-sm leading-relaxed text-muted">
@@ -92,11 +89,9 @@ function Confirm() {
           : message || "This link is invalid or has expired. You can request a new one from your dashboard."}
       </p>
 
-      <Link href="/dashboard" className="mt-7 block">
-        <Button block size="lg" variant={success ? "primary" : "secondary"}>
-          Go to dashboard
-        </Button>
-      </Link>
+      <ButtonLink href="/dashboard" block size="lg" variant={success ? "primary" : "secondary"} className="mt-7">
+        Go to dashboard
+      </ButtonLink>
     </div>
   );
 }

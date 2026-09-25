@@ -21,6 +21,7 @@ import {
   Textarea,
   cn,
   type IconName,
+  ButtonLink,
 } from "@/components/ui";
 import { ActivityFeedPanel, MeetingsPanel } from "@/components/integrations";
 import { BankTransferPanel, ReleaseEstimate } from "@/components/payments";
@@ -612,9 +613,7 @@ export default function ContractDetailPage() {
           title="Contract not available"
           description="You are not a party to this contract, or it no longer exists."
           action={
-            <Link href="/contracts">
-              <Button variant="secondary">Back to contracts</Button>
-            </Link>
+            <ButtonLink href="/contracts" variant="secondary">Back to contracts</ButtonLink>
           }
         />
       </Card>

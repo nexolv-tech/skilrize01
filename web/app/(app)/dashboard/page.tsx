@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 
 import { PageHeading } from "@/components/shell";
 import {
@@ -370,12 +369,10 @@ function BadgesCard() {
             <p className="text-[12.5px] text-muted">Timed challenges, graded and verified.</p>
           </div>
         </div>
-        <Link href="/challenges" className="mt-3 inline-block">
-          <Button size="sm" variant="secondary">
-            Browse challenges
-            <Icon name="arrowRight" className="size-3.5" />
-          </Button>
-        </Link>
+        <ButtonLink href="/challenges" size="sm" variant="secondary" className="mt-3">
+          Browse challenges
+          <Icon name="arrowRight" className="size-3.5" />
+        </ButtonLink>
       </Card>
     );
   }

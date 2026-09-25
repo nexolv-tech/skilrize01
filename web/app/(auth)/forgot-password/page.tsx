@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 
-import { Alert, Button, Field, Icon, Input } from "@/components/ui";
+import { Alert, Button, Field, Icon, Input, ButtonLink } from "@/components/ui";
 import { auth } from "@/lib/api";
 import { useAsyncAction } from "@/lib/session";
 
@@ -24,23 +24,19 @@ export default function ForgotPasswordPage() {
         <span className="grid size-11 place-items-center rounded-lg bg-positive-soft text-positive">
           <Icon name="mail" className="size-5" />
         </span>
-        <h1 className="mt-5 text-2xl font-semibold tracking-[-0.025em] text-fg">Check your inbox</h1>
+        <h1 className="mt-5 display-md text-fg">Check your inbox</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted">
           If <span className="font-medium text-fg">{email}</span> has an account, a reset link is on
           its way. It expires in 30 minutes and can be used once.
         </p>
-        <Link href="/login" className="mt-7 block">
-          <Button variant="secondary" block>
-            Back to sign in
-          </Button>
-        </Link>
+        <ButtonLink href="/login" variant="secondary" block className="mt-7">Back to sign in</ButtonLink>
       </div>
     );
   }
 
   return (
     <div className="animate-rise">
-      <h1 className="text-2xl font-semibold tracking-[-0.025em] text-fg">Reset your password</h1>
+      <h1 className="display-md text-fg">Reset your password</h1>
       <p className="mt-2 text-sm text-muted">
         Enter your email and we will send you a link to set a new one.
       </p>

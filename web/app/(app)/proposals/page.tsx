@@ -15,6 +15,7 @@ import {
   Progress,
   Skeleton,
   cn,
+  ButtonLink,
 } from "@/components/ui";
 import { marketplace, type Proposal } from "@/lib/api";
 import { formatRelative, useAsyncAction, useLoader, useSession } from "@/lib/session";
@@ -170,9 +171,7 @@ export default function ProposalsPage() {
             title="No proposals yet"
             description="Find a brief that fits and make your case. Specific beats generic every time."
             action={
-              <Link href="/projects">
-                <Button>Browse open work</Button>
-              </Link>
+              <ButtonLink href="/projects">Browse open work</ButtonLink>
             }
           />
         </Card>
@@ -228,11 +227,9 @@ export default function ProposalsPage() {
                     >
                       Withdraw
                     </Button>
-                    <Link href={`/projects/${proposal.project}`}>
-                      <Button size="sm" variant="secondary">
-                        View brief
-                      </Button>
-                    </Link>
+                    <ButtonLink href={`/projects/${proposal.project}`} size="sm" variant="secondary">
+                      View brief
+                    </ButtonLink>
                     {withdraw.error && (
                       <span className="text-[12.5px] text-critical">{withdraw.error}</span>
                     )}

@@ -16,6 +16,7 @@ import {
   Skeleton,
   Tag,
   cn,
+  ButtonLink,
 } from "@/components/ui";
 import {
   marketplace,
@@ -179,7 +180,7 @@ function BrowseContent() {
     <>
       <div className="flex flex-wrap items-end justify-between gap-4 pb-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-[-0.025em] text-fg">Find work</h1>
+          <h1 className="display-md text-fg">Find work</h1>
           <p className="mt-1 text-sm text-muted">
             {loading
               ? "Loading open briefs…"
@@ -187,12 +188,10 @@ function BrowseContent() {
           </p>
         </div>
         {user && (
-          <Link href="/projects/new">
-            <Button variant="secondary">
-              <Icon name="plus" className="size-4" />
-              Post a project
-            </Button>
-          </Link>
+          <ButtonLink href="/projects/new" variant="secondary">
+            <Icon name="plus" className="size-4" />
+            Post a project
+          </ButtonLink>
         )}
       </div>
 

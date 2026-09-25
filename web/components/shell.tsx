@@ -470,10 +470,12 @@ export function PageHeading({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-4 pb-6">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-[-0.025em] text-fg">{title}</h1>
-        {description && <p className="max-w-2xl text-sm text-muted">{description}</p>}
+    <div className="flex flex-wrap items-end justify-between gap-4 pb-7">
+      <div className="space-y-2">
+        <h1 className="display-md text-fg">{title}</h1>
+        {description && (
+          <p className="max-w-2xl text-[15px] leading-relaxed text-muted">{description}</p>
+        )}
       </div>
       {action}
     </div>

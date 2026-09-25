@@ -8,6 +8,7 @@ import {
   Alert,
   Badge,
   Button,
+  ButtonLink,
   Card,
   EmptyState,
   Field,
@@ -67,11 +68,9 @@ function CommunityCard({ community, onJoin }: { community: Community; onJoin: ()
 
       <div className="mt-4 border-t border-line pt-4">
         {community.my_role ? (
-          <Link href={`/communities/${community.id}`}>
-            <Button variant="secondary" size="sm" block>
-              Open
-            </Button>
-          </Link>
+          <ButtonLink href={`/communities/${community.id}`} variant="secondary" size="sm" block>
+            Open
+          </ButtonLink>
         ) : (
           <Button
             size="sm"

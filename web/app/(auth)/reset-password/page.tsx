@@ -1,11 +1,10 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { PASSWORD_MIN_LENGTH, PasswordPolicy } from "@/components/password";
-import { Alert, Button, Field, Icon, Input, Spinner } from "@/components/ui";
+import { Alert, Button, Field, Icon, Input, Spinner, ButtonLink } from "@/components/ui";
 import { auth } from "@/lib/api";
 import { useAsyncAction } from "@/lib/session";
 
@@ -28,13 +27,11 @@ function ResetForm() {
   if (!token || !email) {
     return (
       <div className="animate-rise">
-        <h1 className="text-2xl font-semibold tracking-[-0.025em] text-fg">Link not valid</h1>
+        <h1 className="display-md text-fg">Link not valid</h1>
         <p className="mt-2 text-sm text-muted">
           This reset link is incomplete. Request a fresh one and try again.
         </p>
-        <Link href="/forgot-password" className="mt-7 block">
-          <Button block>Request a new link</Button>
-        </Link>
+        <ButtonLink href="/forgot-password" block className="mt-7">Request a new link</ButtonLink>
       </div>
     );
   }
@@ -45,7 +42,7 @@ function ResetForm() {
         <span className="grid size-11 place-items-center rounded-lg bg-positive-soft text-positive">
           <Icon name="check" className="size-5" strokeWidth={2.4} />
         </span>
-        <h1 className="mt-5 text-2xl font-semibold tracking-[-0.025em] text-fg">Password updated</h1>
+        <h1 className="mt-5 display-md text-fg">Password updated</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted">
           Every other device has been signed out. Sign in again with your new password.
         </p>
@@ -58,7 +55,7 @@ function ResetForm() {
 
   return (
     <div className="animate-rise">
-      <h1 className="text-2xl font-semibold tracking-[-0.025em] text-fg">Set a new password</h1>
+      <h1 className="display-md text-fg">Set a new password</h1>
       <p className="mt-2 text-sm text-muted">
         For <span className="font-medium text-fg">{email}</span>
       </p>

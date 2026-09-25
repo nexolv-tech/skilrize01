@@ -6,13 +6,13 @@ import Link from "next/link";
 import { PageHeading } from "@/components/shell";
 import {
   Badge,
-  Button,
   Card,
   EmptyState,
   Icon,
   Money,
   Segmented,
   Skeleton,
+  ButtonLink,
 } from "@/components/ui";
 import { contracts, type ContractStatus, type ContractSummary } from "@/lib/api";
 import { formatRelative, useLoader } from "@/lib/session";
@@ -73,9 +73,7 @@ export default function ContractsPage() {
             title="No contracts yet"
             description="A contract opens when a client awards a proposal. Until then, keep applying."
             action={
-              <Link href="/projects">
-                <Button>Browse open work</Button>
-              </Link>
+              <ButtonLink href="/projects">Browse open work</ButtonLink>
             }
           />
         </Card>

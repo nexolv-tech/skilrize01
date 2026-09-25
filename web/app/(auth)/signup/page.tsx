@@ -67,7 +67,7 @@ export default function SignupPage() {
 
   return (
     <div className="animate-rise">
-      <h1 className="text-2xl font-semibold tracking-[-0.025em] text-fg">Create your account</h1>
+      <h1 className="display-md text-fg">Create your account</h1>
       <p className="mt-2 text-sm text-muted">
         Already have one?{" "}
         <Link
