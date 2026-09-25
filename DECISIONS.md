@@ -1966,6 +1966,34 @@ seconds must be stoppable, WCAG 2.2.2); under `prefers-reduced-motion`
 it shows the finished slip and never loops. Remaining gradient and
 "sparkle" treatments in the app were removed rather than restyled.
 
+## D50 · Every service shows the work: a required picture, an optional video
+
+**A marketplace buyer decides with their eyes first, and a catalogue of
+text cards reads as empty. Publishing a service now needs at least one
+picture (up to three; the first is the cover), and one short MP4 is
+optional.** The rule lives in `Gig.publish_blockers`, so the API refuses
+an imageless publish whatever client sends it; the publish form checks
+first so nothing is created by a refused attempt. The video is capped at
+20 MB because ClamAV's default stream limit is 25 MB and a file the
+scanner cannot read whole is never released. Video is served in byte
+ranges, which Safari needs in order to play it at all.
+
+Building it exposed two older bugs. The gallery endpoint had its request
+parsers disabled and no test, so it could never accept a file. And every
+uploaded file, profile photos included, came back as a relative
+`/files/<token>/` address that the website resolved against itself and
+404ed; the API's `Cross-Origin-Resource-Policy: same-origin` and the
+site's `img-src 'self'` would have blocked the API's own address too.
+Files are now served from the website's domain: Caddy routes `/files/*`
+to the API in production, and a Next rewrite does it locally and on the
+test deploy.
+
+Sellers also had no way to see their own services after publishing. The
+service page carries a Manage your service panel for its owner
+(pictures, video, publish, pause), and `/gigs?mine=true` lists a
+seller's services including drafts. Cards gain a thin ink outline, dark
+in the light theme and light in the dark, at the owner's request.
+
 ---
 
 ## Not mine to take

@@ -571,7 +571,9 @@ cd api && .venv/Scripts/python manage.py create_storefront --email you@example.c
 ```
 
 Package prices in `core/management/commands/create_storefront.py` are
-placeholders; set real ones before running it against production.
+placeholders; set real ones before running it against production. The
+services are created as drafts: each needs a picture before it can be
+published (D50).
 
 ### Tests
 

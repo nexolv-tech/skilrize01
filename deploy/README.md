@@ -127,7 +127,14 @@ docker compose -f deploy/docker-compose.prod.yml --env-file deploy/production.en
 ```
 
 The account it creates has no password. Use "Forgot password" on the site
-to set one, then finish verification from the dashboard.
+to set one, then finish verification from the dashboard. The services start
+as drafts, because a service needs at least one picture to go live: sign in,
+open Services → Your services, add a picture (and optionally a short MP4
+video) to each, and press Publish.
+
+Uploaded pictures and videos are served from the main domain: Caddy sends
+`/files/*` straight to the API (see `deploy/Caddyfile`). If you change the
+Caddyfile, keep that block above the catch-all.
 
 ## 9. Turn on nightly backups
 
