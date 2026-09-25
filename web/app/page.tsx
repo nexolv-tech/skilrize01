@@ -18,6 +18,7 @@
  */
 
 import * as React from "react";
+import Image from "next/image";
 import Link from "next/link";
 
 import {
@@ -53,7 +54,7 @@ const FACTS: Array<{ icon: IconName; title: string; body: string }> = [
   { icon: "shield", title: "Payment held in escrow", body: "Released only when you approve" },
   { icon: "wallet", title: "Full refund on cancellation", body: "Sent back to your account" },
   { icon: "id", title: "Verified identities", body: "Email and CNIC checked" },
-  { icon: "globe", title: "Prices in rupees", body: "No currency conversion" },
+  { icon: "building", title: "Campus portals", body: "Private to verified students" },
 ];
 
 const STEPS: Record<"hire" | "sell", Array<{ title: string; body: string }>> = {
@@ -356,20 +357,36 @@ export default function LandingPage() {
         {/* ============================================================ */}
         {/* Close                                                         */}
         {/* ============================================================ */}
-        <section className="border-t border-line bg-raised">
-          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-8 px-5 py-14">
-            <div>
-              <h2 className="display-md">Start with what you need done.</h2>
-              <p className="mt-2 text-[15px] text-muted">Free to join. You only pay when you order.</p>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <ButtonLink href="/gigs" size="lg">
-                Browse services
+        <section className="px-5 pb-16 sm:pb-20">
+          <div className="relative isolate mx-auto max-w-7xl overflow-hidden rounded-2xl border border-white/10 bg-ink-950 px-6 py-16 text-center sm:py-20">
+            <Image
+              src="/img/campus-study.jpg"
+              alt=""
+              fill
+              sizes="(max-width: 1280px) 100vw, 1280px"
+              className="-z-20 object-cover opacity-30 grayscale"
+            />
+            <div aria-hidden className="absolute inset-0 -z-10 bg-ink-950/75" />
+
+            <h2 className="display-lg mx-auto max-w-3xl text-white">
+              Start on either side. <span className="text-brand-400">Switch whenever.</span>
+            </h2>
+            <p className="mx-auto mt-5 max-w-xl text-[16px] leading-relaxed text-white/75">
+              The same account hires and gets hired. Nothing to migrate the day you decide to do
+              both.
+            </p>
+            <div className="mt-9 flex flex-wrap justify-center gap-3">
+              <ButtonLink href="/signup" size="lg">
+                Create an account
               </ButtonLink>
-              <ButtonLink href="/projects/new" size="lg" variant="secondary">
-                Post a brief
+              <ButtonLink href="/gigs" size="lg" variant="inverse">
+                Browse first
               </ButtonLink>
             </div>
+            <p className="mt-5 text-[12.5px] text-white/55">
+              Free to join. Browse without an account; you verify your identity once, when you are
+              ready to buy or sell.
+            </p>
           </div>
         </section>
       </main>

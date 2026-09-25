@@ -47,7 +47,7 @@ export function Logo({ className, showText = true }: { className?: string; showT
 /* Button                                                                     */
 /* -------------------------------------------------------------------------- */
 
-type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "link";
+type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "link" | "inverse";
 type ButtonSize = "sm" | "md" | "lg";
 
 const BUTTON_BASE =
@@ -63,6 +63,8 @@ const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   ghost: "text-muted hover:bg-sunken hover:text-fg",
   danger: "bg-critical text-white hover:brightness-110",
   link: "text-accent underline-offset-4 hover:underline p-0 h-auto",
+  /** The secondary action on a dark panel, in either theme. */
+  inverse: "bg-white text-ink-900 hover:bg-ink-100",
 };
 
 const BUTTON_SIZES: Record<ButtonSize, string> = {
