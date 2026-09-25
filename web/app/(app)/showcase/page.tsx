@@ -3,7 +3,6 @@
 import * as React from "react";
 import Link from "next/link";
 
-import { CoverArt, motifFor } from "@/components/artwork";
 import { LevelBadge, SuccessScore } from "@/components/reputation";
 import { PageHeading } from "@/components/shell";
 import {
@@ -22,19 +21,12 @@ import { formatRelative, useLoader, useSession } from "@/lib/session";
 function Piece({ piece }: { piece: ShowcasePiece }) {
   return (
     <Card className="lift flex flex-col overflow-hidden">
-      <div className="aspect-[16/10] overflow-hidden bg-sunken">
-        {piece.cover_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={piece.cover_url}
-            alt=""
-            loading="lazy"
-            className="size-full object-cover"
-          />
-        ) : (
-          <CoverArt seed={piece.title} motif={motifFor(piece.category_name)} rounded={false} />
-        )}
-      </div>
+      {piece.cover_url && (
+        <div className="aspect-[16/10] overflow-hidden bg-sunken">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={piece.cover_url} alt="" loading="lazy" className="size-full object-cover" />
+        </div>
+      )}
 
       <div className="flex flex-1 flex-col p-5">
         <p className="line-clamp-2 text-[15px] font-medium leading-snug text-fg">{piece.title}</p>

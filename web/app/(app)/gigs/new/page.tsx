@@ -4,7 +4,6 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { CoverArt, motifFor } from "@/components/artwork";
 import { PageHeading } from "@/components/shell";
 import {
   Alert,
@@ -215,25 +214,26 @@ export default function NewGigPage() {
               buyer will see before publishing. */}
           <div className="border-t border-line bg-sunken p-5">
             <p className="mb-3 text-[12.5px] font-medium text-subtle">Catalogue preview</p>
-            <div className="max-w-[16rem] overflow-hidden rounded-lg border border-line bg-raised shadow-e1">
-              <div className="aspect-[16/10]">
-                <CoverArt
-                  seed={title || "new-service"}
-                  motif={motifFor(categoryName && "parentName" in categoryName
-                    ? (categoryName as { parentName: string }).parentName
-                    : categoryName?.name)}
-                  rounded={false}
-                />
-              </div>
-              <div className="p-3">
-                <p className="line-clamp-2 text-[13px] font-medium text-fg">
-                  {title ? `I will ${title.replace(/^i will /i, "")}` : "I will …"}
-                </p>
-                <p className="mt-2 text-right text-[13px] font-semibold text-fg">
-                  {packages.find((p) => p.enabled && p.price)?.price
-                    ? `Rs ${Number(packages.find((p) => p.enabled && p.price)!.price).toLocaleString()}`
-                    : "Rs —"}
-                </p>
+            {/* The same card the catalogue draws: category, title, price. */}
+            <div className="max-w-[18rem] rounded-lg border border-line bg-raised p-5">
+              <p className="text-[12.5px] text-subtle">
+                {categoryName && "parentName" in categoryName
+                  ? (categoryName as { parentName: string }).parentName
+                  : (categoryName?.name ?? "Category")}
+              </p>
+              <p className="mt-1.5 line-clamp-2 text-[15.5px] font-semibold leading-snug text-fg">
+                {title ? `I will ${title.replace(/^i will /i, "")}` : "I will …"}
+              </p>
+              <div className="mt-5 flex items-end justify-between gap-3">
+                <span className="text-[12.5px] text-subtle">New</span>
+                <span className="text-right">
+                  <span className="block text-[11.5px] text-subtle">Starting at</span>
+                  <span className="text-[16px] font-semibold text-fg">
+                    {packages.find((p) => p.enabled && p.price)?.price
+                      ? `Rs ${Number(packages.find((p) => p.enabled && p.price)!.price).toLocaleString()}`
+                      : "Rs —"}
+                  </span>
+                </span>
               </div>
             </div>
           </div>

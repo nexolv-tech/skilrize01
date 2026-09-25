@@ -18,7 +18,6 @@ import {
   Money,
   Segmented,
   Skeleton,
-  Stars,
   cn,
 } from "@/components/ui";
 import {
@@ -81,54 +80,44 @@ function FacetGroup({
   );
 }
 
+/** The catalogue's card (components/marketing GigCard), with search's extras:
+ *  the promoted label, seller level and job success score. */
 function GigResult({ gig }: { gig: SearchGig }) {
   return (
-    <Link
-      href={`/gigs/${gig.id}`}
-      onClick={() => void discovery.recordClick(gig.id)}
-      className={cn(
-        "lift group flex flex-col overflow-hidden rounded-2xl border border-line bg-raised shadow-e1",
-        "hover:border-accent/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+    <article className="group relative flex flex-col rounded-lg border border-line bg-raised p-5 transition-[border-color,box-shadow] duration-200 hover:border-line-strong hover:shadow-e2">
+      {(gig.category || gig.is_promoted) && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[12.5px] text-subtle">{gig.category}</span>
+          {gig.is_promoted && <PromotedTag />}
+        </div>
       )}
-    >
-      <div className="flex flex-1 flex-col p-5">
-        {(gig.category || gig.is_promoted) && (
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <span className="text-[12.5px] text-subtle">{gig.category}</span>
-            {gig.is_promoted && <PromotedTag />}
-          </div>
-        )}
-        <div className="flex items-center gap-2">
-          <Avatar name={gig.seller.display_name} src={gig.seller.avatar_url} size={24} />
-          <span className="truncate text-[12.5px] text-muted">{gig.seller.display_name}</span>
-          <LevelBadge level={gig.seller.level} className="ml-auto shrink-0" />
-        </div>
-
-        <p className="mt-3 line-clamp-2 min-h-[2.7em] text-[14.5px] font-medium leading-snug text-fg transition-colors group-hover:text-accent">
+      <h3 className="mt-1.5 line-clamp-2 text-[15.5px] font-semibold leading-snug text-fg">
+        <Link
+          href={`/gigs/${gig.id}`}
+          onClick={() => void discovery.recordClick(gig.id)}
+          className="rounded-sm underline-offset-4 after:absolute after:inset-0 group-hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
           {gig.title}
-        </p>
+        </Link>
+      </h3>
 
-        <div className="mt-3 flex items-center gap-2">
-          {gig.rating_average ? (
-            <>
-              <Stars value={Number(gig.rating_average)} size={12} />
-              <span className="text-[12px] font-semibold text-fg">{gig.rating_average}</span>
-              <span className="text-[12px] text-subtle">({gig.rating_count})</span>
-            </>
-          ) : (
-            <span className="text-[12px] text-subtle">No reviews yet</span>
-          )}
-          <SuccessScore score={gig.seller.job_success_score} className="ml-auto" />
-        </div>
-
-        <div className="mt-auto flex items-baseline justify-between border-t border-line pt-4">
-          <span className="text-[11px] uppercase tracking-[0.06em] text-subtle">From</span>
-          <span className="tabular text-[16px] font-semibold text-fg">
-            <Money amount={gig.starting_price} />
-          </span>
-        </div>
+      <div className="mt-3 flex items-center gap-2 text-[13px]">
+        <Avatar name={gig.seller.display_name} src={gig.seller.avatar_url} size={22} />
+        <span className="truncate text-muted">{gig.seller.display_name}</span>
+        <LevelBadge level={gig.seller.level} className="shrink-0" />
       </div>
-    </Link>
+
+      <div className="mt-auto flex items-end justify-between gap-3 pt-5">
+        <span className="flex flex-col gap-1 text-[12.5px] text-subtle">
+          {gig.rating_count > 0 ? `★ ${gig.rating_average} (${gig.rating_count})` : "New"}
+          <SuccessScore score={gig.seller.job_success_score} />
+        </span>
+        <span className="text-right">
+          <span className="block text-[11.5px] text-subtle">Starting at</span>
+          <Money amount={gig.starting_price} className="text-[16px] font-semibold text-fg" />
+        </span>
+      </div>
+    </article>
   );
 }
 

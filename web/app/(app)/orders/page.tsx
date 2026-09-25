@@ -3,17 +3,16 @@
 import * as React from "react";
 import Link from "next/link";
 
-import { CoverArt } from "@/components/artwork";
 import { PageHeading } from "@/components/shell";
 import {
   Badge,
-  Button,
   Card,
   EmptyState,
   Icon,
   Money,
   Segmented,
   Skeleton,
+  ButtonLink,
 } from "@/components/ui";
 import { orders, type GigOrder, type OrderStatus } from "@/lib/api";
 import { formatRelative, useLoader } from "@/lib/session";
@@ -86,12 +85,8 @@ export default function OrdersPage() {
             description="Buy a service, or publish one of your own and wait for the first order."
             action={
               <div className="flex gap-2">
-                <Link href="/gigs">
-                  <Button>Browse services</Button>
-                </Link>
-                <Link href="/gigs/new">
-                  <Button variant="secondary">Publish a service</Button>
-                </Link>
+                <ButtonLink href="/gigs">Browse services</ButtonLink>
+                <ButtonLink href="/gigs/new" variant="secondary">Publish a service</ButtonLink>
               </div>
             }
           />
@@ -101,10 +96,6 @@ export default function OrdersPage() {
           {rows.map((order) => (
             <li key={order.id}>
               <Card className="relative flex flex-wrap gap-4 p-4 transition-shadow duration-200 hover:shadow-e2">
-                <div className="h-20 w-32 shrink-0 overflow-hidden rounded-md">
-                  <CoverArt seed={order.gig_slug || order.gig} rounded={false} />
-                </div>
-
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="text-[14.5px] font-semibold text-fg">

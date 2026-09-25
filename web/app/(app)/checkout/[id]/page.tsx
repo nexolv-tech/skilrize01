@@ -17,7 +17,6 @@ import * as React from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { Cover, motifFor } from "@/components/artwork";
 import { BankTransferPanel } from "@/components/payments";
 import { TwoFactorRequiredPrompt } from "@/components/two-factor";
 import {
@@ -149,13 +148,13 @@ function OrderCard({ gig, selection }: { gig: GigDetail; selection: Selection })
   return (
     <Card>
       <div className="flex gap-4 p-5">
-        <div className="aspect-[4/3] w-24 shrink-0 overflow-hidden rounded-md sm:w-36">
-          <Cover
-            src={gig.gallery_urls[0]}
-            seed={gig.slug || gig.id}
-            motif={motifFor(gig.category?.name)}
-          />
-        </div>
+        {/* The seller's own image, when there is one — never a stand-in. */}
+        {gig.gallery_urls[0] && (
+          <div className="aspect-[4/3] w-24 shrink-0 overflow-hidden rounded-md bg-sunken sm:w-36">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={gig.gallery_urls[0]} alt="" className="size-full object-cover" />
+          </div>
+        )}
         <div className="min-w-0">
           {gig.category && <p className="eyebrow">{gig.category.name}</p>}
           <Link

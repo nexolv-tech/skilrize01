@@ -4,7 +4,6 @@ import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
-import { CoverArt } from "@/components/artwork";
 import {
   Alert,
   Button,
@@ -149,9 +148,6 @@ export default function OrderWorkspacePage() {
         <div className="space-y-6">
           <Card className="p-6">
             <div className="flex flex-wrap items-start gap-4">
-              <div className="h-16 w-24 shrink-0 overflow-hidden rounded-md">
-                <CoverArt seed={order.gig_slug || order.gig} rounded={false} />
-              </div>
               <div className="min-w-0 flex-1">
                 <h1 className="text-[20px] font-semibold leading-tight tracking-[-0.02em] text-fg">
                   <Link href={`/gigs/${order.gig}`} className="underline-offset-2 hover:underline">
