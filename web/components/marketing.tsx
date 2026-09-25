@@ -14,7 +14,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { Avatar, Badge, Icon, Money, cn, type IconName } from "@/components/ui";
+import { Avatar, Badge, Icon, Money, cn } from "@/components/ui";
 import type { GigSummary } from "@/lib/api";
 import { BUSINESS } from "@/lib/business";
 
@@ -346,31 +346,113 @@ export function TrackAlternative({ track }: { track: Track }) {
 /* One account, both sides — the hero's picture                               */
 /* -------------------------------------------------------------------------- */
 
-const EXAMPLE_SIDES: Record<Track, { heading: string; icon: IconName; items: Array<{ title: string; status: string; amount: number }> }> = {
-  hire: {
-    heading: "Buying",
-    icon: "wallet",
-    items: [
-      { title: "Product copy for 12 listings", status: "Held in escrow", amount: 12000 },
-      { title: "Logo refresh", status: "Awaiting your review", amount: 8500 },
-    ],
-  },
-  earn: {
-    heading: "Selling",
-    icon: "briefcase",
-    items: [
-      { title: "Landing page in Webflow", status: "In progress", amount: 40000 },
-      { title: "Portfolio website", status: "Released to you", amount: 22500 },
-    ],
-  },
-};
+const SIDE_LABEL: Record<Track, string> = { hire: "Buying", earn: "Selling" };
+
+/** A week in one example account: orders going both ways. Loops. */
+const ACTIVITY: Array<{ side: Track; title: string; note: string; amount: number }> = [
+  { side: "earn", title: "New order · Landing page in Webflow", note: "Paid into escrow", amount: 40000 },
+  { side: "hire", title: "You ordered · Product copy for 12 listings", note: "Held in escrow", amount: 12000 },
+  { side: "earn", title: "You delivered · Portfolio website", note: "Waiting for the client’s approval", amount: 25000 },
+  { side: "hire", title: "Logo refresh delivered", note: "Your review is due in 3 days", amount: 8500 },
+  { side: "earn", title: "Portfolio website approved", note: "Released to you, after the 10% fee", amount: 22500 },
+  { side: "hire", title: "You approved · Product copy", note: "Released to the freelancer", amount: 12000 },
+];
+
+const FEED_ROW = 64; // px — every row the same height, so the feed can slide by one
+const FEED_VISIBLE = 3;
+const FEED_EVERY_MS = 2400;
 
 /**
- * One person's account, hiring and selling at once. The column matching the
- * hero's hire/earn switch lights up, so the control and the picture say the
+ * The account's activity, scrolling up one row at a time. Built as a ticker:
+ * one extra row sits below the visible window, the list slides up by a row,
+ * and then the window moves on and the slide resets unseen — so the motion is
+ * continuous without rendering an ever-growing list.
+ */
+function ActivityFeed({ active }: { active: Track }) {
+  const [start, setStart] = React.useState(0);
+  const [sliding, setSliding] = React.useState(false);
+  const feedRef = React.useRef<HTMLDivElement>(null);
+  const visible = useOnScreen(feedRef);
+  const reducedMotion = React.useSyncExternalStore(
+    subscribeReducedMotion,
+    () => window.matchMedia(REDUCED_MOTION).matches,
+    () => false,
+  );
+
+  React.useEffect(() => {
+    if (reducedMotion || !visible || sliding) return;
+    const timer = window.setTimeout(() => setSliding(true), FEED_EVERY_MS);
+    return () => window.clearTimeout(timer);
+  }, [start, sliding, reducedMotion, visible]);
+
+  const rows = Array.from({ length: FEED_VISIBLE + 1 }, (_, offset) => {
+    const index = start + offset;
+    return { key: index, event: ACTIVITY[index % ACTIVITY.length]! };
+  });
+
+  return (
+    <div
+      ref={feedRef}
+      className="relative overflow-hidden"
+      style={{
+        height: FEED_ROW * FEED_VISIBLE,
+        maskImage: "linear-gradient(to bottom, transparent, #000 14%, #000 86%, transparent)",
+      }}
+    >
+      <ul
+        aria-label="Example account activity"
+        style={{
+          transform: sliding ? `translateY(-${FEED_ROW}px)` : "none",
+          transition: sliding ? "transform 700ms var(--ease-out-quint)" : "none",
+        }}
+        onTransitionEnd={() => {
+          setSliding(false);
+          setStart((value) => value + 1);
+        }}
+      >
+        {rows.map(({ key, event }) => (
+          <li
+            key={key}
+            className={cn(
+              "flex items-center gap-3 px-6 transition-opacity duration-300",
+              event.side !== active && "opacity-45",
+            )}
+            style={{ height: FEED_ROW }}
+          >
+            <span
+              aria-hidden
+              className={cn(
+                "size-2 shrink-0 rounded-full",
+                event.side === "hire" ? "bg-brand-500" : "bg-positive",
+              )}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13.5px] font-semibold text-fg">{event.title}</span>
+              <span className="block truncate text-[12px] text-muted">
+                {SIDE_LABEL[event.side]} · {event.note}
+              </span>
+            </span>
+            <Money amount={event.amount} className="figure shrink-0 text-[13px] font-semibold text-fg" />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * One person's account, hiring and selling at once: who they are, what each
+ * side of the account is doing, and its activity scrolling past — orders in,
+ * deliveries out, money released both ways. The side matching the hero's
+ * hire/earn switch is highlighted, so the control and the picture say the
  * same thing: the switch changes what you are doing, not which account.
  */
 export function DualAccountCard({ active, className }: { active: Track; className?: string }) {
+  const summary: Record<Track, { figure: string; caption: string }> = {
+    hire: { figure: "2 orders", caption: "in escrow, waiting on freelancers" },
+    earn: { figure: "Rs 62,500", caption: "earned from 3 clients this month" },
+  };
+
   return (
     <figure className={cn("relative", className)}>
       <div className="overflow-hidden rounded-xl border border-line bg-raised shadow-e3">
@@ -391,42 +473,44 @@ export function DualAccountCard({ active, className }: { active: Track; classNam
           </span>
           <div className="min-w-0">
             <p className="text-[17px] font-bold leading-tight text-fg">Ayesha Khan</p>
-            <p className="mt-0.5 text-[13px] text-muted">Lahore · 4.9 rating from 23 reviews</p>
+            <p className="mt-0.5 text-[13px] text-muted">Lahore · Web designer · 4.9 from 23 reviews</p>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 border-t border-line">
+        <div className="grid grid-cols-2 border-y border-line">
           {(["hire", "earn"] as const).map((side) => {
-            const { heading, icon, items } = EXAMPLE_SIDES[side];
             const on = side === active;
             return (
               <div
                 key={side}
                 className={cn(
-                  "p-5 transition-colors duration-300",
+                  "px-6 py-4 transition-colors duration-300",
                   side === "earn" && "border-l border-line",
                   on && "bg-accent-soft",
                 )}
               >
-                <p className={cn("eyebrow flex items-center gap-1.5", on && "text-accent")}>
-                  <Icon name={icon} className="size-3.5" />
-                  {heading}
-                </p>
-                <ul className="mt-3 space-y-3.5">
-                  {items.map((item) => (
-                    <li key={item.title}>
-                      <p className="text-[13.5px] font-semibold leading-snug text-fg">{item.title}</p>
-                      <p className="mt-1 flex flex-wrap items-baseline justify-between gap-x-2 text-[12px] text-muted">
-                        <span>{item.status}</span>
-                        <Money amount={item.amount} className="figure text-fg" />
-                      </p>
-                    </li>
-                  ))}
-                </ul>
+                <p className={cn("eyebrow", on && "text-accent")}>{SIDE_LABEL[side]}</p>
+                <p className="figure mt-1.5 text-[20px] font-semibold text-fg">{summary[side].figure}</p>
+                <p className="mt-0.5 text-[12px] leading-snug text-muted">{summary[side].caption}</p>
               </div>
             );
           })}
         </div>
+
+        <div className="flex items-center justify-between px-6 pt-4 pb-1">
+          <p className="eyebrow">Activity</p>
+          <span className="inline-flex items-center gap-3 text-[11.5px] text-subtle">
+            <span className="inline-flex items-center gap-1.5">
+              <span aria-hidden className="size-1.5 rounded-full bg-brand-500" />
+              Buying
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span aria-hidden className="size-1.5 rounded-full bg-positive" />
+              Selling
+            </span>
+          </span>
+        </div>
+        <ActivityFeed active={active} />
 
         <p className="border-t border-line px-6 py-3.5 text-[12.5px] text-muted">
           One profile · one set of reviews · payouts to one bank account

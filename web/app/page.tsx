@@ -111,7 +111,7 @@ export default function LandingPage() {
         {/* Hero                                                          */}
         {/* ============================================================ */}
         <section className="border-b border-line">
-          <div className="mx-auto grid max-w-7xl items-center gap-14 px-5 py-16 sm:py-20 lg:grid-cols-[1.15fr_0.85fr] lg:gap-16 lg:py-24">
+          <div className="mx-auto grid max-w-7xl grid-cols-1 items-center gap-14 px-5 py-16 sm:py-20 lg:grid-cols-[1.15fr_0.85fr] lg:gap-16 lg:py-24">
             <div className="animate-rise">
               <p className="eyebrow">Freelance marketplace · Pakistan</p>
               <h1 className="display-xl mt-5 max-w-[12ch]">
@@ -132,7 +132,7 @@ export default function LandingPage() {
               </div>
             </div>
 
-            <DualAccountCard active={track} className="mx-auto w-full max-w-md lg:mx-0" />
+            <DualAccountCard active={track} className="mx-auto w-full max-w-[31rem] lg:ml-auto lg:mr-0" />
           </div>
 
           <div className="border-t border-line bg-raised">
