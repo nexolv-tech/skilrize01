@@ -139,7 +139,6 @@ Caddyfile, keep that block above the catch-all.
 ## 9. Turn on nightly backups
 
 ```bash
-chmod +x deploy/backup.sh deploy/deploy.sh
 crontab -e
 ```
 
