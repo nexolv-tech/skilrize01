@@ -1,8 +1,17 @@
 "use client";
 
 import * as React from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { PageHeading } from "@/components/shell";
+import {
+  ActionWithInput,
+  AdminHeading,
+  AdminList,
+  AdminTabs,
+  PersonLink,
+  QuickAction,
+  StatusText,
+} from "@/components/admin";
 import {
   Alert,
   Badge,
@@ -14,8 +23,8 @@ import {
   Skeleton,
   Textarea,
 } from "@/components/ui";
-import { admin, type AdminVerification } from "@/lib/api";
-import { useAsyncAction, useLoader } from "@/lib/session";
+import { admin, type AdminIdentityCase, type AdminVerification } from "@/lib/api";
+import { formatRelative, useAsyncAction, useLoader } from "@/lib/session";
 
 const STATUS_TABS = [
   { value: "under_review", label: "Awaiting review" },
@@ -133,21 +142,141 @@ function VerificationRow({
   );
 }
 
-export default function AdminVerificationsPage() {
+/* -------------------------------------------------------------------------- */
+/* Identity (CNIC)                                                            */
+/* -------------------------------------------------------------------------- */
+
+const IDENTITY_STATES = [
+  { value: "pending", label: "Awaiting review" },
+  { value: "verified", label: "Approved" },
+  { value: "rejected", label: "Rejected" },
+] as const;
+
+function IdentityRow({ row, onDecided }: { row: AdminIdentityCase; onDecided: () => void }) {
+  return (
+    <div className="grid gap-5 p-5 md:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="min-w-0 space-y-2">
+        <p className="text-[13.5px]">
+          <PersonLink person={row.user} />
+        </p>
+        <p className="text-[12.5px] text-muted">
+          Joined {formatRelative(row.joined_at)}
+          {row.submitted_at && <> · submitted {formatRelative(row.submitted_at)}</>} · email{" "}
+          {row.email_verified ? "confirmed" : "not confirmed"} · phone{" "}
+          {row.phone_verified ? "confirmed" : "not confirmed"}
+        </p>
+        <p className="text-[12.5px] text-muted">
+          Check that the name matches the account, the photo is of the card itself rather
+          than a screen, and every corner is visible.
+        </p>
+        {row.status === "pending" ? (
+          <div className="flex flex-wrap items-start gap-2 pt-1">
+            <QuickAction
+              label="Approve"
+              variant="primary"
+              icon="check"
+              onRun={async () => {
+                await admin.approveIdentity(row.user.id);
+                onDecided();
+              }}
+            />
+            <ActionWithInput
+              label="Reject"
+              confirmLabel="Reject"
+              tone="danger"
+              prompt="Why? This is sent to the member, who can upload again."
+              placeholder="e.g. The photo is blurred and the name cannot be read."
+              onConfirm={async (reason) => {
+                await admin.rejectIdentity(row.user.id, reason);
+                onDecided();
+              }}
+            />
+          </div>
+        ) : (
+          <StatusText tone={row.status === "verified" ? "positive" : "critical"}>
+            {row.status === "verified" ? "Approved" : "Rejected"}
+          </StatusText>
+        )}
+      </div>
+      <div>
+        {row.document_url ? (
+          <a href={row.document_url} target="_blank" rel="noreferrer" className="block">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={row.document_url}
+              alt={`Identity document of ${row.user.name}`}
+              className="max-h-44 w-full rounded-md border border-line bg-sunken object-contain"
+            />
+            <span className="mt-1.5 block text-[12px] text-accent">Open full size</span>
+          </a>
+        ) : (
+          <p className="grid h-32 place-items-center rounded-md border border-dashed border-line px-3 text-center text-[12.5px] text-subtle">
+            {row.document_scan === "pending"
+              ? "The document is still being virus-scanned."
+              : "The document could not be shown."}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function IdentityTab() {
+  const [state, setState] = React.useState<(typeof IDENTITY_STATES)[number]["value"]>("pending");
+  const [page, setPage] = React.useState(1);
+  const queue = useLoader(() => admin.identityQueue(state, page), [state, page]);
+  return (
+    <>
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <Segmented
+          label="Identity status"
+          size="sm"
+          value={state}
+          onChange={(next) => {
+            setState(next);
+            setPage(1);
+          }}
+          options={IDENTITY_STATES.map((t) => ({ value: t.value, label: t.label }))}
+        />
+        <p className="text-[12.5px] text-subtle">Opening this list is recorded in the audit log.</p>
+      </div>
+      <AdminList
+        data={queue.data}
+        loading={queue.loading}
+        page={page}
+        onPage={setPage}
+        empty={{
+          icon: "id",
+          title: state === "pending" ? "No identity checks waiting" : "Nothing here yet",
+          description:
+            state === "pending"
+              ? "A member appears here after uploading a photo of their CNIC."
+              : undefined,
+        }}
+      >
+        {(row: AdminIdentityCase) => (
+          <IdentityRow key={row.user.id} row={row} onDecided={() => void queue.reload()} />
+        )}
+      </AdminList>
+    </>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Students                                                                   */
+/* -------------------------------------------------------------------------- */
+
+function StudentsTab() {
   const [tab, setTab] = React.useState<(typeof STATUS_TABS)[number]["value"]>("under_review");
   const queue = useLoader(() => admin.verifications(tab), [tab]);
   const rows = queue.data?.results ?? [];
 
   return (
     <>
-      <PageHeading
-        title="Verification queue"
-        description="Prove membership of a university — an applicant's email and ID card, reviewed by a person."
-      />
-
-      <div className="mb-6">
+      <div className="mb-5">
         <Segmented
           label="Verification status"
+          size="sm"
           value={tab}
           onChange={setTab}
           options={STATUS_TABS.map((t) => ({ value: t.value, label: t.label }))}
@@ -184,5 +313,44 @@ export default function AdminVerificationsPage() {
         </Card>
       )}
     </>
+  );
+}
+
+function VerificationsContent() {
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const tab = params.get("tab") === "students" ? "students" : "identity";
+  const { data: overview } = useLoader(() => admin.overview(), [tab]);
+
+  return (
+    <>
+      <AdminHeading
+        title="Verifications"
+        description="People prove who they are before they can buy, sell or get paid: a CNIC for everyone, and a student ID for campus portals."
+      />
+      <AdminTabs
+        label="Verification type"
+        value={tab}
+        onChange={(next) =>
+          router.replace(next === "identity" ? pathname : `${pathname}?tab=${next}`, {
+            scroll: false,
+          })
+        }
+        tabs={[
+          { value: "identity", label: "Identity (CNIC)", count: overview?.queues.identity },
+          { value: "students", label: "Students", count: overview?.queues.students },
+        ]}
+      />
+      {tab === "identity" ? <IdentityTab /> : <StudentsTab />}
+    </>
+  );
+}
+
+export default function AdminVerificationsPage() {
+  return (
+    <React.Suspense fallback={<Skeleton className="h-40 w-full" />}>
+      <VerificationsContent />
+    </React.Suspense>
   );
 }

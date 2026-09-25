@@ -1870,6 +1870,7 @@ export interface AdminUserRow {
   avatar_url: string | null;
   admin_role: AdminRole;
   is_active: boolean;
+  is_erased: boolean;
   is_staff: boolean;
   email_verified: boolean;
   phone_verified: boolean;
@@ -1919,6 +1920,232 @@ export interface AuditLogEntry {
   request_id: string;
 }
 
+/* --- Admin console (D54) ------------------------------------------------- */
+
+export interface AdminPerson {
+  id: number;
+  name: string;
+  email: string;
+  handle: string;
+}
+
+export interface AdminOverview {
+  role: AdminRole;
+  queues: Partial<{
+    identity: number;
+    students: number;
+    transfers: number;
+    payouts: number;
+    payouts_total: string;
+    refunds: number;
+    refunds_total: string;
+    reports: number;
+  }>;
+  figures: {
+    users: number;
+    users_this_week: number;
+    services_live: number;
+    briefs_open: number;
+    orders_in_progress: number;
+    contracts_active: number;
+    escrow_held?: string;
+    paid_in_this_month?: string;
+    commission_this_month?: string;
+    commission_all_time?: string;
+  };
+}
+
+export interface AdminTransfer {
+  id: number;
+  amount: string;
+  currency: string;
+  reference_note: string;
+  reported_at: string;
+  confirmed_at: string | null;
+  confirmed_by: AdminPerson | null;
+  payer: AdminPerson;
+  payee: AdminPerson;
+  title: string;
+  milestone: string;
+  milestone_status: string;
+  contract_id: number;
+  order_id: number | null;
+}
+
+export interface AdminPlanPayment {
+  id: number;
+  amount: string;
+  currency: string;
+  reference_note: string;
+  reported_at: string;
+  confirmed_at: string | null;
+  confirmed_by: AdminPerson | null;
+  payer: AdminPerson;
+  plan: string;
+  interval: string;
+  subscription_status: string;
+}
+
+export interface AdminPayout {
+  id: number;
+  status: "pending" | "paid";
+  gross_amount: string;
+  commission_percent: string;
+  commission_amount: string;
+  net_amount: string;
+  currency: string;
+  created_at: string;
+  paid_at: string | null;
+  paid_by: AdminPerson | null;
+  note: string;
+  freelancer: AdminPerson;
+  bank_details_ready: boolean;
+  title: string;
+  milestone: string;
+  contract_id: number;
+  order_id: number | null;
+}
+
+export interface AdminRefund {
+  id: number;
+  status: "pending" | "refunded";
+  amount: string;
+  currency: string;
+  reason: string;
+  created_at: string;
+  refunded_at: string | null;
+  refunded_by: AdminPerson | null;
+  note: string;
+  client: AdminPerson;
+  bank_details_ready: boolean;
+  title: string;
+  milestone: string;
+  contract_id: number;
+  order_id: number | null;
+}
+
+export interface AdminBankDetails {
+  complete: boolean;
+  bank_name?: string;
+  account_title?: string;
+  account_number?: string;
+  cnic_last4?: string;
+  mobile_wallet?: string;
+}
+
+export interface AdminIdentityCase {
+  user: AdminPerson;
+  status: "unverified" | "pending" | "verified" | "rejected";
+  submitted_at: string | null;
+  document_url: string | null;
+  document_scan: string | null;
+  email_verified: boolean;
+  phone_verified: boolean;
+  joined_at: string;
+}
+
+export interface AdminGig {
+  id: number;
+  title: string;
+  status: "draft" | "active" | "paused" | "denied";
+  seller: AdminPerson;
+  category: string | null;
+  visibility: string;
+  created_at: string;
+  orders: number;
+  cover_url: string | null;
+}
+
+export interface AdminProject {
+  id: number;
+  title: string;
+  status: ProjectStatus;
+  client: AdminPerson;
+  category: string | null;
+  visibility: string;
+  project_type: string;
+  budget_max: string | null;
+  created_at: string;
+  proposals: number;
+}
+
+export interface AdminOrder {
+  id: number;
+  title: string;
+  gig_id: number;
+  status: OrderStatus;
+  price: string;
+  buyer: AdminPerson;
+  seller: AdminPerson;
+  created_at: string;
+  due_at: string | null;
+  contract_id: number | null;
+  payment: "confirmed" | "reported" | "none";
+}
+
+export interface AdminReport {
+  id: number;
+  kind: "thread" | "reply" | "chat" | "resource" | "community";
+  status: "open" | "upheld" | "dismissed";
+  reason: string;
+  reporter: AdminPerson;
+  community: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  resolution_note: string;
+  content: { text: string; author: AdminPerson | null; url: string | null };
+  content_exists: boolean;
+}
+
+export interface AdminCategory {
+  id: number;
+  name: string;
+  slug: string;
+  description: string;
+  parent_id: number | null;
+  order: number;
+  is_active: boolean;
+  services: number;
+  briefs: number;
+}
+
+export interface AdminUserSummary {
+  services: Record<string, number>;
+  briefs: number;
+  orders_bought: number;
+  orders_sold: number;
+  contracts: number;
+  payouts_pending: string;
+  refunds_pending: string;
+  plan: string | null;
+  two_factor: boolean;
+  active_sessions: number;
+  devices: number;
+  last_active_at: string | null;
+  identity_status: string;
+  deleted: boolean;
+}
+
+export interface AdminPlatformSettings {
+  environment: string;
+  commission_percent: string;
+  bank_transfer: {
+    available: boolean;
+    bank_name: string;
+    account_title: string;
+    account_number_last4: string;
+  };
+  email: { backend: string; from: string; sending: boolean };
+  security: {
+    device_hold_minutes: number;
+    new_device_email_code: boolean;
+    phone_verification_required: boolean;
+    virus_scanner_required: boolean;
+  };
+  integrations: Array<{ provider: string; label: string; enabled: boolean }>;
+  error_reporting: boolean;
+}
+
 export const admin = {
   verifications: (verificationStatus?: string) =>
     api.get<Paginated<AdminVerification>>(
@@ -1929,7 +2156,8 @@ export const admin = {
   rejectVerification: (id: number, reason: string) =>
     api.post<AdminVerification>(`/auth/admin/verifications/${id}/reject/`, { reason }),
 
-  users: (q?: string) => api.get<Paginated<AdminUserRow>>(`/auth/admin/users/${toQuery({ q })}`),
+  users: (q?: string, filter?: string, page?: number) =>
+    api.get<Paginated<AdminUserRow>>(`/auth/admin/users/${toQuery({ q, filter, page })}`),
   user: (id: number) => api.get<AdminUserRow>(`/auth/admin/users/${id}/`),
   suspendUser: (id: number, reason: string) =>
     api.post<AdminUserRow>(`/auth/admin/users/${id}/suspend/`, { reason }),
@@ -1946,4 +2174,69 @@ export const admin = {
 
   auditLog: (filters: Record<string, string | undefined> = {}) =>
     api.get<Paginated<AuditLogEntry>>(`/auth/admin/audit-log/${toQuery(filters)}`),
+
+  overview: () => api.get<AdminOverview>("/admin/overview/"),
+
+  transfers: (state: "unconfirmed" | "confirmed", page?: number) =>
+    api.get<Paginated<AdminTransfer>>(`/admin/payments/transfers/${toQuery({ state, page })}`),
+  confirmTransfer: (id: number) => api.post<AdminTransfer>(`/admin/payments/transfers/${id}/confirm/`),
+  transferNotReceived: (id: number, note: string) =>
+    api.post<void>(`/admin/payments/transfers/${id}/not-received/`, { note }),
+  planPayments: (state: "unconfirmed" | "confirmed", page?: number) =>
+    api.get<Paginated<AdminPlanPayment>>(`/admin/payments/plans/${toQuery({ state, page })}`),
+  confirmPlanPayment: (id: number) =>
+    api.post<AdminPlanPayment>(`/admin/payments/plans/${id}/confirm/`),
+  planPaymentNotReceived: (id: number, note: string) =>
+    api.post<void>(`/admin/payments/plans/${id}/not-received/`, { note }),
+  payouts: (status: "pending" | "paid", page?: number) =>
+    api.get<Paginated<AdminPayout>>(`/admin/payments/payouts/${toQuery({ status, page })}`),
+  payoutBankDetails: (id: number) =>
+    api.get<AdminBankDetails>(`/admin/payments/payouts/${id}/bank-details/`),
+  markPayoutPaid: (id: number, reference: string) =>
+    api.post<AdminPayout>(`/admin/payments/payouts/${id}/mark-paid/`, { reference }),
+  refunds: (status: "pending" | "refunded", page?: number) =>
+    api.get<Paginated<AdminRefund>>(`/admin/payments/refunds/${toQuery({ status, page })}`),
+  refundBankDetails: (id: number) =>
+    api.get<AdminBankDetails>(`/admin/payments/refunds/${id}/bank-details/`),
+  markRefundSent: (id: number, reference: string) =>
+    api.post<AdminRefund>(`/admin/payments/refunds/${id}/mark-sent/`, { reference }),
+
+  identityQueue: (status: string, page?: number) =>
+    api.get<Paginated<AdminIdentityCase>>(`/admin/identity/${toQuery({ status, page })}`),
+  approveIdentity: (userId: number) =>
+    api.post<AdminIdentityCase>(`/admin/identity/${userId}/approve/`),
+  rejectIdentity: (userId: number, reason: string) =>
+    api.post<AdminIdentityCase>(`/admin/identity/${userId}/reject/`, { reason }),
+
+  gigs: (filters: Record<string, string | number | undefined> = {}) =>
+    api.get<Paginated<AdminGig>>(`/admin/gigs/${toQuery(filters)}`),
+  removeGig: (id: number, reason: string) =>
+    api.post<AdminGig>(`/admin/gigs/${id}/remove/`, { reason }),
+  restoreGig: (id: number) => api.post<AdminGig>(`/admin/gigs/${id}/restore/`),
+  projects: (filters: Record<string, string | number | undefined> = {}) =>
+    api.get<Paginated<AdminProject>>(`/admin/projects/${toQuery(filters)}`),
+  closeProject: (id: number, reason: string) =>
+    api.post<AdminProject>(`/admin/projects/${id}/close/`, { reason }),
+  categories: () => api.get<AdminCategory[]>("/admin/categories/"),
+  createCategory: (body: { name: string; description?: string; parent_id?: number | null }) =>
+    api.post<AdminCategory>("/admin/categories/", body),
+  updateCategory: (id: number, body: Partial<Pick<AdminCategory, "name" | "description" | "is_active" | "order">>) =>
+    api.patch<AdminCategory>(`/admin/categories/${id}/`, body),
+
+  orders: (filters: Record<string, string | number | undefined> = {}) =>
+    api.get<Paginated<AdminOrder>>(`/admin/orders/${toQuery(filters)}`),
+  voidOrder: (id: number, note: string) => api.post<AdminOrder>(`/admin/orders/${id}/void/`, { note }),
+
+  reports: (status: string, page?: number) =>
+    api.get<Paginated<AdminReport>>(`/admin/reports/${toQuery({ status, page })}`),
+  resolveReport: (id: number, decision: "remove" | "dismiss", note: string) =>
+    api.post<AdminReport>(`/admin/reports/${id}/resolve/`, { decision, note }),
+
+  userSummary: (id: number) => api.get<AdminUserSummary>(`/admin/users/${id}/summary/`),
+  setUserRole: (id: number, role: AdminRole) =>
+    api.post<AdminUserRow>(`/admin/users/${id}/role/`, { role }),
+  signUserOut: (id: number) =>
+    api.post<{ sessions_ended: number }>(`/admin/users/${id}/sign-out/`),
+
+  settings: () => api.get<AdminPlatformSettings>("/admin/settings/"),
 };

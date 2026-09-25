@@ -22,7 +22,7 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 6 · Search, reputation & trust | ✅ | FTS, ranking, JSS, seller levels, integrity, promotion |
 | 7 · Mobile | ✅ | Flutter client, full parity with the web app's signed-in surface — marketplace, money-moving contract/gig actions, messaging, communities, search, the professional layer, challenges, integrations, admin console, student verification, settings, feed/showcase — behind a 5-tab shell; see below |
 | 8 · Professional layer | ✅ | CRM, subscriptions, retainers, agencies, workspaces — plan billing wired to the same custodial bank-transfer model as Phase 3, see below |
-| 9 · Admin console | ✅ | Role-gated operator tooling: verification review, contract operations, users, audit log — see below |
+| 9 · Admin console | ✅ | Role-gated operator console: payments in and out, identity and student checks, users and roles, services, briefs, categories, reports, orders, contracts, settings, audit log — see below |
 | 10 · Integrations | ✅ | Zoom/Google Meet meeting scheduling, GitHub/Figma/Notion read-only activity feeds — every provider real, all off by default, see below |
 | 11 · Hardening | ✅ | Rate limiting, HSTS, error tracking, a wired Celery beat schedule, retry/backoff, a DB index audit, and the admin 2FA enrolment fix — see below |
 | 12 · Hire after trial | ✅ | A paid trial task before the full project — see below for what "converts" does and does not mean yet |
@@ -362,6 +362,26 @@ nothing can reach. And impersonation — `AuditLog.Action.IMPERSONATE` has
 sat unused since Phase 0 for the same reason; acting *as* another user is a
 materially riskier feature than anything else in this console and deserves
 its own review, not a bolt-on. See D35.
+
+**The whole platform, run from one place (D54).** The console at `/admin`
+now covers everything an operator does, each area behind the roles that own
+it (`api/console/`):
+
+| Area | Who | What |
+| --- | --- | --- |
+| Overview | every admin | Queues waiting today, money figures (finance), marketplace figures |
+| Payments | Finance Admin | Confirm each bank transfer against the statement or mark it not received (cancels the order); send payouts and refunds, with bank details shown on request and every view logged |
+| Orders | Finance, Support, Dispute | Every service order with where its payment stands; cancel one whose payment never came |
+| Verifications | Verification Officer | CNIC checks with the photo on screen, approve or reject with a reason; student checks |
+| Users | Support Agent | Search, filter, account summary, suspend, sign out everywhere; Super Admin grants roles |
+| Services, Briefs | Moderator | Remove a service or close a brief with a reason, restore a service |
+| Categories | Moderator | Add, rename, hide |
+| Reports | Moderator | Every community's flagged content; remove it or dismiss the report |
+| Settings | Super Admin | How the server is configured, read-only |
+
+The first Super Admin is made from the command line:
+`python manage.py set_admin_role you@example.com super_admin`. Every admin
+role needs an authenticator app; the next sign-in asks for one.
 
 ### Phase 10 — Integrations
 
