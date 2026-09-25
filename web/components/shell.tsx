@@ -59,6 +59,7 @@ const SOCIAL_NAV = [
  * a day, so they sit with the account rather than competing for the same space.
  */
 const BUSINESS_NAV: NavItem[] = [
+  { href: "/gigs?mine=true", label: "Your services", icon: "layers" },
   { href: "/crm", label: "Clients", icon: "chart" },
   { href: "/retainers", label: "Retainers", icon: "clock" },
   { href: "/teams", label: "Teams", icon: "building" },

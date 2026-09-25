@@ -2,12 +2,14 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 
+import { MediaManager } from "@/components/service-media";
 import {
   Alert,
   Avatar,
   Badge,
+  Button,
   ButtonLink,
   Card,
   CardHeader,
@@ -21,7 +23,7 @@ import {
   cn,
 } from "@/components/ui";
 import { gigs, type GigDetail, type Package, type Tier } from "@/lib/api";
-import { useLoader } from "@/lib/session";
+import { useAsyncAction, useLoader } from "@/lib/session";
 
 /* -------------------------------------------------------------------------- */
 /* Package picker — the buying decision                                       */
@@ -186,11 +188,132 @@ function PackagePanel({ gig }: { gig: GigDetail }) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* The seller's own view                                                      */
+/* -------------------------------------------------------------------------- */
+
+const STATUS_COPY: Record<GigDetail["status"], { label: string; tone: "positive" | "caution" | "neutral" | "critical"; body: string }> = {
+  active: { label: "Live", tone: "positive", body: "Buyers can find and order this service." },
+  draft: { label: "Draft", tone: "neutral", body: "Only you can see this service until you publish it." },
+  paused: { label: "Paused", tone: "caution", body: "Hidden from the catalogue. Existing orders are unaffected." },
+  denied: { label: "Removed", tone: "critical", body: "Taken down by SkilRize. Contact us to find out why." },
+};
+
+function OwnerPanel({ gig, onChange }: { gig: GigDetail; onChange: (next: GigDetail) => void }) {
+  const search = useSearchParams();
+  const copy = STATUS_COPY[gig.status];
+  const publish = useAsyncAction(async () => onChange(await gigs.publish(gig.id)));
+  const pause = useAsyncAction(async () => onChange(await gigs.pause(gig.id)));
+  const needsPicture = gig.images.length === 0;
+
+  return (
+    <Card>
+      <CardHeader
+        title="Manage your service"
+        description={copy.body}
+        action={<Badge tone={copy.tone}>{copy.label}</Badge>}
+      />
+      <div className="space-y-5 p-5">
+        {search.get("setup") === "incomplete" && (
+          <Alert tone="caution" title="Your service was saved as a draft">
+            A picture, the video or publishing did not finish. Check the pictures below, then
+            publish.
+          </Alert>
+        )}
+        {(publish.error || pause.error) && <Alert tone="critical">{publish.error ?? pause.error}</Alert>}
+
+        <MediaManager gig={gig} onChange={onChange} />
+
+        <div className="flex flex-wrap items-center gap-3 border-t border-line pt-5">
+          {gig.status === "draft" && (
+            <>
+              <Button loading={publish.pending} disabled={needsPicture} onClick={() => void publish.run()}>
+                Publish service
+              </Button>
+              {needsPicture && (
+                <span className="text-[13px] text-muted">Add at least one picture to publish.</span>
+              )}
+            </>
+          )}
+          {gig.status === "active" && (
+            <Button variant="secondary" loading={pause.pending} onClick={() => void pause.run()}>
+              Pause service
+            </Button>
+          )}
+          {gig.status === "paused" && (
+            <Button loading={pause.pending} onClick={() => void pause.run()}>
+              Resume service
+            </Button>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * The seller's video first, when there is one, then their pictures. Nothing
+ * is shown when there are neither — no stand-in picture.
+ */
+function MediaGallery({ gig }: { gig: GigDetail }) {
+  const slides: Array<{ kind: "video" | "image"; url: string }> = [
+    ...(gig.video_url ? [{ kind: "video" as const, url: gig.video_url }] : []),
+    ...gig.gallery_urls.map((url) => ({ kind: "image" as const, url })),
+  ];
+  const [frame, setFrame] = React.useState(0);
+  if (slides.length === 0) return null;
+  const current = slides[Math.min(frame, slides.length - 1)]!;
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-fg/25 bg-sunken">
+      <div className="aspect-[16/9] bg-black/90">
+        {current.kind === "video" ? (
+          <video
+            src={current.url}
+            poster={gig.gallery_urls[0]}
+            controls
+            preload="metadata"
+            className="size-full object-contain"
+          />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={current.url} alt="" className="size-full bg-sunken object-cover" />
+        )}
+      </div>
+      {slides.length > 1 && (
+        <div className="flex gap-2 overflow-x-auto p-3">
+          {slides.map((slide, index) => (
+            <button
+              key={slide.url}
+              type="button"
+              onClick={() => setFrame(index)}
+              aria-label={slide.kind === "video" ? "Video" : `Picture ${index + 1}`}
+              aria-current={index === frame}
+              className={cn(
+                "relative h-14 w-20 shrink-0 cursor-pointer overflow-hidden rounded-md border-2 bg-fg transition-colors",
+                index === frame ? "border-accent" : "border-transparent hover:border-line-strong",
+              )}
+            >
+              {slide.kind === "video" ? (
+                <span className="grid size-full place-items-center text-surface">
+                  <Icon name="video" className="size-5" />
+                </span>
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={slide.url} alt="" className="size-full object-cover" />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 
 export default function GigDetailPage() {
   const params = useParams<{ id: string }>();
-  const { data: gig, loading } = useLoader(() => gigs.detail(params.id), [params.id]);
-  const [frame, setFrame] = React.useState(0);
+  const { data: gig, loading, setData } = useLoader(() => gigs.detail(params.id), [params.id]);
 
   if (loading) {
     return (
@@ -220,8 +343,6 @@ export default function GigDetailPage() {
       </Card>
     );
   }
-
-  const images = gig.gallery_urls;
 
   return (
     <>
@@ -281,35 +402,9 @@ export default function GigDetailPage() {
             </div>
           </div>
 
-          {/* Gallery — only the seller's own images; no stand-in picture. */}
-          {images.length > 0 && (
-            <div className="overflow-hidden rounded-xl border border-line bg-sunken">
-              <div className="aspect-[16/9]">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={images[frame] ?? images[0]} alt="" className="size-full object-cover" />
-              </div>
-              {images.length > 1 && (
-                <div className="flex gap-2 overflow-x-auto p-3">
-                  {images.map((url, index) => (
-                    <button
-                      key={url}
-                      type="button"
-                      onClick={() => setFrame(index)}
-                      aria-label={`Image ${index + 1}`}
-                      aria-current={index === frame}
-                      className={cn(
-                        "h-14 w-20 shrink-0 overflow-hidden rounded-md border-2 transition-colors",
-                        index === frame ? "border-accent" : "border-transparent hover:border-line-strong",
-                      )}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={url} alt="" className="size-full object-cover" />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          {gig.is_owner && <OwnerPanel gig={gig} onChange={setData} />}
+
+          <MediaGallery key={`${gig.video_url ?? ""}${gig.gallery_urls.length}`} gig={gig} />
 
           <Card className="p-6">
             <h2 className="text-[15px] font-semibold text-fg">About this service</h2>

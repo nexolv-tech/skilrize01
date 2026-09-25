@@ -46,6 +46,8 @@ function CatalogueContent() {
       delivery_days: params.get("delivery_days") ?? "",
       price_max: params.get("price_max") ?? "",
       sort: params.get("sort") ?? "popular",
+      // A seller's own services, drafts and paused ones included.
+      mine: params.get("mine") === "true" ? "true" : "",
     }),
     [params],
   );
@@ -70,19 +72,32 @@ function CatalogueContent() {
       <div className="flex flex-wrap items-end justify-between gap-4 pb-6">
         <div>
           <h1 className="display-md text-fg">
-            {activeCategory ? activeCategory.name : "Browse services"}
+            {filters.mine ? "Your services" : activeCategory ? activeCategory.name : "Browse services"}
           </h1>
           <p className="mt-1 text-sm text-muted">
             {loading
               ? "Loading services…"
-              : `${page?.count ?? 0} ${page?.count === 1 ? "service" : "services"} available`}
+              : filters.mine
+                ? `${page?.count ?? 0} ${page?.count === 1 ? "service" : "services"} — drafts and paused ones are visible only to you`
+                : `${page?.count ?? 0} ${page?.count === 1 ? "service" : "services"} available`}
           </p>
         </div>
         {user && (
-          <ButtonLink href="/gigs/new" variant="secondary">
-            <Icon name="plus" className="size-4" />
-            Publish a service
-          </ButtonLink>
+          <div className="flex flex-wrap gap-3">
+            {filters.mine ? (
+              <ButtonLink href="/gigs" variant="secondary">
+                Browse all services
+              </ButtonLink>
+            ) : (
+              <ButtonLink href="/gigs?mine=true" variant="secondary">
+                Your services
+              </ButtonLink>
+            )}
+            <ButtonLink href="/gigs/new">
+              <Icon name="plus" className="size-4" />
+              Publish a service
+            </ButtonLink>
+          </div>
         )}
       </div>
 

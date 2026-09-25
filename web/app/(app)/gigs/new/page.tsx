@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { MediaPicker } from "@/components/service-media";
 import { PageHeading } from "@/components/shell";
 import {
   Alert,
@@ -63,6 +64,8 @@ export default function NewGigPage() {
   const [extras, setExtras] = React.useState<Array<{ title: string; price: string; days: string }>>(
     [],
   );
+  const [images, setImages] = React.useState<File[]>([]);
+  const [video, setVideo] = React.useState<File | null>(null);
 
   const setPackage = (tier: Tier, patch: Partial<DraftPackage>) =>
     setPackages((current) =>
@@ -74,6 +77,9 @@ export default function NewGigPage() {
     .find((row) => String(row.id) === category);
 
   const save = useAsyncAction(async (publish: boolean) => {
+    if (publish && images.length === 0) {
+      throw new Error("Add at least one picture of your work to publish. You can save a draft without one.");
+    }
     const gig = await gigs.create({
       title,
       description,
@@ -102,8 +108,18 @@ export default function NewGigPage() {
         })),
     });
 
-    if (publish) await gigs.publish(gig.id);
-    router.push(`/gigs/${gig.id}`);
+    // The service exists from here on. If a picture, the video or publishing
+    // fails, go to its page anyway — the owner panel there can finish the
+    // job — rather than stay here, where trying again would create a second
+    // copy of the service.
+    try {
+      if (images.length) await gigs.addImages(gig.id, images);
+      if (video) await gigs.setVideo(gig.id, video);
+      if (publish) await gigs.publish(gig.id);
+      router.push(`/gigs/${gig.id}`);
+    } catch {
+      router.push(`/gigs/${gig.id}?setup=incomplete`);
+    }
   });
 
   if (user && !user.can_transact) {
@@ -112,7 +128,7 @@ export default function NewGigPage() {
         <PageHeading title="Publish a service" />
         <Alert tone="caution" title="Finish your profile first">
           Selling means being paid, and being paid means we have to know who you are. Verify your
-          email, phone, and identity to unlock it.{" "}
+          email and identity to unlock it.{" "}
           <Link href="/dashboard" className="font-medium underline underline-offset-2">
             Go to verification
           </Link>
@@ -236,6 +252,16 @@ export default function NewGigPage() {
                 </span>
               </div>
             </div>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Pictures and video"
+            description="Buyers decide with their eyes first. Services with clear pictures of real work are the ones that get ordered."
+          />
+          <div className="p-5">
+            <MediaPicker images={images} onImages={setImages} video={video} onVideo={setVideo} />
           </div>
         </Card>
 

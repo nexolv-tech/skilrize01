@@ -570,46 +570,74 @@ export function CategoryLink({
   );
 }
 
+const STATUS_LABEL: Partial<Record<GigSummary["status"], string>> = {
+  draft: "Draft",
+  paused: "Paused",
+  denied: "Removed",
+};
+
 /**
- * A listing card. Plain on purpose: what it is, who sells it, what it costs.
- * A seller's own photo shows when they have uploaded one; otherwise there is
- * no stand-in picture at all.
+ * A listing card, as buyers expect one from Fiverr or Upwork: the seller's
+ * picture of the work, then what it is, who sells it and what it costs.
+ * Every published service has a picture (the API refuses to publish one
+ * without); older listings that predate the rule say so plainly rather than
+ * show a stand-in. A thin ink outline — dark in the light theme, light in the
+ * dark one — keeps each card distinct in a dense grid.
  */
 export function GigCard({ gig }: { gig: GigSummary }) {
+  const status = STATUS_LABEL[gig.status];
   return (
-    <article className="group relative flex flex-col rounded-lg border border-line bg-raised p-5 transition-[border-color,box-shadow] duration-200 hover:border-line-strong hover:shadow-e2">
-      {gig.cover_url && (
-        <div className="-mx-5 -mt-5 mb-4 aspect-[16/10] overflow-hidden rounded-t-lg bg-sunken">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={gig.cover_url} alt="" loading="lazy" className="size-full object-cover" />
-        </div>
-      )}
-
-      {gig.category_name && <p className="text-[12.5px] text-subtle">{gig.category_name}</p>}
-      <h3 className="mt-1.5 line-clamp-2 text-[15.5px] font-semibold leading-snug text-fg">
-        {/* The whole card is the link's hit area; the title is its name. */}
-        <Link
-          href={`/gigs/${gig.id}`}
-          className="rounded-sm underline-offset-4 after:absolute after:inset-0 group-hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        >
-          {gig.title}
-        </Link>
-      </h3>
-
-      <div className="mt-3 flex items-center gap-2 text-[13px]">
-        <Avatar name={gig.seller_name} src={gig.seller_avatar} size={22} />
-        <span className="truncate text-muted">{gig.seller_name}</span>
-        {gig.seller_is_student && <Badge tone="accent">Student</Badge>}
+    <article className="group relative flex flex-col overflow-hidden rounded-lg border border-fg/35 bg-raised transition-[border-color,box-shadow] duration-200 hover:border-fg/80 hover:shadow-e2">
+      <div className="relative aspect-[16/10] overflow-hidden border-b border-fg/15 bg-sunken">
+        {gig.cover_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={gig.cover_url}
+            alt=""
+            loading="lazy"
+            className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+          />
+        ) : (
+          <span className="grid size-full place-items-center text-[12.5px] text-subtle">
+            No picture yet
+          </span>
+        )}
+        {status && (
+          <span className="absolute top-2.5 left-2.5 rounded-full bg-fg px-2.5 py-0.5 text-[11.5px] font-semibold text-surface">
+            {status}
+          </span>
+        )}
       </div>
 
-      <div className="mt-auto flex items-end justify-between gap-3 pt-5">
-        <span className="text-[12.5px] text-subtle">
-          {gig.rating_count > 0 ? `★ ${gig.rating_average} (${gig.rating_count})` : "New"}
-        </span>
-        <span className="text-right">
-          <span className="block text-[11.5px] text-subtle">Starting at</span>
-          <Money amount={gig.starting_price} className="text-[16px] font-semibold text-fg" />
-        </span>
+      <div className="flex flex-1 flex-col p-4">
+        {gig.category_name && <p className="text-[12.5px] text-subtle">{gig.category_name}</p>}
+        <h3 className="mt-1 line-clamp-2 text-[15px] font-semibold leading-snug text-fg">
+          {/* The whole card is the link's hit area; the title is its name. */}
+          <Link
+            href={`/gigs/${gig.id}`}
+            className="rounded-sm underline-offset-4 after:absolute after:inset-0 group-hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            {gig.title}
+          </Link>
+        </h3>
+
+        <div className="mt-2.5 flex items-center gap-2 text-[13px]">
+          <Avatar name={gig.seller_name} src={gig.seller_avatar} size={22} />
+          <span className="truncate text-muted">{gig.seller_name}</span>
+          {gig.seller_is_student && <Badge tone="accent">Student</Badge>}
+        </div>
+
+        <div className="mt-auto pt-4">
+          <div className="flex items-end justify-between gap-3 border-t border-fg/15 pt-3.5">
+            <span className="text-[12.5px] text-subtle">
+              {gig.rating_count > 0 ? `★ ${gig.rating_average} (${gig.rating_count})` : "New"}
+            </span>
+            <span className="text-right">
+              <span className="block text-[11.5px] text-subtle">Starting at</span>
+              <Money amount={gig.starting_price} className="text-[16px] font-semibold text-fg" />
+            </span>
+          </div>
+        </div>
       </div>
     </article>
   );

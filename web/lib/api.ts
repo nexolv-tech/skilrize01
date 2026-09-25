@@ -932,6 +932,7 @@ export interface GigSummary {
   rating_count: number;
   orders_count: number;
   cover_url: string | null;
+  status: GigStatus;
   seller_name: string;
   seller_handle: string;
   seller_avatar: string | null;
@@ -953,6 +954,10 @@ export interface GigDetail {
   packages: Package[];
   extras: GigExtra[];
   gallery_urls: string[];
+  /** Every picture with its id; `url` is null while it is being virus-scanned. */
+  images: Array<{ id: number; url: string | null; status: "pending" | "clean" | "infected" | "failed" }>;
+  video_url: string | null;
+  video_status: "pending" | "clean" | "infected" | "failed" | null;
   status: GigStatus;
   starting_price: string | null;
   rating_average: string | null;
@@ -1020,6 +1025,20 @@ export const gigs = {
     api.patch<GigDetail>(`/gigs/${id}/`, body),
   publish: (id: number) => api.post<GigDetail>(`/gigs/${id}/publish/`),
   pause: (id: number) => api.post<GigDetail>(`/gigs/${id}/pause/`),
+  // Pictures (up to three, the first is the cover) and one optional video.
+  addImages: (id: number, files: File[]) => {
+    const form = new FormData();
+    files.forEach((file) => form.append("files", file));
+    return request<GigDetail>(`/gigs/${id}/gallery/`, { method: "POST", body: form });
+  },
+  removeImage: (id: number, fileId: number) =>
+    api.delete<GigDetail>(`/gigs/${id}/gallery/${fileId}/`),
+  setVideo: (id: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<GigDetail>(`/gigs/${id}/video/`, { method: "POST", body: form });
+  },
+  removeVideo: (id: number) => api.delete<GigDetail>(`/gigs/${id}/video/`),
   // Paid up front, the same trust basis as `contracts.fund` — the buyer
   // has already transferred payment to the platform's own bank account
   // (Phase 3, D42).
@@ -1301,6 +1320,7 @@ export interface SearchGig {
   rating_average: string | null;
   rating_count: number;
   starting_price: string | null;
+  cover_url: string | null;
   /** Disclosed in the payload, not just styled in the UI. */
   is_promoted: boolean;
   score?: number;
