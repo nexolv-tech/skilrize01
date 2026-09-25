@@ -165,27 +165,85 @@ class ContractViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(self._detail(contract, request))
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def cancel(self, request, pk=None):
+        """Close a contract.
+
+        With nothing funded, either party may cancel. With money in escrow,
+        only the freelancer may — walking away from paid work refunds the
+        client every undelivered milestone in full. A client who wants out of
+        funded work cannot take the money back unilaterally; they release what
+        was delivered, or contact support, because the freelancer may already
+        be working on the strength of that funding.
+        """
+        from payments.settlement import queue_refund
+
         contract = self.get_object()
         if contract.status in (Contract.Status.COMPLETED, Contract.Status.CANCELLED):
             return _bad("This contract is already closed.")
-        # Anything already funded is a money question, and money questions go
-        # through the dispute path rather than a unilateral cancel.
+
+        refunds = []
         if contract.funded_amount > 0:
-            return _bad(
-                "Funds are held against this contract. Release or dispute them first.",
-                "funds_held",
-            )
+            if request.user.pk != contract.freelancer_id:
+                return _bad(
+                    "Funds are held against this contract. Release delivered work, or ask "
+                    "the freelancer to cancel — undelivered milestones are then refunded "
+                    "to you in full.",
+                    "funds_held",
+                )
+            if contract.milestones.filter(status=Milestone.Status.DELIVERED).exists():
+                return _bad(
+                    "A delivery is waiting for the client's review. It must be released or "
+                    "revised before the contract can be cancelled.",
+                    "delivery_pending",
+                )
+            for milestone in contract.milestones.all():
+                refund = queue_refund(
+                    milestone,
+                    reason=f"Contract #{contract.pk} cancelled by the freelancer.",
+                    actor=request.user,
+                )
+                if refund is not None:
+                    refunds.append(refund)
+        else:
+            for milestone in contract.milestones.filter(status=Milestone.Status.PENDING):
+                queue_refund(milestone, reason="Contract cancelled.", actor=request.user)
 
         contract.status = Contract.Status.CANCELLED
         contract.ended_at = timezone.now()
         contract.save(update_fields=["status", "ended_at", "updated_at"])
+        refunded_total = sum((refund.amount for refund in refunds), start=0)
         ContractEvent.log(
             contract,
             ContractEvent.Kind.STATUS,
             actor=request.user,
-            body=f"Contract cancelled by {request.user.display_name}.",
+            body=(
+                f"Contract cancelled by {request.user.display_name}."
+                + (f" Rs {refunded_total} will be refunded to the client." if refunds else "")
+            ),
         )
+        AuditLog.record(
+            actor=request.user,
+            action=AuditLog.Action.UPDATE,
+            target=contract,
+            request=request,
+            justification="Contract cancelled" + ("; client refund queued." if refunds else "."),
+        )
+        dispatch(
+            contract.counterparty(request.user),
+            NotificationCategory.CONTRACT,
+            "Contract cancelled",
+            f"“{contract.title}” was cancelled by {request.user.display_name}.",
+            data={"contract_id": contract.id},
+        )
+        if refunds:
+            dispatch(
+                contract.client,
+                NotificationCategory.PAYMENT,
+                "Refund on its way",
+                f"Rs {refunded_total} held for “{contract.title}” is being returned to you.",
+                data={"contract_id": contract.id},
+            )
         return Response(self._detail(contract, request))
 
     # --- Milestones -------------------------------------------------------
@@ -220,8 +278,11 @@ class ContractViewSet(viewsets.ReadOnlyModelViewSet):
             return _bad("The contract must be active before funding.")
         if milestone.status != Milestone.Status.PENDING:
             return _bad("This milestone is already funded.")
-
         from payments.models import EscrowFunding
+        from payments.settlement import PAYMENTS_UNAVAILABLE, bank_transfer_available
+
+        if not bank_transfer_available():
+            return Response(PAYMENTS_UNAVAILABLE, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         EscrowFunding.objects.create(
             milestone=milestone,
@@ -331,11 +392,8 @@ class ContractViewSet(viewsets.ReadOnlyModelViewSet):
         if milestone.status != Milestone.Status.DELIVERED:
             return _bad("Nothing has been delivered for this milestone yet.")
 
-        from decimal import Decimal
-
-        from django.conf import settings as django_settings
-
-        from payments.models import Payout, PayoutProfile
+        from payments.models import PayoutProfile
+        from payments.settlement import queue_payout
 
         payout_profile = PayoutProfile.objects.filter(user=contract.freelancer).first()
         if payout_profile is None or not payout_profile.is_complete:
@@ -344,14 +402,7 @@ class ContractViewSet(viewsets.ReadOnlyModelViewSet):
                 "payout_profile_incomplete",
             )
 
-        milestone.release()
-
-        payout = Payout.compute(
-            milestone=milestone,
-            freelancer=contract.freelancer,
-            commission_percent=Decimal(str(django_settings.PLATFORM_COMMISSION_PERCENT)),
-        )
-        payout.save()
+        payout = queue_payout(milestone)
 
         ContractEvent.log(
             contract,

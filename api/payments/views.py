@@ -20,8 +20,9 @@ from rest_framework.views import APIView
 from accounts.auth import CanMoveMoney
 from core.pagination import StandardPagination
 
-from .models import Payout, PayoutProfile
-from .serializers import PayoutProfileSerializer, PayoutSerializer
+from .models import Payout, PayoutProfile, Refund
+from .serializers import PayoutProfileSerializer, PayoutSerializer, RefundSerializer
+from .settlement import bank_transfer_available
 
 
 @api_view(["GET"])
@@ -32,6 +33,7 @@ def bank_transfer_instructions(request):
     platform's own bank account (Phase 3, D42)."""
     return Response(
         {
+            "available": bank_transfer_available(),
             "bank_name": settings.PLATFORM_BANK_NAME,
             "account_title": settings.PLATFORM_BANK_ACCOUNT_TITLE,
             "account_number": settings.PLATFORM_BANK_ACCOUNT_NUMBER,
@@ -71,3 +73,15 @@ class MyPayoutsView(ListAPIView):
 
     def get_queryset(self):
         return Payout.objects.filter(freelancer=self.request.user).select_related("milestone")
+
+
+class MyRefundsView(ListAPIView):
+    """A client's own refunds — money returned from escrow after a
+    cancellation, and whether it has been sent back yet."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = RefundSerializer
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        return Refund.objects.filter(client=self.request.user).select_related("milestone")

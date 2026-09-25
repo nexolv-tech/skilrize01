@@ -3,7 +3,8 @@ Escrow payments — Phase 3, D42.
 
 No payment gateway sits behind this. A licensed merchant account (Swich or
 any other — see D41 for what was tried first) needs an NTN for production
-use, and that isn't available yet. Instead: a client funding a milestone
+use, which the operator did not have when this was built; that merchant
+account is being applied for again (D48). Instead: a client funding a milestone
 transfers money directly to the platform's own bank account, shown to them
 in the UI; the platform manually pays the freelancer out on release, minus
 its commission, once someone has actually wired it. Real money moves —
@@ -168,3 +169,58 @@ class Payout(TimestampedModel):
 
     def __str__(self) -> str:
         return f"Payout(milestone={self.milestone_id}, {self.status})"
+
+
+class Refund(TimestampedModel):
+    """A funded milestone that will never be delivered, owed back to the
+    client — the mirror image of `Payout`.
+
+    Created whenever escrowed money has to go back rather than forward: a
+    seller cancelling an order, a buyer cancelling before work starts or
+    after a missed deadline, a freelancer walking away from a funded
+    contract. Until this model existed a cancellation simply closed the
+    order, and the money the buyer had already transferred vanished from
+    the books — nothing recorded that it was owed back to anyone.
+
+    Sent by hand like a payout: an admin transfers `amount` back to the
+    client and marks the row refunded.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        REFUNDED = "refunded", "Refunded"
+
+    milestone = models.OneToOneField(
+        "contracts.Milestone", on_delete=models.CASCADE, related_name="refund"
+    )
+    client = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="refunds_received"
+    )
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=3, default="PKR")
+    reason = models.CharField(max_length=200)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    refunded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    refunded_at = models.DateTimeField(null=True, blank=True)
+    #: The bank transfer reference for the money sent back.
+    note = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["client", "status"])]
+
+    def __str__(self) -> str:
+        return f"Refund(milestone={self.milestone_id}, {self.status})"

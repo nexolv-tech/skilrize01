@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-from .models import Payout, PayoutProfile
+from .models import Payout, PayoutProfile, Refund
 
 
 class PayoutProfileSerializer(serializers.ModelSerializer):
@@ -40,6 +40,26 @@ class PayoutSerializer(serializers.ModelSerializer):
             "currency",
             "status",
             "paid_at",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class RefundSerializer(serializers.ModelSerializer):
+    milestone_title = serializers.CharField(source="milestone.title", read_only=True)
+    contract_id = serializers.IntegerField(source="milestone.contract_id", read_only=True)
+
+    class Meta:
+        model = Refund
+        fields = [
+            "id",
+            "milestone_title",
+            "contract_id",
+            "amount",
+            "currency",
+            "reason",
+            "status",
+            "refunded_at",
             "created_at",
         ]
         read_only_fields = fields

@@ -108,6 +108,7 @@ def test_bank_transfer_instructions_returns_the_platform_account(parties):
     response = sign_in(client_user).get("/api/v1/payments/bank-transfer-instructions/")
     assert response.status_code == 200
     assert response.data == {
+        "available": True,
         "bank_name": "Habib Bank",
         "account_title": "SkilRize Pvt Ltd",
         "account_number": "PK00HABB0000009999999",

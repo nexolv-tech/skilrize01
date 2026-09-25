@@ -20,6 +20,12 @@ from core import files as filestore
 from core.models import AuditLog, NotificationCategory, StoredFile
 from core.notify import dispatch
 from core.pagination import StandardPagination
+from payments.settlement import (
+    PAYMENTS_UNAVAILABLE,
+    bank_transfer_available,
+    queue_payout,
+    queue_refund,
+)
 
 from .models import BuyerRequest, CustomOffer, Gig, GigExtra, Order, Package
 from .permissions import IsGigOwnerOrReadOnly, IsOrderParty
@@ -174,6 +180,8 @@ class GigViewSet(viewsets.ModelViewSet):
         allowed, reason = gig.accepts_order_from(request.user)
         if not allowed:
             return _bad(reason, "order_not_allowed")
+        if not bank_transfer_available():
+            return Response(PAYMENTS_UNAVAILABLE, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         serializer = CreateOrderSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -426,20 +434,7 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
 
         milestone = order.contract.milestones.first()
         if milestone and milestone.status == Milestone.Status.DELIVERED:
-            milestone.release()
-
-            from decimal import Decimal
-
-            from django.conf import settings as django_settings
-
-            from payments.models import Payout
-
-            payout = Payout.compute(
-                milestone=milestone,
-                freelancer=order.seller,
-                commission_percent=Decimal(str(django_settings.PLATFORM_COMMISSION_PERCENT)),
-            )
-            payout.save()
+            queue_payout(milestone)
         order.contract.complete()
         order.complete()
 
@@ -467,29 +462,76 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(self._detail(order, request))
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def cancel(self, request, pk=None):
-        """Mutual cancellation before any work is delivered."""
-        order = self.get_object()
-        if order.status in (Order.Status.COMPLETED, Order.Status.CANCELLED):
-            return _bad("This order is already closed.")
-        if order.status == Order.Status.DELIVERED:
-            return _bad(
-                "Work has been delivered. Accept it or request a revision instead.",
-                "already_delivered",
-            )
+        """Cancel an undelivered order and refund the buyer in full.
 
+        Who may cancel, and when, is `Order.cancellation_allowed_for` — kept
+        on the model so this endpoint and the `can_cancel` flag the client
+        renders its button from can never disagree.
+        """
+        order = self.get_object()
+        allowed, reason = order.cancellation_allowed_for(request.user)
+        if not allowed:
+            code = (
+                "already_delivered"
+                if order.status == Order.Status.DELIVERED
+                else "cancel_not_allowed"
+            )
+            return _bad(reason, code)
+
+        by_seller = request.user.pk == order.seller_id
         order.status = Order.Status.CANCELLED
         order.save(update_fields=["status", "updated_at"])
-        order.contract.status = Contract.Status.CANCELLED
-        order.contract.ended_at = timezone.now()
-        order.contract.save(update_fields=["status", "ended_at", "updated_at"])
 
-        ContractEvent.log(
-            order.contract,
-            ContractEvent.Kind.STATUS,
+        refund = None
+        if order.contract is not None:
+            for milestone in order.contract.milestones.all():
+                refund = (
+                    queue_refund(
+                        milestone,
+                        reason=f"Order #{order.pk} cancelled by the "
+                        f"{'seller' if by_seller else 'buyer'}.",
+                        actor=request.user,
+                    )
+                    or refund
+                )
+            order.contract.status = Contract.Status.CANCELLED
+            order.contract.ended_at = timezone.now()
+            order.contract.save(update_fields=["status", "ended_at", "updated_at"])
+            ContractEvent.log(
+                order.contract,
+                ContractEvent.Kind.STATUS,
+                actor=request.user,
+                body=(
+                    f"Order cancelled by {request.user.display_name}."
+                    + (f" Rs {refund.amount} will be refunded to the buyer." if refund else "")
+                ),
+            )
+
+        AuditLog.record(
             actor=request.user,
-            body=f"Order cancelled by {request.user.display_name}.",
+            action=AuditLog.Action.UPDATE,
+            target=order,
+            request=request,
+            justification="Gig order cancelled; buyer refund queued.",
         )
+        counterparty = order.buyer if by_seller else order.seller
+        dispatch(
+            counterparty,
+            NotificationCategory.ORDER,
+            "Order cancelled",
+            f"“{order.gig.title}” was cancelled by {request.user.display_name}.",
+            data={"order_id": order.id},
+        )
+        if refund is not None:
+            dispatch(
+                order.buyer,
+                NotificationCategory.PAYMENT,
+                "Refund on its way",
+                f"Rs {refund.amount} for “{order.gig.title}” is being returned to you.",
+                data={"order_id": order.id},
+            )
         return Response(self._detail(order, request))
 
     def _detail(self, order: Order, request) -> dict:

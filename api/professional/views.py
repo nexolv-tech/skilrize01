@@ -161,6 +161,11 @@ def subscribe(request):
     if not CanMoveMoney().has_permission(request, None):
         return _forbidden("Complete your profile before transacting.", "profile_incomplete")
 
+    from payments.settlement import PAYMENTS_UNAVAILABLE, bank_transfer_available
+
+    if not bank_transfer_available():
+        return Response(PAYMENTS_UNAVAILABLE, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
     if existing:
         # Switching tiers ends the old subscription outright rather than
         # stacking a second one — the partial unique constraint would refuse it

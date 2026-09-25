@@ -170,6 +170,17 @@ def assess_review_integrity(limit: int = 500) -> int:
 
 
 @shared_task
+def auto_release_deliveries() -> dict:
+    """Settle deliveries nobody answered within their review window — gig
+    orders after `Order.ACCEPTANCE_WINDOW_DAYS`, contract milestones after
+    `Contract.REVIEW_WINDOW_DAYS`. Runs hourly
+    (`core/migrations/0006_schedule_auto_release.py`)."""
+    from payments.settlement import auto_release_lapsed
+
+    return auto_release_lapsed()
+
+
+@shared_task
 def sweep_promotions() -> int:
     """Start, stop, and expire promoted placements. Runs every 5 minutes
     (`core/migrations/0004_seed_beat_schedule.py`)."""

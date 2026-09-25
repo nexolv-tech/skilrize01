@@ -1,6 +1,27 @@
 from django.contrib import admin
 
-from .models import EscrowFunding, Payout, PayoutProfile, SubscriptionPayment
+from .models import EscrowFunding, Payout, PayoutProfile, Refund, SubscriptionPayment
+
+
+@admin.register(Refund)
+class RefundAdmin(admin.ModelAdmin):
+    """The other half of the manual side: an admin sends the client's money
+    back by bank transfer, then marks the row refunded here."""
+
+    list_display = ["milestone", "client", "amount", "reason", "status", "created_at"]
+    list_filter = ["status"]
+    search_fields = ["client__handle", "client__email", "milestone__title", "reason"]
+    readonly_fields = ["milestone", "client", "amount", "currency", "reason", "requested_by"]
+    actions = ["mark_refunded"]
+
+    @admin.action(description="Mark selected refunds as sent")
+    def mark_refunded(self, request, queryset):
+        from django.utils import timezone
+
+        updated = queryset.filter(status=Refund.Status.PENDING).update(
+            status=Refund.Status.REFUNDED, refunded_by=request.user, refunded_at=timezone.now()
+        )
+        self.message_user(request, f"{updated} refund(s) marked as sent.")
 
 
 @admin.register(EscrowFunding)

@@ -294,6 +294,9 @@ class OrderSerializer(serializers.ModelSerializer):
     missing_requirements = serializers.ListField(read_only=True)
     my_role = serializers.SerializerMethodField()
     requirements_form = serializers.SerializerMethodField()
+    can_cancel = serializers.SerializerMethodField()
+    cancel_blocked_reason = serializers.SerializerMethodField()
+    refund = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -327,6 +330,9 @@ class OrderSerializer(serializers.ModelSerializer):
             "completed_at",
             "created_at",
             "my_role",
+            "can_cancel",
+            "cancel_blocked_reason",
+            "refund",
         ]
         read_only_fields = fields
 
@@ -336,6 +342,27 @@ class OrderSerializer(serializers.ModelSerializer):
 
     def get_requirements_form(self, order: Order) -> list:
         return order.gig.requirements or []
+
+    def get_can_cancel(self, order: Order) -> bool:
+        return order.cancellation_allowed_for(self.context["request"].user)[0]
+
+    def get_cancel_blocked_reason(self, order: Order) -> str:
+        return order.cancellation_allowed_for(self.context["request"].user)[1]
+
+    def get_refund(self, order: Order) -> dict | None:
+        """The buyer's refund for a cancelled order, if one is owed."""
+        from payments.models import Refund
+
+        if order.contract_id is None:
+            return None
+        refund = Refund.objects.filter(milestone__contract_id=order.contract_id).first()
+        if refund is None:
+            return None
+        return {
+            "amount": str(refund.amount),
+            "status": refund.status,
+            "refunded_at": refund.refunded_at,
+        }
 
 
 class CreateOrderSerializer(serializers.Serializer):

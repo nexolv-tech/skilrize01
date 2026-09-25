@@ -21,11 +21,12 @@ x-api-env: &api-env
   CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3100
   FRONTEND_URL: http://localhost:3000
   FILE_SIGNING_KEY: ${FILE_SIGNING_KEY:-dev-only-file-signing-key}
-  # Payments — custodial escrow (Phase 3, D42). Empty bank details just
-  # mean the bank-transfer panel has nothing to show; the app still runs.
-  PLATFORM_BANK_NAME: ${PLATFORM_BANK_NAME:-}
-  PLATFORM_BANK_ACCOUNT_TITLE: ${PLATFORM_BANK_ACCOUNT_TITLE:-}
-  PLATFORM_BANK_ACCOUNT_NUMBER: ${PLATFORM_BANK_ACCOUNT_NUMBER:-}
+  # Payments — custodial escrow (Phase 3, D42). Without bank details every
+  # funding endpoint refuses (`payments_unavailable`), so the local stack
+  # ships obviously fake ones to let the order flow be exercised end to end.
+  PLATFORM_BANK_NAME: ${PLATFORM_BANK_NAME:-Local Test Bank}
+  PLATFORM_BANK_ACCOUNT_TITLE: ${PLATFORM_BANK_ACCOUNT_TITLE:-NEXOLV.TECH (local)}
+  PLATFORM_BANK_ACCOUNT_NUMBER: ${PLATFORM_BANK_ACCOUNT_NUMBER:-PK00TEST0000000000000000}
   PLATFORM_COMMISSION_PERCENT: ${PLATFORM_COMMISSION_PERCENT:-10.0}
 
 services:

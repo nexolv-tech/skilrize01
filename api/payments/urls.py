@@ -10,4 +10,5 @@ urlpatterns = [
     ),
     path("payments/payout-profile/", views.PayoutProfileView.as_view(), name="payout-profile"),
     path("payments/payouts/", views.MyPayoutsView.as_view(), name="my-payouts"),
+    path("payments/refunds/", views.MyRefundsView.as_view(), name="my-refunds"),
 ]

@@ -58,6 +58,20 @@ def _no_scanner_required(settings):
 
 
 @pytest.fixture(autouse=True)
+def _platform_bank_account(settings):
+    """Give the suite a bank account to pay into.
+
+    Funding refuses outright on a deployment with no `PLATFORM_BANK_*`
+    configured (`payments.settlement.bank_transfer_available`), and no test
+    environment has one. The refusal itself is covered in
+    `payments/test_settlement.py`, by tests that clear these again.
+    """
+    settings.PLATFORM_BANK_NAME = "Test Bank"
+    settings.PLATFORM_BANK_ACCOUNT_TITLE = "NEXOLV.TECH"
+    settings.PLATFORM_BANK_ACCOUNT_NUMBER = "0000000000000000"
+
+
+@pytest.fixture(autouse=True)
 def _http_test_client(settings):
     """Undo the two production settings the test client cannot satisfy.
 

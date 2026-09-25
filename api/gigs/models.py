@@ -321,6 +321,35 @@ class Order(TimestampedModel):
             if field.get("required", True) and not str(answers.get(field.get("key"), "")).strip()
         ]
 
+    def cancellation_allowed_for(self, user) -> tuple[bool, str]:
+        """Who may cancel, and when. Every cancellation refunds the buyer in full.
+
+        * The **seller** may cancel any time before delivering — backing out of
+          work you were paid to do costs you the sale, never the buyer money.
+        * The **buyer** may cancel freely until they have sent requirements,
+          because the seller cannot have started. After that the seller is
+          working on the buyer's word, so the buyer may only cancel once the
+          order is past its due date.
+        * Nobody cancels a delivered order: it is accepted, revised, or
+          accepted automatically when the review window closes.
+        """
+        if self.status in (self.Status.COMPLETED, self.Status.CANCELLED):
+            return False, "This order is already closed."
+        if self.status == self.Status.DELIVERED:
+            return False, "Work has been delivered. Accept it or request a revision instead."
+        if user.pk == self.seller_id:
+            return True, ""
+        if user.pk == self.buyer_id:
+            if self.status == self.Status.PENDING_REQUIREMENTS:
+                return True, ""
+            if self.is_late:
+                return True, ""
+            return False, (
+                "The seller has started work. You can cancel once the order passes its due "
+                "date, or ask the seller to cancel it — either way you are refunded in full."
+            )
+        return False, "Only the buyer or the seller can cancel this order."
+
     def start(self) -> None:
         """Requirements are in: the delivery clock starts now, not at payment."""
         now = timezone.now()
