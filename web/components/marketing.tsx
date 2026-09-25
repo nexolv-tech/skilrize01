@@ -33,17 +33,74 @@ const TICKET_STEPS: Array<{ label: string; detail: string }> = [
 /** Seconds at which each step inks in. The stamp changes after the last. */
 const STEP_AT = [0.5, 1.4, 2.3, 3.2] as const;
 
+/** One pass: the last stamp lands at about 3.8s, and the finished slip then
+ *  holds long enough to read before it fades and starts again. */
+const CYCLE_MS = 8000;
+const FADE_MS = 400;
+
+const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
+
+function subscribeReducedMotion(onChange: () => void) {
+  const query = window.matchMedia(REDUCED_MOTION);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+/** True while `ref` is at least partly on screen — a loop nobody can see is
+ *  wasted work, and restarting where the visitor is not looking is pointless. */
+function useOnScreen(ref: React.RefObject<HTMLElement | null>) {
+  const [visible, setVisible] = React.useState(true);
+  React.useEffect(() => {
+    const node = ref.current;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => setVisible(Boolean(entry?.isIntersecting)));
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [ref]);
+  return visible;
+}
+
 export function EscrowTicket({ className }: { className?: string }) {
   const [run, setRun] = React.useState(0);
+  const [fading, setFading] = React.useState(false);
+  const [paused, setPaused] = React.useState(false);
+  const figureRef = React.useRef<HTMLElement>(null);
+  const visible = useOnScreen(figureRef);
+  // Reduced motion shows the finished slip at once (globals.css), so there
+  // is nothing to loop and no reason to offer a pause control.
+  const reducedMotion = React.useSyncExternalStore(
+    subscribeReducedMotion,
+    () => window.matchMedia(REDUCED_MOTION).matches,
+    () => false,
+  );
   const price = 18000;
   const fee = Math.round((price * BUSINESS.commissionPercent) / 100);
 
+  // Each pass schedules the next: fade the finished slip out, then remount it
+  // (the `key` below) so every CSS animation starts again from zero.
+  React.useEffect(() => {
+    if (paused || reducedMotion || !visible) return;
+    const fade = window.setTimeout(() => setFading(true), CYCLE_MS - FADE_MS);
+    const next = window.setTimeout(() => {
+      setFading(false);
+      setRun((value) => value + 1);
+    }, CYCLE_MS);
+    return () => {
+      window.clearTimeout(fade);
+      window.clearTimeout(next);
+    };
+  }, [run, paused, reducedMotion, visible]);
+
   return (
-    <figure className={cn("relative", className)}>
-      {/* Remounted on replay so every CSS animation starts again from zero. */}
+    <figure ref={figureRef} className={cn("relative", className)}>
       <div
         key={run}
-        className="ticket-edge relative rounded-t-xl border border-b-0 border-line bg-raised px-6 pt-6 pb-9 shadow-e3"
+        className={cn(
+          "ticket-edge relative rounded-t-xl border border-b-0 border-line bg-raised px-6 pt-6 pb-9 shadow-e3",
+          "transition-opacity duration-[400ms]",
+          fading && "opacity-0",
+          paused && "motion-paused",
+        )}
       >
         <div className="flex items-baseline justify-between gap-4">
           <p className="eyebrow">Example order</p>
@@ -132,14 +189,19 @@ export function EscrowTicket({ className }: { className?: string }) {
 
       <figcaption className="mt-5 flex items-center justify-between gap-3 text-[12.5px] text-subtle">
         <span>How every order on SkilRize moves money.</span>
-        <button
-          type="button"
-          onClick={() => setRun((value) => value + 1)}
-          className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-md px-2 font-medium text-accent underline-offset-4 hover:underline"
-        >
-          <Icon name="clock" className="size-3.5" />
-          Replay
-        </button>
+        {/* Anything that moves on its own for more than five seconds needs a
+            way to stop it (WCAG 2.2.2). */}
+        {!reducedMotion && (
+          <button
+            type="button"
+            aria-pressed={paused}
+            onClick={() => setPaused((value) => !value)}
+            className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-md px-2 font-medium text-accent underline-offset-4 hover:underline"
+          >
+            <Icon name={paused ? "play" : "pause"} className="size-3.5" />
+            {paused ? "Play" : "Pause"}
+          </button>
+        )}
       </figcaption>
     </figure>
   );
