@@ -109,6 +109,71 @@ def queue_refund(milestone, *, reason: str, actor=None) -> Refund | None:
     )
 
 
+@transaction.atomic
+def void_unpaid_order(order, *, actor, note: str = "") -> bool:
+    """Cancel an order whose bank transfer never arrived — without a refund.
+
+    An order starts on the buyer's word that they paid (D42). When the money
+    never reaches the platform's account, the Terms let the platform cancel
+    the order after three business days. Every other cancellation path goes
+    through `queue_refund`, which would record a refund owed for money that
+    was never received; this one closes the order and its contract with
+    nothing owed either way. Delivered or finished orders are refused: by
+    then the question is a dispute, not a missing payment.
+    """
+    from contracts.models import Contract, ContractEvent, Milestone
+    from core.models import AuditLog, NotificationCategory
+    from core.notify import dispatch
+    from gigs.models import Order
+
+    order = Order.objects.select_for_update().get(pk=order.pk)
+    if order.status not in (Order.Status.PENDING_REQUIREMENTS, Order.Status.ACTIVE):
+        return False
+
+    order.status = Order.Status.CANCELLED
+    order.save(update_fields=["status", "updated_at"])
+    if order.contract is not None:
+        order.contract.milestones.exclude(
+            status__in=(Milestone.Status.RELEASED, Milestone.Status.CANCELLED)
+        ).update(status=Milestone.Status.CANCELLED, updated_at=timezone.now())
+        order.contract.status = Contract.Status.CANCELLED
+        order.contract.ended_at = timezone.now()
+        order.contract.save(update_fields=["status", "ended_at", "updated_at"])
+        ContractEvent.log(
+            order.contract,
+            ContractEvent.Kind.STATUS,
+            actor=actor,
+            body="Order cancelled: the buyer's payment was never received.",
+        )
+
+    AuditLog.record(
+        actor=actor,
+        action=AuditLog.Action.UPDATE,
+        target=order,
+        justification=("Order voided, payment not received. " + note).strip()[:500],
+    )
+    for party, text in (
+        (
+            order.buyer,
+            f"We did not receive your payment for “{order.gig.title}”, so the order was "
+            "cancelled. If you did pay, reply with your transfer reference.",
+        ),
+        (
+            order.seller,
+            f"The buyer's payment for “{order.gig.title}” never arrived, so the order was "
+            "cancelled. Please stop any work on it.",
+        ),
+    ):
+        dispatch(
+            party,
+            NotificationCategory.ORDER,
+            "Order cancelled — payment not received",
+            text,
+            data={"order_id": order.id},
+        )
+    return True
+
+
 # --- The auto-release sweep --------------------------------------------------
 
 

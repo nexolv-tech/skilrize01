@@ -20,7 +20,7 @@ from gigs.models import Order
 from gigs.tests import _active_order, _order
 from marketplace.tests import sign_in
 from payments.models import Payout, Refund
-from payments.settlement import auto_release_lapsed, queue_payout
+from payments.settlement import auto_release_lapsed, queue_payout, void_unpaid_order
 
 # --- Cancelling a gig order ----------------------------------------------------
 
@@ -248,3 +248,56 @@ def test_the_payment_instructions_say_whether_payment_is_possible(buyer, setting
 
     settings.PLATFORM_BANK_ACCOUNT_TITLE = ""
     assert api.get("/api/v1/payments/bank-transfer-instructions/").data["available"] is False
+
+
+# --- Payment never received -----------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_an_unpaid_order_is_voided_without_recording_a_refund(gig, buyer, seller):
+    """The Terms let the platform cancel an order whose transfer never
+    arrived. Nothing was received, so nothing is owed back."""
+    from core.models import Notification
+
+    order = _active_order(gig, buyer)
+
+    assert void_unpaid_order(order, actor=None, note="No transfer after 3 days.")
+
+    order.refresh_from_db()
+    assert order.status == Order.Status.CANCELLED
+    assert order.contract.status == Contract.Status.CANCELLED
+    assert order.contract.milestones.get().status == Milestone.Status.CANCELLED
+    assert not Refund.objects.exists()
+    assert (
+        Notification.objects.filter(
+            user__in=[buyer, seller], title="Order cancelled — payment not received"
+        ).count()
+        == 2
+    )
+
+
+@pytest.mark.django_db
+def test_a_delivered_order_is_never_voided(gig, buyer, seller):
+    """After delivery the question is a dispute, not a missing payment."""
+    order = _delivered(gig, buyer, seller)
+
+    assert not void_unpaid_order(order, actor=None)
+
+    order.refresh_from_db()
+    assert order.status == Order.Status.DELIVERED
+
+
+@pytest.mark.django_db
+def test_the_admin_action_voids_unpaid_orders(admin_client, gig, buyer, settings):
+    order = _active_order(gig, buyer)
+
+    response = admin_client.post(
+        f"/{settings.ADMIN_URL}gigs/order/",
+        {"action": "void_unpaid", "_selected_action": [order.pk]},
+    )
+
+    # Not followed: the change list re-render needs collected static files.
+    assert response.status_code == 302
+    order.refresh_from_db()
+    assert order.status == Order.Status.CANCELLED
+    assert not Refund.objects.exists()

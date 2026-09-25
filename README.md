@@ -28,7 +28,7 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 12 · Hire after trial | ✅ | A paid trial task before the full project — see below for what "converts" does and does not mean yet |
 | 13 · Proof-of-work challenges | ✅ | Timed briefs, human-reviewed scoring, ranked badges — automated Lighthouse grading built but off by default, see below |
 
-**396 backend tests pass (19 of them the cross-tenant leakage gate), plus 11
+**399 backend tests pass (19 of them the cross-tenant leakage gate), plus 11
 Dart tests and a 4-test live suite for the mobile client** (`flutter analyze`
 clean across all ~32 screens; the live suite runs against a real stack — see
 `mobile/README.md`). Migration check and production build are clean.

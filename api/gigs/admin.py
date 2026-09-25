@@ -65,6 +65,22 @@ class OrderAdmin(admin.ModelAdmin):
         "accept_by",
         "completed_at",
     ]
+    actions = ["void_unpaid"]
+
+    @admin.action(description="Cancel — buyer's payment never received (no refund)")
+    def void_unpaid(self, request, queryset):
+        from payments.settlement import void_unpaid_order
+
+        voided = sum(
+            void_unpaid_order(order, actor=request.user, note=f"By {request.user.email}.")
+            for order in queryset
+        )
+        skipped = queryset.count() - voided
+        self.message_user(
+            request,
+            f"{voided} order(s) cancelled."
+            + (f" {skipped} skipped: already delivered, finished or cancelled." if skipped else ""),
+        )
 
 
 @admin.register(BuyerRequest)

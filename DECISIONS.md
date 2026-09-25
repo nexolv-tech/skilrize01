@@ -1857,6 +1857,15 @@ milestones, paid plans) now refuses with `503 payments_unavailable` until
 the account is configured, and `bank-transfer-instructions` reports
 `available` so the UI says so instead of showing empty fields.
 
+*Payment never received.* An order starts on the buyer's word, and the
+Terms let the platform cancel one whose transfer has not arrived after
+three business days. Doing that through the ordinary cancel would record
+a refund for money that never came in, so `settlement.void_unpaid_order`
+closes the order and its contract with nothing owed either way, and tells
+both sides why. It is a Django admin action on Orders ("Cancel — buyer's
+payment never received"), and it refuses delivered or finished orders:
+by then the question is a dispute, not a missing payment.
+
 ## D47 · GDPR as the privacy baseline, for every user
 
 **Taken as the standard to build to because it is the strictest widely
