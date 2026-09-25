@@ -3,84 +3,94 @@
 /*
  * SkilRize design tokens.
  *
- * Semantic tokens only in component code — never a raw hex value, per the
- * design-system rules. Every token below resolves through a light/dark pair so
- * a component written once is correct in both themes.
+ * Semantic tokens only in component code — never a raw hex value. Every token
+ * resolves through a light/dark pair, so a component written once is correct
+ * in both themes.
  *
- * The palette aims for a dense, structured, content-first feel with enough
- * warmth to stay approachable, on a brand indigo that is nobody else's green.
- * The near-black is navy-tinted rather than neutral so the whole surface reads
- * as one family.
+ * The identity is built from the thing the platform actually sells: money
+ * held until work is approved. Its materials are the paperwork of Pakistani
+ * commerce — the order slip, the ledger line, the rubber "PAID" stamp — set in
+ * ink on paper, with marigold (the genda phool of every celebration here) as
+ * the single colour that means "act" or "yours". Nobody else in the category
+ * is marigold: the two incumbents are both green.
+ *
+ * Marigold is too light to be text on white, so the colour splits in two:
+ *   --action   bright marigold fills (buttons, stamps), always with ink text
+ *   --accent   deep ochre for links, icons, focus and selected states
  */
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", Roboto, Arial, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
-  /* Marketing headlines only. Never used inside the application chrome. */
-  --font-display: var(--font-display), ui-serif, Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, Arial, sans-serif;
+  --font-mono: var(--font-martian), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  /* The same Archivo family, narrowed on its width axis — see `.display-*`. */
+  --font-display: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
 
-  /* Brand — electric indigo. */
-  --color-brand-50: #f1f0ff;
-  --color-brand-100: #e6e3ff;
-  --color-brand-200: #cfcaff;
-  --color-brand-300: #b0a6ff;
-  --color-brand-400: #8f80fd;
-  --color-brand-500: #7359f7;
-  --color-brand-600: #5b41ec;
-  --color-brand-700: #4d33d2;
-  --color-brand-800: #402ca8;
-  --color-brand-900: #372985;
-  --color-brand-950: #211a4f;
+  /* Brand — marigold. 500 is the fill, 700 the readable text colour. */
+  --color-brand-50: #fff8ec;
+  --color-brand-100: #feefcf;
+  --color-brand-200: #fcdc9d;
+  --color-brand-300: #f9c664;
+  --color-brand-400: #f6b236;
+  --color-brand-500: #f2a10f;
+  --color-brand-600: #d4860a;
+  --color-brand-700: #9a5800;
+  --color-brand-800: #7a4507;
+  --color-brand-900: #5e360a;
+  --color-brand-950: #361e04;
 
-  /* Ink — navy-tinted neutrals. */
-  --color-ink-25: #fcfcfd;
-  --color-ink-50: #f7f8fa;
-  --color-ink-100: #eff1f5;
-  --color-ink-200: #e5e8ef;
-  --color-ink-300: #cfd4de;
-  --color-ink-400: #9ba4b5;
-  --color-ink-500: #6e7788;
-  --color-ink-600: #565e70;
-  --color-ink-700: #3f4658;
-  --color-ink-800: #272c3a;
-  --color-ink-900: #171b26;
-  --color-ink-950: #0f1219;
-  --color-ink-1000: #0a0b10;
+  /* Firozi — the turquoise of Multan tilework. Reserved for campus portals,
+     so the university surface is recognisable at a glance. */
+  --color-campus-50: #e9f6f4;
+  --color-campus-100: #caebe6;
+  --color-campus-400: #3fb3a8;
+  --color-campus-500: #139088;
+  --color-campus-600: #0e6e6a;
+  --color-campus-700: #0b5552;
+  --color-campus-900: #06302e;
 
-  /* Money reads green everywhere on this platform. */
-  --color-money-400: #34d399;
-  --color-money-500: #10b981;
-  --color-money-600: #059669;
-  --color-money-700: #047857;
+  /* Ink — near-neutral with the slightest warmth, to sit beside marigold. */
+  --color-ink-25: #fbfbfa;
+  --color-ink-50: #f6f6f3;
+  --color-ink-100: #eeeeea;
+  --color-ink-200: #e3e2dc;
+  --color-ink-300: #cfcdc5;
+  --color-ink-400: #a6a399;
+  --color-ink-500: #77746b;
+  --color-ink-600: #56534b;
+  --color-ink-700: #3c3a34;
+  --color-ink-800: #282621;
+  --color-ink-900: #1a1916;
+  --color-ink-950: #121110;
+  --color-ink-1000: #0c0b0a;
 
-  --color-warn-400: #fbbf24;
-  --color-warn-500: #f59e0b;
-  --color-warn-600: #d97706;
+  /* Money released reads green; it is a state, never the brand. */
+  --color-money-400: #4cc38a;
+  --color-money-500: #22a06b;
+  --color-money-600: #1b7a4b;
+  --color-money-700: #155f3b;
 
-  --color-danger-400: #f87171;
-  --color-danger-500: #ef4444;
-  --color-danger-600: #dc2626;
+  /* Caution is rust, well clear of the brand's ochre. */
+  --color-warn-400: #f08a5d;
+  --color-warn-500: #d9592b;
+  --color-warn-600: #b43d14;
 
-  /* Radius. */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
-  --radius-2xl: 28px;
+  --color-danger-400: #f47a86;
+  --color-danger-500: #e03145;
+  --color-danger-600: #bf1d33;
 
-  /* Motion. Short enough to feel immediate, long enough to read as intentional. */
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 22px;
+
   --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/*
- * Semantic layer. `@theme inline` exposes these as utilities (bg-surface,
- * text-fg, border-line …) while letting the underlying value flip with theme.
- */
 @theme inline {
   --color-surface: var(--surface);
   --color-raised: var(--raised);
@@ -98,6 +108,13 @@
   --color-accent-hover: var(--accent-hover);
   --color-accent-soft: var(--accent-soft);
   --color-on-accent: var(--on-accent);
+
+  --color-action: var(--action);
+  --color-action-hover: var(--action-hover);
+  --color-on-action: var(--on-action);
+
+  --color-campus: var(--campus);
+  --color-campus-soft: var(--campus-soft);
 
   --color-positive: var(--positive);
   --color-positive-soft: var(--positive-soft);
@@ -117,63 +134,76 @@
   --surface: var(--color-ink-25);
   --raised: #ffffff;
   --sunken: var(--color-ink-100);
-  --overlay: rgb(10 11 16 / 0.45);
+  --overlay: rgb(12 11 10 / 0.5);
 
-  --fg: #12141c;
+  --fg: var(--color-ink-900);
   --muted: var(--color-ink-600);
   --subtle: var(--color-ink-500);
 
   --line: var(--color-ink-200);
   --line-strong: var(--color-ink-300);
 
-  --accent: var(--color-brand-600);
-  --accent-hover: var(--color-brand-700);
+  --accent: var(--color-brand-700);
+  --accent-hover: var(--color-brand-800);
   --accent-soft: var(--color-brand-50);
   --on-accent: #ffffff;
 
-  --positive: var(--color-money-600);
-  --positive-soft: #e7f8f1;
-  --caution: var(--color-warn-600);
-  --caution-soft: #fef4e6;
-  --critical: var(--color-danger-600);
-  --critical-soft: #fdecec;
+  --action: var(--color-brand-500);
+  --action-hover: var(--color-brand-600);
+  --on-action: var(--color-ink-900);
 
-  --elevation-1: 0 1px 2px rgb(16 20 32 / 0.04), 0 1px 3px rgb(16 20 32 / 0.06);
-  --elevation-2: 0 2px 4px rgb(16 20 32 / 0.04), 0 6px 16px rgb(16 20 32 / 0.08);
-  --elevation-3: 0 8px 24px rgb(16 20 32 / 0.1), 0 24px 48px rgb(16 20 32 / 0.12);
+  --campus: var(--color-campus-600);
+  --campus-soft: var(--color-campus-50);
+
+  --positive: var(--color-money-600);
+  --positive-soft: #e6f4ec;
+  --caution: var(--color-warn-600);
+  --caution-soft: #fbece5;
+  --critical: var(--color-danger-600);
+  --critical-soft: #fcebed;
+
+  --elevation-1: 0 1px 0 rgb(26 25 22 / 0.04), 0 1px 2px rgb(26 25 22 / 0.06);
+  --elevation-2: 0 1px 0 rgb(26 25 22 / 0.04), 0 4px 12px rgb(26 25 22 / 0.08);
+  --elevation-3: 0 2px 4px rgb(26 25 22 / 0.06), 0 16px 40px rgb(26 25 22 / 0.12);
 }
 
 .dark {
   color-scheme: dark;
 
-  --surface: var(--color-ink-1000);
-  --raised: #12141c;
-  --sunken: #07080c;
-  --overlay: rgb(2 3 6 / 0.7);
+  --surface: var(--color-ink-950);
+  --raised: var(--color-ink-900);
+  --sunken: var(--color-ink-1000);
+  --overlay: rgb(0 0 0 / 0.7);
 
-  --fg: #f4f6fa;
-  --muted: #a3abbb;
-  --subtle: #7b8496;
+  --fg: #f3f2ec;
+  --muted: #b3afa4;
+  --subtle: #8b877c;
 
-  --line: #212636;
-  --line-strong: #333a4d;
+  --line: #2c2a25;
+  --line-strong: #3f3c35;
 
-  /* Lifted a step in dark so contrast against the near-black holds. */
   --accent: var(--color-brand-400);
   --accent-hover: var(--color-brand-300);
-  --accent-soft: rgb(91 65 236 / 0.16);
-  --on-accent: #0d0f16;
+  --accent-soft: rgb(242 161 15 / 0.13);
+  --on-accent: var(--color-ink-950);
+
+  --action: var(--color-brand-500);
+  --action-hover: var(--color-brand-400);
+  --on-action: var(--color-ink-950);
+
+  --campus: var(--color-campus-400);
+  --campus-soft: rgb(19 144 136 / 0.16);
 
   --positive: var(--color-money-400);
-  --positive-soft: rgb(16 185 129 / 0.14);
+  --positive-soft: rgb(34 160 107 / 0.15);
   --caution: var(--color-warn-400);
-  --caution-soft: rgb(245 158 11 / 0.14);
+  --caution-soft: rgb(217 89 43 / 0.15);
   --critical: var(--color-danger-400);
-  --critical-soft: rgb(239 68 68 / 0.14);
+  --critical-soft: rgb(224 49 69 / 0.15);
 
-  --elevation-1: 0 1px 2px rgb(0 0 0 / 0.4);
-  --elevation-2: 0 2px 6px rgb(0 0 0 / 0.45), 0 8px 24px rgb(0 0 0 / 0.35);
-  --elevation-3: 0 12px 32px rgb(0 0 0 / 0.5), 0 32px 64px rgb(0 0 0 / 0.4);
+  --elevation-1: 0 1px 2px rgb(0 0 0 / 0.45);
+  --elevation-2: 0 2px 6px rgb(0 0 0 / 0.5), 0 8px 24px rgb(0 0 0 / 0.35);
+  --elevation-3: 0 12px 32px rgb(0 0 0 / 0.55), 0 32px 64px rgb(0 0 0 / 0.4);
 }
 
 @layer base {
@@ -196,11 +226,8 @@
     text-rendering: optimizeLegibility;
   }
 
-  /*
-   * Focus indicators are never hidden — a non-negotiable of the design system.
-   * `:focus-visible` keeps the ring off pointer interactions without ever
-   * removing it from keyboard navigation.
-   */
+  /* Focus indicators are never hidden. The ring is ochre, not marigold:
+     marigold on white falls short of the 3:1 a focus indicator needs. */
   :focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
@@ -208,12 +235,15 @@
   }
 
   ::selection {
-    background: var(--accent);
-    color: var(--on-accent);
+    background: var(--color-brand-300);
+    color: var(--color-ink-900);
   }
 
-  h1, h2, h3, h4 {
-    letter-spacing: -0.022em;
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.015em;
     text-wrap: balance;
   }
 
@@ -221,7 +251,6 @@
     text-wrap: pretty;
   }
 
-  /* Numbers in tables and money figures should align. */
   .tabular {
     font-variant-numeric: tabular-nums;
   }
@@ -229,82 +258,76 @@
 
 @layer utilities {
   /*
-   * Editorial display scale.
+   * Display type: Archivo narrowed to 76% on its width axis, at 800.
    *
-   * Set in the serif, at 400. A high-contrast serif at large sizes needs the
-   * opposite treatment to a grotesque: near-normal tracking rather than tight,
-   * because its thin strokes and generous counters already bind the line
-   * together. Tightening it the way you would a sans closes the counters and
-   * turns an elegant line into a smudge.
+   * A condensed heavy grotesque is the face of Pakistani shop signage and
+   * printed order slips — confident, legible from across a room, and nothing
+   * like the high-contrast serif every AI-generated landing page reaches for.
+   * Only the width axis is set here; weight still comes from `font-weight`,
+   * because `font-variation-settings` overrides only the axes it names.
    */
-  .display-1 {
+  .display-xl,
+  .display-lg,
+  .display-md {
     font-family: var(--font-display);
-    font-weight: 400;
-    font-size: clamp(2.9rem, 6.4vw, 5.4rem);
-    line-height: 0.98;
-    letter-spacing: -0.018em;
+    font-variation-settings: "wdth" 76;
+    font-weight: 800;
+    letter-spacing: -0.02em;
   }
 
-  .display-2 {
-    font-family: var(--font-display);
-    font-weight: 400;
-    font-size: clamp(2.1rem, 4.2vw, 3.4rem);
-    line-height: 1.05;
-    letter-spacing: -0.014em;
+  .display-xl {
+    font-size: clamp(2.7rem, 6vw, 5rem);
+    line-height: 0.96;
   }
 
-  .display-3 {
-    font-family: var(--font-display);
-    font-weight: 400;
+  .display-lg {
+    font-size: clamp(2rem, 4vw, 3.25rem);
+    line-height: 1;
+  }
+
+  .display-md {
     font-size: clamp(1.5rem, 2.6vw, 2.1rem);
-    line-height: 1.15;
-    letter-spacing: -0.01em;
+    line-height: 1.05;
   }
 
-  /* The one phrase per headline allowed to carry the italic. */
-  .display-accent {
-    font-style: italic;
-    color: var(--accent);
-  }
-
-  /*
-   * Sans headings, for anywhere the serif would be wrong — dense UI-adjacent
-   * blocks, card titles, and any heading under about 20px, where a display
-   * serif stops being elegant and starts being hard to read.
-   */
+  /* Headings inside the product: normal width, so dense screens stay calm. */
   .heading-sans {
     font-family: var(--font-sans);
-    font-weight: 600;
-    letter-spacing: -0.022em;
+    font-weight: 700;
+    letter-spacing: -0.015em;
   }
 
-  /* Section eyebrow — small, wide, quiet. */
+  /* Labels set like the printed field names on a form. */
   .eyebrow {
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--subtle);
   }
 
-  /*
-   * Card lift. One shared hover behaviour across every clickable card on the
-   * marketing pages, so the whole surface responds with one personality
-   * instead of six slightly different ones.
-   */
+  /* Amounts, order numbers, anything read as a record. */
+  .figure {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  /* One hover behaviour for every clickable card. */
   .lift {
     transition:
-      transform 0.28s var(--ease-out-quint),
-      box-shadow 0.28s var(--ease-out-quint),
-      border-color 0.28s var(--ease-out-quint);
+      transform 0.25s var(--ease-out-quint),
+      box-shadow 0.25s var(--ease-out-quint),
+      border-color 0.25s var(--ease-out-quint);
   }
 
   .lift:hover {
-    transform: translateY(-3px);
-    box-shadow: var(--elevation-3);
+    transform: translateY(-2px);
+    box-shadow: var(--elevation-2);
+    border-color: var(--line-strong);
   }
 
-  /* Hides the scrollbar on a carousel without disabling scrolling. */
   .no-bar {
     scrollbar-width: none;
   }
@@ -313,260 +336,135 @@
     display: none;
   }
 
-  /*
-   * The cinematic hero surface.
-   *
-   * Marketplaces of this size anchor the page on a full-bleed photograph. We
-   * cannot ship one — there is no licence, and a stock image of a stranger at a
-   * laptop says nothing about the product — so this builds the same effect out
-   * of light instead: five colour blooms at different depths over a near-black
-   * base, with grain on top to stop the large flat areas banding. It reads as
-   * photographic depth, weighs nothing, and never has to be re-licensed.
-   */
-  .hero-dark {
-    position: relative;
-    isolation: isolate;
-    background-color: #07080d;
-    background-image:
-      radial-gradient(58rem 42rem at 8% -8%, rgb(91 65 236 / 0.55), transparent 60%),
-      radial-gradient(46rem 34rem at 88% 4%, rgb(115 89 247 / 0.42), transparent 62%),
-      radial-gradient(40rem 32rem at 68% 92%, rgb(16 185 129 / 0.24), transparent 60%),
-      radial-gradient(52rem 30rem at 30% 108%, rgb(64 44 168 / 0.5), transparent 62%),
-      radial-gradient(28rem 22rem at 52% 40%, rgb(143 128 253 / 0.2), transparent 66%);
-  }
-
-  /* A slow parallax bloom over the base, so the field is never quite static. */
-  .hero-dark::before {
-    content: "";
-    position: absolute;
-    inset: -30%;
-    z-index: -1;
-    background-image:
-      radial-gradient(34rem 28rem at 25% 30%, rgb(115 89 247 / 0.3), transparent 62%),
-      radial-gradient(30rem 26rem at 76% 66%, rgb(16 185 129 / 0.16), transparent 60%);
-    animation: drift-a 30s ease-in-out infinite alternate;
-    will-change: transform;
-  }
-
-  /* Hairline grid, masked so it fades out before it reaches the copy. */
-  .hero-grid {
-    background-image:
-      linear-gradient(to right, rgb(255 255 255 / 0.055) 1px, transparent 1px),
-      linear-gradient(to bottom, rgb(255 255 255 / 0.055) 1px, transparent 1px);
-    background-size: 64px 64px;
-    mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 30%, transparent 78%);
-  }
-
-  /* Glass, tuned for dark surfaces where `--raised` would be too opaque. */
-  .glass-dark {
-    background: rgb(255 255 255 / 0.07);
-    backdrop-filter: blur(18px) saturate(150%);
-    -webkit-backdrop-filter: blur(18px) saturate(150%);
-    border: 1px solid rgb(255 255 255 / 0.12);
-    box-shadow:
-      inset 0 1px 0 0 rgb(255 255 255 / 0.1),
-      0 20px 50px rgb(0 0 0 / 0.45);
+  /* The dashed line where an order slip tears. */
+  .perforation {
+    background-image: linear-gradient(to right, var(--line-strong) 55%, transparent 0);
+    background-size: 10px 1.5px;
+    background-repeat: repeat-x;
+    height: 1.5px;
   }
 
   /*
-   * The light hero wash.
-   *
-   * The reference marketplaces both anchor on a full-bleed photograph of a
-   * person at a laptop. We have no licence for one, and a stock stranger says
-   * nothing about the product anyway — so the hero is light and typographic
-   * instead, and the colour is kept to a whisper at the edges where it frames
-   * the type without ever competing with it.
+   * The torn bottom edge of the escrow ticket: a row of semicircle bites cut
+   * out of the paper with a mask, so it works over any background.
    */
-  .wash-hero {
-    background-image:
-      radial-gradient(52rem 34rem at 12% -14%, rgb(91 65 236 / 0.1), transparent 62%),
-      radial-gradient(44rem 30rem at 92% -6%, rgb(16 185 129 / 0.07), transparent 60%),
-      radial-gradient(38rem 26rem at 66% 104%, rgb(115 89 247 / 0.08), transparent 62%);
+  .ticket-edge {
+    -webkit-mask:
+      radial-gradient(circle 7px at 50% 100%, transparent 98%, #000) -6px 100% / 20px 100%
+        repeat-x,
+      linear-gradient(#000, #000) top / 100% calc(100% - 7px) no-repeat;
+    mask:
+      radial-gradient(circle 7px at 50% 100%, transparent 98%, #000) -6px 100% / 20px 100%
+        repeat-x,
+      linear-gradient(#000, #000) top / 100% calc(100% - 7px) no-repeat;
   }
 
-  .dark .wash-hero {
-    background-image:
-      radial-gradient(52rem 34rem at 12% -14%, rgb(115 89 247 / 0.2), transparent 62%),
-      radial-gradient(44rem 30rem at 92% -6%, rgb(16 185 129 / 0.1), transparent 60%),
-      radial-gradient(38rem 26rem at 66% 104%, rgb(91 65 236 / 0.18), transparent 62%);
+  /* The rubber stamp. Double border, slight rotation, ink that is not quite
+     solid — a stamp is never perfectly even. */
+  .stamp {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.55em 0.9em;
+    border: 2px solid currentColor;
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 2px var(--raised), inset 0 0 0 3.5px currentColor;
+    transform: rotate(-6deg);
+    opacity: 0.92;
+  }
+
+  .stamp-in {
+    animation: stamp-in 0.42s var(--ease-out-quint) both;
   }
 
   /*
-   * Dot field. A dot reads quieter than a ruled grid at the same opacity, which
-   * matters on a hero whose whole job is to stay out of the headline's way.
+   * Long-form legal text. A measure of about 70 characters, generous leading,
+   * and headings with room above them — policies are read carefully or not at
+   * all, and cramped type makes sure it is the latter.
    */
-  .dot-field {
-    background-image: radial-gradient(currentColor 1px, transparent 1px);
-    background-size: 26px 26px;
-    color: var(--line-strong);
-    opacity: 0.5;
-    mask-image: radial-gradient(ellipse 78% 62% at 50% 34%, #000 12%, transparent 76%);
+  .legal {
+    max-width: 44rem;
+    font-size: 15.5px;
+    line-height: 1.7;
+    color: var(--fg);
   }
 
-  /*
-   * The single dark moment on the page.
-   *
-   * Used once, for the campus band. A page that goes dark repeatedly stops
-   * being dramatic and starts being striped; spending the contrast in one place
-   * is what makes the differentiator read as the differentiator.
-   */
-  .spotlight {
-    position: relative;
-    isolation: isolate;
-    background-color: #0a0b12;
-    background-image:
-      radial-gradient(44rem 30rem at 12% 0%, rgb(91 65 236 / 0.5), transparent 62%),
-      radial-gradient(38rem 28rem at 86% 100%, rgb(16 185 129 / 0.24), transparent 60%),
-      radial-gradient(30rem 24rem at 60% 34%, rgb(115 89 247 / 0.22), transparent 64%);
+  .legal h2 {
+    margin-top: 2.75rem;
+    scroll-margin-top: 6rem;
+    font-size: 21px;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
   }
 
-  /* Catches light along a card's top edge without drawing a visible border. */
-  .hairline {
-    box-shadow:
-      inset 0 1px 0 0 rgb(255 255 255 / 0.7),
-      var(--elevation-1);
+  .legal h3 {
+    margin-top: 1.75rem;
+    font-size: 16.5px;
+    font-weight: 700;
   }
 
-  .dark .hairline {
-    box-shadow:
-      inset 0 1px 0 0 rgb(255 255 255 / 0.06),
-      var(--elevation-1);
+  .legal p,
+  .legal ul,
+  .legal ol,
+  .legal table {
+    margin-top: 0.9rem;
   }
 
-  /* Hero backdrop: a soft indigo aurora over a fine grid. */
-  .bg-aurora {
-    background-image:
-      radial-gradient(60rem 30rem at 15% -10%, rgb(91 65 236 / 0.16), transparent 60%),
-      radial-gradient(45rem 25rem at 90% 0%, rgb(16 185 129 / 0.1), transparent 55%),
-      radial-gradient(40rem 30rem at 50% 110%, rgb(115 89 247 / 0.12), transparent 60%);
+  .legal ul,
+  .legal ol {
+    padding-left: 1.25rem;
   }
 
-  /*
-   * The living version of the same idea. Three coloured blooms drift on long,
-   * offset cycles so the field never visibly repeats — ambient motion in the
-   * spirit of a background video, at a fraction of the weight and with no
-   * network request, no decode cost, and no autoplay policy to fight.
-   */
-  .bg-aurora-live {
-    position: relative;
-    isolation: isolate;
-    overflow: hidden;
+  .legal ul {
+    list-style: disc;
   }
 
-  .bg-aurora-live::before,
-  .bg-aurora-live::after {
-    content: "";
-    position: absolute;
-    inset: -35%;
-    z-index: -1;
-    background-repeat: no-repeat;
-    will-change: transform;
+  .legal ol {
+    list-style: decimal;
   }
 
-  .bg-aurora-live::before {
-    background-image:
-      radial-gradient(38rem 30rem at 22% 28%, rgb(91 65 236 / 0.34), transparent 62%),
-      radial-gradient(30rem 26rem at 78% 18%, rgb(115 89 247 / 0.26), transparent 60%);
-    animation: drift-a 26s ease-in-out infinite alternate;
+  .legal li + li {
+    margin-top: 0.4rem;
   }
 
-  .bg-aurora-live::after {
-    background-image:
-      radial-gradient(32rem 28rem at 70% 78%, rgb(16 185 129 / 0.2), transparent 60%),
-      radial-gradient(26rem 24rem at 30% 82%, rgb(143 128 253 / 0.24), transparent 58%);
-    animation: drift-b 34s ease-in-out infinite alternate;
+  .legal li::marker {
+    color: var(--subtle);
   }
 
-  /* Film grain. Keeps large flat gradients from banding on cheap panels and
-     gives the dark surfaces some tooth. */
-  .texture-grain::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    opacity: 0.5;
-    mix-blend-mode: overlay;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.32'/%3E%3C/svg%3E");
+  .legal a {
+    color: var(--accent);
+    font-weight: 500;
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
 
-  /* Frosted panel over busy artwork. */
-  .glass {
-    background: color-mix(in srgb, var(--raised) 72%, transparent);
-    backdrop-filter: blur(16px) saturate(140%);
-    -webkit-backdrop-filter: blur(16px) saturate(140%);
+  .legal strong {
+    font-weight: 700;
   }
 
-  /* A hairline that catches the light along a card's top edge. */
-  .edge-light {
-    box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.08);
+  .legal table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14.5px;
   }
 
-  /* Continuous logo/tag rail. Duplicated content and a -50% translate make the
-     loop seamless without measuring anything. */
-  .marquee {
-    display: flex;
-    width: max-content;
-    animation: marquee 42s linear infinite;
+  .legal th,
+  .legal td {
+    border: 1px solid var(--line);
+    padding: 0.65rem 0.8rem;
+    text-align: left;
+    vertical-align: top;
   }
 
-  .marquee:hover {
-    animation-play-state: paused;
-  }
-
-  /* Reveal-on-scroll, driven by the platform rather than an observer in JS. */
-  @supports (animation-timeline: view()) {
-    .reveal {
-      animation: reveal-in linear both;
-      animation-timeline: view();
-      animation-range: entry 5% cover 26%;
-    }
-  }
-
-  .bg-grid {
-    background-image:
-      linear-gradient(to right, var(--line) 1px, transparent 1px),
-      linear-gradient(to bottom, var(--line) 1px, transparent 1px);
-    background-size: 56px 56px;
-    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
-  }
-
-  /*
-   * Brand gradient for a headline phrase.
-   *
-   * The ramp stays inside the brand range end to end. An earlier version began
-   * at the foreground colour and crossed into indigo partway along, which put
-   * the colour change wherever the line happened to break — mid-word, in
-   * practice. Tying the gradient to one complete phrase instead makes the
-   * transition a property of the phrase rather than of the viewport width.
-   */
-  .text-gradient {
-    background: linear-gradient(
-      100deg,
-      var(--color-brand-700) 0%,
-      var(--color-brand-500) 45%,
-      var(--color-brand-400) 100%
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-
-  .dark .text-gradient {
-    background: linear-gradient(
-      100deg,
-      var(--color-brand-300) 0%,
-      var(--color-brand-400) 55%,
-      var(--color-brand-200) 100%
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-
-  /* A hairline that fades at both ends, for section dividers. */
-  .rule-fade {
-    background: linear-gradient(to right, transparent, var(--line-strong), transparent);
+  .legal th {
+    background: var(--sunken);
+    font-weight: 600;
   }
 
   .animate-rise {
@@ -574,7 +472,51 @@
   }
 
   .animate-fade {
-    animation: fade 0.35s var(--ease-out-quint) both;
+    animation: fade 0.3s var(--ease-out-quint) both;
+  }
+}
+
+@keyframes stamp-in {
+  0% {
+    opacity: 0;
+    transform: rotate(-6deg) scale(1.6);
+  }
+  70% {
+    opacity: 0.92;
+    transform: rotate(-6deg) scale(0.96);
+  }
+  100% {
+    opacity: 0.92;
+    transform: rotate(-6deg) scale(1);
+  }
+}
+
+/* The escrow ticket's one orchestrated moment: each state of the order
+   inks in on the slip, in order, the way a clerk would tick it off. */
+@keyframes step-on {
+  from {
+    background-color: transparent;
+    transform: scale(0.55);
+  }
+  to {
+    background-color: currentColor;
+    transform: scale(1);
+  }
+}
+
+@keyframes step-label {
+  from {
+    color: var(--subtle);
+  }
+  to {
+    color: var(--fg);
+  }
+}
+
+@keyframes stamp-out {
+  to {
+    opacity: 0;
+    transform: rotate(-6deg) scale(0.9);
   }
 }
 
@@ -604,57 +546,15 @@
   }
 }
 
-@keyframes drift-a {
-  0% {
-    transform: translate3d(-4%, -2%, 0) scale(1);
-  }
-  100% {
-    transform: translate3d(6%, 4%, 0) scale(1.12);
-  }
-}
-
-@keyframes drift-b {
-  0% {
-    transform: translate3d(5%, 3%, 0) scale(1.08);
-  }
-  100% {
-    transform: translate3d(-5%, -4%, 0) scale(1);
-  }
-}
-
-@keyframes marquee {
-  to {
-    transform: translateX(-50%);
-  }
-}
-
-@keyframes reveal-in {
-  from {
-    opacity: 0;
-    transform: translateY(24px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes float-slow {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-10px);
-  }
-}
-
 /* Motion is decoration; it must never be a barrier. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    /* Without this a sequenced animation still waits out its delays and
+       lands in steps — reduced motion should show the final state at once. */
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;

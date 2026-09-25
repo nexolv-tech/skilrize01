@@ -14,7 +14,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { Avatar, Badge, Button, Icon, Logo, cn, type IconName } from "@/components/ui";
+import { Avatar, Badge, ButtonLink, Icon, Logo, cn, type IconName } from "@/components/ui";
 import { useSession, useTheme } from "@/lib/session";
 
 interface NavItem {
@@ -31,6 +31,7 @@ const NAV: NavItem[] = [
   { href: "/settings/notifications", label: "Notifications", icon: "bell" as const },
   { href: "/settings/integrations", label: "Integrations", icon: "link" as const },
   { href: "/settings/payouts", label: "Payouts", icon: "wallet" as const },
+  { href: "/settings/privacy", label: "Privacy & data", icon: "lock" as const },
 ];
 
 /** The marketplace itself, shown in the top bar. */
@@ -143,7 +144,7 @@ function SurfaceSwitcher() {
           "inline-flex items-center gap-1.5 rounded-[7px] px-2.5 py-1.5 text-[13px] font-medium",
           "transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
           !verified && "cursor-not-allowed text-subtle",
-          verified && surface === "university" && "bg-accent text-on-accent shadow-e1",
+          verified && surface === "university" && "bg-campus text-white shadow-e1",
           verified && surface !== "university" && "text-muted hover:text-fg",
         )}
       >
@@ -168,9 +169,9 @@ function CampusBanner() {
   if (surface !== "university" || !campus) return null;
 
   return (
-    <div className="border-b border-accent/30 bg-accent-soft">
+    <div className="border-b border-campus/30 bg-campus-soft">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 sm:px-6">
-        <Icon name="building" className="size-4 shrink-0 text-accent" />
+        <Icon name="building" className="size-4 shrink-0 text-campus" />
         <p className="text-[13px] text-fg">
           You are inside the{" "}
           <span className="font-semibold">{campus.university?.name}</span> portal. Everything you
@@ -179,7 +180,7 @@ function CampusBanner() {
         <button
           type="button"
           onClick={() => switchSurface("global")}
-          className="ml-auto text-[13px] font-medium text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          className="ml-auto text-[13px] font-medium text-campus underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           Back to global
         </button>
@@ -346,12 +347,10 @@ export function AppHeader() {
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {/* Held back until there is room for it beside the nav: on a laptop
               it is the first thing that pushes the account controls out. */}
-          <Link href="/projects/new" className="hidden lg:block">
-            <Button size="sm" variant="secondary">
-              <Icon name="plus" className="size-3.5" />
-              Post a project
-            </Button>
-          </Link>
+          <ButtonLink href="/projects/new" size="sm" variant="secondary" className="hidden lg:inline-flex">
+            <Icon name="plus" className="size-3.5" />
+            Post a brief
+          </ButtonLink>
           <SurfaceSwitcher />
           <ThemeToggle />
           <UserMenu />
@@ -434,7 +433,7 @@ export function SideNav() {
           className={cn(
             "flex items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-[13px] font-medium",
             "transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-            active ? "bg-accent-soft text-accent" : "text-muted hover:bg-sunken hover:text-fg",
+            active ? "bg-accent-soft text-fg" : "text-muted hover:bg-sunken hover:text-fg",
           )}
         >
           <Icon name={item.icon} className="size-4" />
@@ -482,76 +481,61 @@ export function PageHeading({
 /**
  * The marketing header.
  *
- * Deliberately without the category strip a catalogue marketplace usually
- * carries under it. The landing page devotes a whole section to the eight
- * fields a screen further down, and a sticky strip repeating them sat directly
- * on top of the hero — two rows of chrome before any content, listing what the
- * page was about to list anyway.
+ * Four destinations a first-time visitor actually wants — see what is for
+ * sale, post a brief, understand how the money works, see the price — and one
+ * action. Everything else lives in the footer.
  */
+const MARKETING_NAV: Array<[string, string]> = [
+  ["/gigs", "Browse services"],
+  ["/projects", "Open briefs"],
+  ["/#how-it-works", "How it works"],
+  ["/pricing", "Pricing"],
+];
+
 export function MarketingHeader() {
   const { user, loading } = useSession();
 
   return (
-    <header className="sticky top-0 z-40 border-b border-line/70 bg-surface/80 backdrop-blur-xl">
+    <header className="sticky top-0 z-40 border-b border-line bg-surface/90 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-7xl items-center px-5">
-        <Link href="/" className="rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+        <Link
+          href="/"
+          aria-label="SkilRize home"
+          className="rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
           <Logo />
         </Link>
         <nav className="ml-10 hidden items-center gap-7 lg:flex" aria-label="Main">
-          {/* Anchors are absolute rather than bare fragments: these must still
-              land on the right section when the header is rendered above a page
-              that is not the landing page. */}
-          {([
-            ["/#tracks", "How it works"],
-            ["/#campus", "Campus"],
-          ] satisfies Array<[string, string]>).map(([href, label]) => (
+          {MARKETING_NAV.map(([href, label]) => (
             <Link
               key={href}
               href={href}
-              className="text-[13.5px] text-muted transition-colors duration-150 hover:text-fg"
+              className="text-[14px] font-medium text-muted transition-colors duration-150 hover:text-fg"
             >
               {label}
             </Link>
           ))}
-          <Link
-            href="/gigs"
-            className="text-[13.5px] text-muted transition-colors duration-150 hover:text-fg"
-          >
-            Browse
-          </Link>
-          {/* A route rather than an anchor: pricing is its own page, and it has
-              to be reachable from every marketing surface, not just the one
-              with a matching section on it. */}
-          <Link
-            href="/pricing"
-            className="text-[13.5px] text-muted transition-colors duration-150 hover:text-fg"
-          >
-            Pricing
-          </Link>
         </nav>
         <div className="ml-auto flex items-center gap-2">
           <ThemeToggle />
           {loading ? (
             <div className="h-9 w-32" />
           ) : user ? (
-            <Link href="/dashboard">
-              <Button size="sm">Open dashboard</Button>
-            </Link>
+            <ButtonLink href="/dashboard" size="sm">
+              Open dashboard
+            </ButtonLink>
           ) : (
             <>
-              <Link href="/login">
-                <Button variant="ghost" size="sm">
-                  Sign in
-                </Button>
-              </Link>
-              <Link href="/signup">
-                <Button size="sm">Join free</Button>
-              </Link>
+              <ButtonLink href="/login" variant="ghost" size="sm">
+                Sign in
+              </ButtonLink>
+              <ButtonLink href="/signup" size="sm">
+                Join free
+              </ButtonLink>
             </>
           )}
         </div>
       </div>
-
     </header>
   );
 }

@@ -27,14 +27,18 @@ function hash(seed: string): number {
   return Math.abs(value);
 }
 
-/** Six palettes, chosen to sit together in a grid without clashing. */
+/**
+ * Six palettes from the colours of Pakistani craft — marigold, the firozi of
+ * Multan tilework, ajrak's madder red, mehndi green, lapis and slate — chosen
+ * to sit together in a grid and beside the marigold brand without clashing.
+ */
 const PALETTES: Array<[string, string, string]> = [
-  ["#5B41EC", "#8F80FD", "#E6E3FF"], // indigo
-  ["#0E7C86", "#22C1CC", "#D4F5F7"], // teal
-  ["#B4418E", "#EE7FC9", "#FBE3F3"], // magenta
-  ["#C2560F", "#F59E0B", "#FEF0DA"], // amber
-  ["#1F6B45", "#34D399", "#DCFCE7"], // emerald
-  ["#3B3F8F", "#7C82E8", "#E4E6FB"], // periwinkle
+  ["#9A5800", "#F2A10F", "#FEEFCF"], // marigold
+  ["#0B5552", "#139088", "#CAEBE6"], // firozi
+  ["#7E1D22", "#C7453E", "#F6DCD8"], // madder
+  ["#465619", "#8BA03A", "#E7EDCF"], // mehndi
+  ["#1E3A6E", "#3F6FC4", "#DCE6F7"], // lapis
+  ["#2B2A26", "#6E6A60", "#E6E4DE"], // slate
 ];
 
 export type Motif =
@@ -302,18 +306,14 @@ export function CoverArt({
           <stop offset="0%" stopColor={deep} />
           <stop offset="100%" stopColor={mid} />
         </linearGradient>
-        <radialGradient id={`${id}-glow`} cx="0.7" cy="0.2" r="0.9">
-          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.32" />
-          <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
-        </radialGradient>
+        {/* A block-print dot grid, the way a woodblock repeats across cloth. */}
+        <pattern id={`${id}-dots`} width="16" height="16" patternUnits="userSpaceOnUse">
+          <circle cx="2" cy="2" r="1.3" fill={light} opacity="0.22" />
+        </pattern>
       </defs>
 
       <rect width="320" height="220" fill={`url(#${id})`} />
-      <rect width="320" height="220" fill={`url(#${id}-glow)`} />
-
-      {/* Two soft orbs, positioned from the seed, to break up the field. */}
-      <circle cx={40 + (value % 60)} cy={190 - (value % 40)} r="70" fill="#ffffff" opacity="0.07" />
-      <circle cx={280 - (value % 50)} cy={30 + (value % 30)} r="52" fill="#000000" opacity="0.06" />
+      <rect width="320" height="220" fill={`url(#${id}-dots)`} />
 
       <Composition motif={motif} seed={value} ink={deep} light={light} />
     </svg>

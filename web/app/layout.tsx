@@ -1,61 +1,71 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
-import { GeistSans } from "geist/font/sans";
-import { GeistMono } from "geist/font/mono";
-import { Instrument_Serif } from "next/font/google";
+import { Archivo, Martian_Mono } from "next/font/google";
 
+import { CookieNotice } from "@/components/cookie-notice";
+import { BUSINESS } from "@/lib/business";
 import { SessionProvider, themeBootstrap } from "@/lib/session";
 import "./globals.css";
 
 /**
- * Display face for marketing headlines only.
+ * One superfamily at two widths: Archivo condensed for display, Archivo at
+ * normal width for everything people read and operate. Martian Mono carries
+ * the record — amounts, order numbers, form-style labels.
  *
- * Every marketplace at this size sets its headlines in a grotesque sans, which
- * is why they are hard to tell apart with the logo covered. A high-contrast
- * serif is the cheapest real differentiation available — it reads as considered
- * rather than transactional, and it never competes with the interface, because
- * it is not allowed anywhere near it.
- *
- * Self-hosted at build time by `next/font`, so it costs no third-party request
- * and needs no exception in the content-security policy.
+ * Self-hosted at build time by `next/font`, so there is no request to Google
+ * from a visitor's browser (no third party learns who visited), and no
+ * exception is needed in the content-security policy.
  */
-const displaySerif = Instrument_Serif({
+const archivo = Archivo({
   subsets: ["latin"],
-  weight: "400",
-  style: ["normal", "italic"],
-  variable: "--font-display",
+  axes: ["wdth"],
+  variable: "--font-archivo",
+  display: "swap",
+});
+
+const martian = Martian_Mono({
+  subsets: ["latin"],
+  variable: "--font-martian",
   display: "swap",
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(BUSINESS.siteUrl),
   title: {
-    default: "SkilRize — Find the right talent. Or become it.",
+    default: "SkilRize — Hire freelancers in Pakistan, pay when the work is approved",
     template: "%s · SkilRize",
   },
   description:
-    "Hire for a one-off task or a long build. Sell a service or win a contract. One account, " +
-    "one wallet, one reputation — with escrow on every contract and private campus " +
-    "marketplaces for verified students.",
+    "Buy fixed-price services or post a brief and compare proposals. Your payment is held in " +
+    "escrow and released only when you approve the work — refunded if the order is cancelled.",
   applicationName: "SkilRize",
   robots: { index: true, follow: true },
+  openGraph: {
+    type: "website",
+    siteName: "SkilRize",
+    locale: "en_PK",
+  },
 };
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#fcfcfd" },
-    { media: "(prefers-color-scheme: dark)", color: "#0a0b10" },
+    { media: "(prefers-color-scheme: light)", color: "#fbfbfa" },
+    { media: "(prefers-color-scheme: dark)", color: "#121110" },
   ],
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // Minted per request by middleware.ts. Every inline script on the page must
+  // Minted per request by proxy.ts. Every inline script on the page must
   // carry it or the Content-Security-Policy drops the script on the floor.
   const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   return (
     <html
       lang="en"
-      className={`${GeistSans.variable} ${GeistMono.variable} ${displaySerif.variable}`}
+      className={`${archivo.variable} ${martian.variable}`}
+      // Lets the router turn smooth scrolling off during a page change, so a
+      // new page opens at the top instead of gliding there from the old one.
+      data-scroll-behavior="smooth"
       suppressHydrationWarning
     >
       <head>
@@ -77,11 +87,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body className="min-h-dvh antialiased">
         <a
           href="#main"
-          className="sr-only rounded-md bg-accent px-4 py-2 text-on-accent focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50"
+          className="sr-only rounded-md bg-action px-4 py-2 font-medium text-on-action focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50"
         >
           Skip to content
         </a>
         <SessionProvider>{children}</SessionProvider>
+        <CookieNotice />
       </body>
     </html>
   );

@@ -13,7 +13,7 @@
 import * as React from "react";
 import Link from "next/link";
 
-import { Alert, Badge, Button, Card, Icon, cn } from "@/components/ui";
+import { Alert, Badge, ButtonLink, Card, Icon, cn } from "@/components/ui";
 import { professional, type Entitlements, type PlanTier } from "@/lib/api";
 import { useLoader } from "@/lib/session";
 
@@ -43,25 +43,15 @@ export function UpgradePrompt({
   tier?: "pro" | "elite";
 }) {
   return (
-    <Card className="overflow-hidden">
-      <div className="relative px-6 py-10 text-center">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 bg-linear-to-b from-accent-soft/60 to-transparent"
-        />
-        <div className="relative mx-auto max-w-md space-y-3">
-          <div className="mx-auto grid size-11 place-items-center rounded-full bg-accent-soft text-accent">
-            <Icon name="sparkles" className="size-5" />
-          </div>
-          <p className="text-[15px] font-semibold text-fg">{title}</p>
-          <p className="text-[13px] leading-relaxed text-muted">{description}</p>
-          <Link href="/pricing" className="inline-block pt-1">
-            <Button size="sm">
-              See {tier === "elite" ? "Elite" : "Pro"} plans
-              <Icon name="arrowRight" className="size-3.5" />
-            </Button>
-          </Link>
-        </div>
+    <Card className="border-dashed">
+      <div className="mx-auto max-w-md space-y-3 px-6 py-10 text-center">
+        <p className="eyebrow">{tier === "elite" ? "Elite" : "Pro"} feature</p>
+        <p className="text-[15px] font-semibold text-fg">{title}</p>
+        <p className="text-[13px] leading-relaxed text-muted">{description}</p>
+        <ButtonLink href="/pricing" size="sm" className="mt-1">
+          See {tier === "elite" ? "Elite" : "Pro"} plans
+          <Icon name="arrowRight" className="size-3.5" />
+        </ButtonLink>
       </div>
     </Card>
   );

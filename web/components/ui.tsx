@@ -8,6 +8,7 @@
  * and contrast for free, which is the entire point of having them.
  */
 import * as React from "react";
+import Link from "next/link";
 
 export function cn(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
@@ -19,23 +20,23 @@ export function cn(...parts: Array<string | false | null | undefined>) {
 
 export function Logo({ className, showText = true }: { className?: string; showText?: boolean }) {
   return (
-    <span className={cn("inline-flex items-center gap-2.5", className)}>
+    <span className={cn("inline-flex items-center gap-2", className)}>
       <span
         aria-hidden
-        className="grid size-8 shrink-0 place-items-center rounded-[9px] bg-linear-to-br from-brand-500 to-brand-700 shadow-e1"
+        className="grid size-8 shrink-0 place-items-center rounded-[7px] bg-action"
       >
-        {/* An ascending step mark: skill, rising. */}
+        {/* Three rising steps: skill, rising. Ink on marigold, like the
+            stamp on a paid order slip. */}
         <svg viewBox="0 0 24 24" className="size-[18px]" fill="none">
-          <path
-            d="M5 17.5V13h4.2V17.5H5Zm5.4 0V8.5h4.2v9h-4.2Zm5.4 0v-13H20v13h-4.2Z"
-            fill="white"
-            fillOpacity="0.95"
-          />
+          <path d="M4 19h4.5v-5H4v5Zm5.75 0h4.5V9.5h-4.5V19ZM15.5 19H20V5h-4.5v14Z" fill="#1a1916" />
         </svg>
       </span>
       {showText && (
-        <span className="text-[17px] font-semibold tracking-[-0.02em] text-fg">
-          Skil<span className="text-accent">Rize</span>
+        <span
+          className="text-[20px] font-extrabold leading-none tracking-[-0.02em] text-fg"
+          style={{ fontVariationSettings: '"wdth" 76' }}
+        >
+          SkilRize
         </span>
       )}
     </span>
@@ -57,13 +58,10 @@ const BUTTON_BASE =
   "disabled:active:translate-y-0";
 
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
-  primary:
-    "bg-accent text-on-accent shadow-e1 hover:bg-accent-hover hover:shadow-e2 " +
-    "active:shadow-e1",
-  secondary:
-    "border border-line-strong bg-raised text-fg shadow-e1 hover:bg-sunken hover:border-line-strong",
+  primary: "bg-action font-semibold text-on-action hover:bg-action-hover",
+  secondary: "border border-line-strong bg-raised text-fg hover:border-fg/40 hover:bg-sunken",
   ghost: "text-muted hover:bg-sunken hover:text-fg",
-  danger: "bg-critical text-white shadow-e1 hover:brightness-110",
+  danger: "bg-critical text-white hover:brightness-110",
   link: "text-accent underline-offset-4 hover:underline p-0 h-auto",
 };
 
@@ -113,6 +111,45 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
     </button>
   );
 });
+
+/**
+ * A link that looks like a button.
+ *
+ * Navigation must be an anchor, not a `<button>` inside an `<a>`: that nesting
+ * is invalid HTML, gives keyboard users two tab stops for one control, and
+ * makes screen readers announce it twice. Anything that goes somewhere uses
+ * this; anything that does something uses `Button`.
+ */
+export function ButtonLink({
+  href,
+  variant = "primary",
+  size = "md",
+  block,
+  className,
+  children,
+  ...rest
+}: Omit<React.ComponentProps<typeof Link>, "className"> & {
+  variant?: Exclude<ButtonVariant, "link">;
+  size?: ButtonSize;
+  block?: boolean;
+  className?: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        BUTTON_BASE,
+        BUTTON_VARIANTS[variant],
+        BUTTON_SIZES[size],
+        block && "w-full",
+        className,
+      )}
+      {...rest}
+    >
+      <span className="inline-flex items-center gap-2">{children}</span>
+    </Link>
+  );
+}
 
 export function Spinner({ className }: { className?: string }) {
   return (
@@ -396,7 +433,7 @@ export function Progress({ value, label }: { value: number; label?: string }) {
         className="h-1.5 overflow-hidden rounded-full bg-sunken"
       >
         <div
-          className="h-full rounded-full bg-linear-to-r from-brand-500 to-brand-400 transition-[width] duration-500"
+          className="h-full rounded-full bg-action transition-[width] duration-500"
           style={{ width: `${clamped}%` }}
         />
       </div>
@@ -425,8 +462,8 @@ export function Avatar({
   return (
     <span
       className={cn(
-        "grid shrink-0 place-items-center overflow-hidden rounded-full bg-linear-to-br",
-        "from-brand-400 to-brand-600 text-[12px] font-semibold text-white ring-1 ring-line",
+        "grid shrink-0 place-items-center overflow-hidden rounded-full bg-brand-100",
+        "text-[12px] font-bold text-brand-900 ring-1 ring-line",
         className,
       )}
       style={{ width: size, height: size }}
@@ -564,7 +601,7 @@ export function Stars({ value, size = 14 }: { value: number; size?: number }) {
           viewBox="0 0 24 24"
           width={size}
           height={size}
-          className={step <= Math.round(value) ? "text-warn-500" : "text-line-strong"}
+          className={step <= Math.round(value) ? "text-brand-500" : "text-line-strong"}
           fill="currentColor"
           aria-hidden
         >

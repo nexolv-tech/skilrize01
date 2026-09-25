@@ -1,23 +1,19 @@
 import Link from "next/link";
 
+import { EscrowTicket } from "@/components/marketing";
 import { ThemeToggle } from "@/components/shell";
-import { Icon, Logo } from "@/components/ui";
-
-const PROOF = [
-  ["Escrow on every contract", "Funds are captured before work starts and released on acceptance."],
-  ["Verified identity", "Email, phone and national ID — checked before anyone can transact."],
-  ["Your campus, privately", "Verify as a student and unlock a portal only your university can see."],
-];
+import { Logo } from "@/components/ui";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="grid min-h-dvh lg:grid-cols-[1fr_minmax(0,42rem)]">
-      {/* Form side. Placed first in the DOM so keyboard and screen-reader users
-          reach the actual task before the marketing panel. */}
+    <div className="grid min-h-dvh lg:grid-cols-[1fr_minmax(0,40rem)]">
+      {/* Form side. First in the DOM so keyboard and screen-reader users reach
+          the actual task before the brand panel. */}
       <div className="flex flex-col">
         <header className="flex items-center justify-between px-6 py-5">
           <Link
             href="/"
+            aria-label="SkilRize home"
             className="rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             <Logo />
@@ -28,42 +24,35 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <main id="main" className="flex flex-1 items-center justify-center px-6 pb-16">
           <div className="w-full max-w-sm">{children}</div>
         </main>
+
+        <footer className="flex flex-wrap justify-center gap-x-5 gap-y-1 px-6 pb-6 text-[12.5px] text-subtle">
+          <Link href="/terms" className="hover:text-fg">
+            Terms
+          </Link>
+          <Link href="/privacy" className="hover:text-fg">
+            Privacy
+          </Link>
+          <Link href="/refunds" className="hover:text-fg">
+            Refunds
+          </Link>
+          <Link href="/contact" className="hover:text-fg">
+            Contact
+          </Link>
+        </footer>
       </div>
 
-      {/* Brand side. Decorative — hidden below large screens rather than
-          stacked, so the form is never pushed below the fold on a phone. */}
-      <aside className="bg-aurora-live texture-grain relative hidden overflow-hidden border-l border-line lg:block">
-        <div className="bg-grid absolute inset-0 opacity-40" aria-hidden />
-        <div className="relative flex h-full flex-col justify-center px-14 py-16">
-          <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-line bg-raised/70 px-3 py-1.5 text-[12px] font-medium text-muted backdrop-blur">
-            <span className="size-1.5 rounded-full bg-positive" aria-hidden />
-            Two marketplaces, one account
-          </span>
-
-          <h2 className="display-2 mt-6 max-w-md text-fg">
-            Hire, get hired, and rise — on one account.
-          </h2>
+      {/* Brand side. Hidden below large screens rather than stacked, so the
+          form is never pushed below the fold on a phone. */}
+      <aside className="relative hidden border-l border-line bg-sunken lg:block">
+        <div className="flex h-full flex-col justify-center px-14 py-16">
+          <p className="eyebrow">Why people trust SkilRize</p>
+          <h2 className="display-lg mt-4 max-w-md">Nobody gets paid until the work is approved.</h2>
           <p className="mt-5 max-w-md text-[15.5px] leading-relaxed text-muted">
-            Post a project and compare proposals, or publish a fixed-price service and sell it
-            outright. Same wallet, same reputation, same protection either way.
+            Every payment waits in escrow. Freelancers see it is funded before they start;
+            clients release it only when they are happy — or get it back if the order is
+            cancelled.
           </p>
-
-          <ul className="mt-12 space-y-5">
-            {PROOF.map(([title, body]) => (
-              <li
-                key={title}
-                className="glass edge-light flex gap-3.5 rounded-xl border border-line p-4"
-              >
-                <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-accent-soft text-accent">
-                  <Icon name="check" className="size-3.5" strokeWidth={2.6} />
-                </span>
-                <div className="max-w-sm">
-                  <p className="text-[14px] font-medium text-fg">{title}</p>
-                  <p className="mt-0.5 text-[13px] leading-relaxed text-muted">{body}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <EscrowTicket className="mt-10 max-w-md" />
         </div>
       </aside>
     </div>

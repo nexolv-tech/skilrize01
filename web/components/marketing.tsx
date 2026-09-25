@@ -3,129 +3,150 @@
 /**
  * Marketing surfaces.
  *
- * Photography carries this page, the way it carries every marketplace at this
- * size — a catalogue that shows no work does not read as a catalogue. Images
- * live in `web/public/img`, are served from our own origin (the CSP allows
- * `img-src 'self'` and nothing else), and go through `next/image` so each one
- * ships as AVIF/WebP at the size actually requested, lazily, in a box whose
- * height is reserved before it loads.
- *
- * The organising idea underneath: this platform carries two hiring models that
- * the competitors carry one of each, so the choice between them is the hero's
- * primary control rather than a line of copy further down.
+ * The page is built around the one thing that makes a stranger willing to pay
+ * another stranger online: knowing where the money is. The escrow ticket is
+ * that idea made visible — an order slip that shows the payment held, the work
+ * delivered, the approval, and the release, with the fee arithmetic printed on
+ * it. Everything else on the page stays quiet around it.
  */
 
 import * as React from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { Cover, motifFor } from "@/components/artwork";
 import { Icon, Money, cn, type IconName } from "@/components/ui";
+import type { GigSummary } from "@/lib/api";
+import { BUSINESS } from "@/lib/business";
 
 /* -------------------------------------------------------------------------- */
-/* Hero media                                                                 */
+/* The escrow ticket — the page's signature                                   */
 /* -------------------------------------------------------------------------- */
 
-/**
- * The hero backdrop: a still photograph with a video laid over it.
- *
- * Three things this has to get right, none of them optional.
- *
- * **The photograph is always rendered**, underneath. It is the first paint, it
- * covers the seconds before the video has buffered, and it is the whole
- * backdrop for anyone the video never loads for.
- *
- * **Reduced motion is honoured before the download, not after it.** Hiding the
- * video in CSS would still pull four megabytes over the wire for somebody who
- * asked the operating system for less movement. The element is not rendered at
- * all until we have checked, which is also why the check lives in an effect —
- * `matchMedia` does not exist during the server render.
- *
- * **It can be stopped.** WCAG 2.2.2 requires a control for anything that moves
- * for more than five seconds, and a looping hero moves forever.
- */
-export function HeroMedia({
-  poster,
-  video,
-  alt = "",
-}: {
-  poster: string;
-  video: string;
-  alt?: string;
-}) {
-  const [motionOk, setMotionOk] = React.useState(false);
-  const [playing, setPlaying] = React.useState(true);
-  const ref = React.useRef<HTMLVideoElement>(null);
+const TICKET_STEPS: Array<{ label: string; detail: string }> = [
+  { label: "You pay into escrow", detail: "Held by SkilRize" },
+  { label: "Work delivered", detail: "Files and notes on the record" },
+  { label: "You approve the work", detail: "Or ask for a revision" },
+  { label: "Released to the freelancer", detail: "Sent to their bank account" },
+];
 
-  React.useEffect(() => {
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const apply = () => setMotionOk(!query.matches);
-    apply();
-    query.addEventListener("change", apply);
-    return () => query.removeEventListener("change", apply);
-  }, []);
+/** Seconds at which each step inks in. The stamp changes after the last. */
+const STEP_AT = [0.5, 1.4, 2.3, 3.2] as const;
 
-  function toggle() {
-    const element = ref.current;
-    if (!element) return;
-    if (element.paused) {
-      void element.play();
-      setPlaying(true);
-    } else {
-      element.pause();
-      setPlaying(false);
-    }
-  }
+export function EscrowTicket({ className }: { className?: string }) {
+  const [run, setRun] = React.useState(0);
+  const price = 18000;
+  const fee = Math.round((price * BUSINESS.commissionPercent) / 100);
 
   return (
-    <>
-      <Image src={poster} alt={alt} fill priority sizes="100vw" className="-z-30 object-cover" />
+    <figure className={cn("relative", className)}>
+      {/* Remounted on replay so every CSS animation starts again from zero. */}
+      <div
+        key={run}
+        className="ticket-edge relative rounded-t-xl border border-b-0 border-line bg-raised px-6 pt-6 pb-9 shadow-e3"
+      >
+        <div className="flex items-baseline justify-between gap-4">
+          <p className="eyebrow">Example order</p>
+          <p className="figure text-[12px] text-subtle">SR-10482</p>
+        </div>
+        <p className="mt-3 text-[19px] font-bold leading-tight tracking-[-0.01em] text-fg">
+          Logo &amp; brand identity
+        </p>
+        <p className="mt-1 text-[13px] text-muted">Standard package · 5-day delivery</p>
 
-      {motionOk && (
-        <>
-          <video
-            ref={ref}
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="metadata"
-            aria-hidden
-            className="absolute inset-0 -z-20 size-full object-cover"
-          >
-            <source src={video} type="video/mp4" />
-          </video>
+        <div className="perforation my-5" aria-hidden />
 
-          <button
-            type="button"
-            onClick={toggle}
-            aria-label={playing ? "Pause background video" : "Play background video"}
-            className={cn(
-              "absolute bottom-24 right-5 z-10 grid size-11 cursor-pointer place-items-center",
-              "rounded-full border border-white/25 bg-black/40 text-white backdrop-blur-md",
-              "transition-colors duration-200 hover:bg-black/60",
-              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
-            )}
-          >
-            {playing ? (
-              <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-hidden>
-                <rect x="6" y="5" width="4" height="14" rx="1" />
-                <rect x="14" y="5" width="4" height="14" rx="1" />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-hidden>
-                <path d="M8 5.5v13l11-6.5z" />
-              </svg>
-            )}
-          </button>
-        </>
-      )}
-    </>
+        <ol className="space-y-3.5" aria-label="How this order's payment moves">
+          {TICKET_STEPS.map((step, index) => (
+            <li key={step.label} className="flex items-start gap-3">
+              <span
+                aria-hidden
+                className={cn(
+                  "mt-1 size-3 shrink-0 rounded-full border-2",
+                  index === TICKET_STEPS.length - 1
+                    ? "border-positive text-positive"
+                    : "border-accent text-accent",
+                )}
+                style={{
+                  animation: "step-on 0.35s var(--ease-out-quint) both",
+                  animationDelay: `${STEP_AT[index]}s`,
+                }}
+              />
+              <span className="min-w-0 flex-1">
+                <span
+                  className="block text-[14px] font-semibold"
+                  style={{
+                    animation: "step-label 0.35s ease both",
+                    animationDelay: `${STEP_AT[index]}s`,
+                  }}
+                >
+                  {step.label}
+                </span>
+                <span className="block text-[12px] text-subtle">{step.detail}</span>
+              </span>
+              {index === 0 && (
+                <Money amount={price} className="figure shrink-0 text-[13px] font-semibold text-fg" />
+              )}
+              {index === TICKET_STEPS.length - 1 && (
+                <Money
+                  amount={price - fee}
+                  className="figure shrink-0 text-[13px] font-semibold text-positive"
+                />
+              )}
+            </li>
+          ))}
+        </ol>
+
+        <div className="perforation my-5" aria-hidden />
+
+        <div className="flex items-end justify-between gap-4">
+          <div className="text-[12px] leading-relaxed text-subtle">
+            <p>
+              Platform fee ({BUSINESS.commissionPercent}%):{" "}
+              <Money amount={fee} className="figure text-muted" />
+            </p>
+            <p>Paid by the freelancer, from the release.</p>
+          </div>
+
+          <div className="relative grid h-12 w-40 shrink-0 place-items-center">
+            <span
+              className="stamp absolute text-accent"
+              style={{
+                animation:
+                  "stamp-in 0.42s var(--ease-out-quint) both, stamp-out 0.3s ease forwards",
+                animationDelay: `0.6s, ${STEP_AT[3] - 0.1}s`,
+              }}
+            >
+              Held in escrow
+            </span>
+            <span
+              className="stamp absolute text-positive"
+              style={{ animation: "stamp-in 0.42s var(--ease-out-quint) both", animationDelay: `${STEP_AT[3] + 0.15}s` }}
+            >
+              <Icon name="check" strokeWidth={3} className="size-3.5" />
+              Released
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <figcaption className="mt-5 flex items-center justify-between gap-3 text-[12.5px] text-subtle">
+        <span>How every order on SkilRize moves money.</span>
+        <button
+          type="button"
+          onClick={() => setRun((value) => value + 1)}
+          className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-md px-2 font-medium text-accent underline-offset-4 hover:underline"
+        >
+          <Icon name="clock" className="size-3.5" />
+          Replay
+        </button>
+      </figcaption>
+    </figure>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/* Track                                                                      */
+/* Track and search                                                           */
 /* -------------------------------------------------------------------------- */
 
 export type Track = "services" | "projects";
@@ -136,44 +157,31 @@ export const TRACKS: Record<
 > = {
   services: {
     label: "Buy a service",
-    placeholder: "Try “logo design” or “landing page”",
+    placeholder: "Search services, e.g. “business website”",
     action: "Search",
-    suggestions: ["Logo design", "Landing page", "Video editing", "SEO audit"],
+    suggestions: ["Business website", "Mobile app", "Logo design", "AI chatbot"],
   },
   projects: {
     label: "Post a brief",
-    placeholder: "Describe what you need built",
+    placeholder: "Describe what you need done",
     action: "Get proposals",
-    suggestions: ["Mobile app", "Data pipeline", "Brand identity", "Tech writing"],
+    suggestions: ["Mobile app", "Data dashboard", "Brand identity", "Thesis editing"],
   },
 };
 
 /**
- * The track switch. A tablist rather than links: it re-renders the search and
- * the suggestions beside it, so it is a control, not navigation. Roving
- * `tabIndex` keeps it to one tab stop with arrow keys inside.
+ * The track switch. A tablist rather than links: it changes what the search
+ * beside it does, so it is a control, not navigation. Roving `tabIndex` keeps
+ * it to one tab stop with arrow keys inside.
  */
-export function TrackSwitch({
-  value,
-  onChange,
-  tone = "light",
-}: {
-  value: Track;
-  onChange: (next: Track) => void;
-  tone?: "light" | "dark";
-}) {
+export function TrackSwitch({ value, onChange }: { value: Track; onChange: (next: Track) => void }) {
   const order: Track[] = ["services", "projects"];
 
   return (
     <div
       role="tablist"
       aria-label="How you want to hire"
-      className={cn(
-        "inline-flex rounded-full p-1",
-        tone === "dark"
-          ? "border border-white/20 bg-black/35 backdrop-blur-md"
-          : "border border-line bg-raised shadow-e1",
-      )}
+      className="inline-flex rounded-lg border border-line-strong bg-raised p-1"
     >
       {order.map((track) => {
         const active = track === value;
@@ -191,17 +199,8 @@ export function TrackSwitch({
               onChange(order[(order.indexOf(value) + 1) % order.length]!);
             }}
             className={cn(
-              /* 44px, not the 40px this would otherwise want to be: it is the
-                 first control on the page and the smallest reliable touch
-                 target. */
-              "min-h-11 cursor-pointer rounded-full px-5 text-[13.5px] font-medium",
-              "transition-colors duration-200",
-              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
-              active
-                ? "bg-white text-ink-900 shadow-e1"
-                : tone === "dark"
-                  ? "text-white/70 hover:text-white"
-                  : "text-muted hover:text-fg",
+              "min-h-10 cursor-pointer rounded-md px-4 text-[14px] font-semibold transition-colors duration-150",
+              active ? "bg-fg text-surface" : "text-muted hover:text-fg",
             )}
           >
             {TRACKS[track].label}
@@ -212,7 +211,7 @@ export function TrackSwitch({
   );
 }
 
-/** The hero search. Submits into whichever surface the track points at. */
+/** The hero search. Submits into whichever track is selected. */
 export function HeroSearch({ track }: { track: Track }) {
   const router = useRouter();
   const [query, setQuery] = React.useState("");
@@ -222,72 +221,56 @@ export function HeroSearch({ track }: { track: Track }) {
     event.preventDefault();
     const term = query.trim();
     if (track === "projects") {
-      router.push(term ? `/projects?q=${encodeURIComponent(term)}` : "/projects/new");
+      router.push(term ? `/projects/new?title=${encodeURIComponent(term)}` : "/projects/new");
       return;
     }
-    router.push(term ? `/search?q=${encodeURIComponent(term)}` : "/gigs");
+    router.push(term ? `/gigs?q=${encodeURIComponent(term)}` : "/gigs");
   }
 
   return (
     <form
       onSubmit={submit}
       role="search"
-      className="flex items-center gap-2 rounded-xl bg-white p-2 shadow-e3"
+      className="flex items-center gap-2 rounded-xl border border-line-strong bg-raised p-1.5 shadow-e2 focus-within:border-fg/50"
     >
-      <Icon name="search" className="ml-2.5 size-5 shrink-0 text-ink-400" />
+      <Icon name="search" className="ml-3 size-5 shrink-0 text-subtle" />
       <label htmlFor="hero-search" className="sr-only">
-        {config.action}
+        {config.placeholder}
       </label>
       <input
         id="hero-search"
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         placeholder={config.placeholder}
-        className={cn(
-          "h-12 min-w-0 flex-1 bg-transparent text-[15px] text-ink-900",
-          "placeholder:text-ink-400 focus:outline-none",
-        )}
+        className="h-12 min-w-0 flex-1 bg-transparent text-[15.5px] text-fg placeholder:text-subtle focus:outline-none"
       />
-      {/* Icon-only on phones. At 375px a worded button leaves the input about
-          nine characters wide, which is narrower than the placeholder asking
-          the question — the label is the first thing that should give way. */}
       <button
         type="submit"
         aria-label={config.action}
-        className={cn(
-          "grid h-12 shrink-0 cursor-pointer place-items-center rounded-lg bg-ink-900",
-          "w-12 text-white transition-colors duration-200 hover:bg-ink-800 sm:w-auto sm:px-6",
-          "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-        )}
+        className="grid h-12 w-12 shrink-0 cursor-pointer place-items-center rounded-lg bg-action text-on-action transition-colors duration-150 hover:bg-action-hover sm:w-auto sm:px-6"
       >
         <Icon name="arrowRight" className="size-5 sm:hidden" />
-        <span className="hidden text-[14px] font-medium sm:inline">{config.action}</span>
+        <span className="hidden text-[14.5px] font-semibold sm:inline">{config.action}</span>
       </button>
     </form>
   );
 }
 
-/** The pill rail under the hero search, mirroring the reference marketplaces. */
 export function SuggestionPills({ track }: { track: Track }) {
   return (
-    <div className="flex flex-wrap gap-2.5">
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-[13px] text-subtle">Popular:</span>
       {TRACKS[track].suggestions.map((term) => (
         <Link
           key={term}
           href={
             track === "projects"
-              ? `/projects?q=${encodeURIComponent(term)}`
-              : `/search?q=${encodeURIComponent(term)}`
+              ? `/projects/new?title=${encodeURIComponent(term)}`
+              : `/gigs?q=${encodeURIComponent(term)}`
           }
-          className={cn(
-            "inline-flex min-h-11 items-center gap-2 rounded-full border border-white/30",
-            "bg-white/10 px-4 text-[13px] text-white backdrop-blur-md",
-            "transition-colors duration-200 hover:bg-white/20",
-            "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
-          )}
+          className="inline-flex min-h-9 items-center rounded-full border border-line-strong px-3.5 text-[13px] font-medium text-fg transition-colors duration-150 hover:border-fg/40 hover:bg-sunken"
         >
           {term}
-          <Icon name="arrowRight" className="size-3.5" />
         </Link>
       ))}
     </div>
@@ -310,14 +293,12 @@ export function SectionHead({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-5 pb-8">
-      <div className="max-w-2xl space-y-2.5">
+    <div className="flex flex-wrap items-end justify-between gap-5 pb-9">
+      <div className="max-w-2xl">
         {eyebrow && <p className="eyebrow">{eyebrow}</p>}
-        <h2 className="heading-sans text-[clamp(1.6rem,3vw,2.3rem)] leading-tight text-fg">
-          {title}
-        </h2>
+        <h2 className="display-lg mt-3">{title}</h2>
         {description && (
-          <p className="text-[15px] leading-relaxed text-muted">{description}</p>
+          <p className="mt-4 text-[16px] leading-relaxed text-muted">{description}</p>
         )}
       </div>
       {action}
@@ -325,146 +306,70 @@ export function SectionHead({
   );
 }
 
-/** A horizontally scrollable rail with keyboard-reachable arrows. */
-export function ScrollRow({ children }: { children: React.ReactNode }) {
-  const ref = React.useRef<HTMLDivElement>(null);
-
-  function nudge(direction: 1 | -1) {
-    ref.current?.scrollBy({ left: direction * 340, behavior: "smooth" });
-  }
-
-  return (
-    <div className="relative">
-      <div
-        ref={ref}
-        className="no-bar -mx-5 flex snap-x snap-mandatory gap-5 overflow-x-auto px-5 pb-2"
-      >
-        {children}
-      </div>
-      <div className="mt-6 flex justify-end gap-2">
-        {([-1, 1] as const).map((direction) => (
-          <button
-            key={direction}
-            type="button"
-            onClick={() => nudge(direction)}
-            aria-label={direction === -1 ? "Scroll left" : "Scroll right"}
-            className={cn(
-              "grid size-11 cursor-pointer place-items-center rounded-full border border-line",
-              "bg-raised text-muted transition-colors duration-200",
-              "hover:border-line-strong hover:text-fg",
-              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-            )}
-          >
-            <Icon
-              name="chevronLeft"
-              className={cn("size-4", direction === 1 && "rotate-180")}
-            />
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Category tiles stay iconographic while service cards carry photographs.
- * That split is deliberate and both reference marketplaces make it: a category
- * is an abstraction and any single photo misrepresents it, whereas a service is
- * a specific piece of work and a photo is the most honest thing you can show.
- */
 export function CategoryTile({
   slug,
   name,
   icon,
-  blurb,
+  examples,
 }: {
   slug: string;
   name: string;
   icon: IconName;
-  blurb: string;
+  examples: string;
 }) {
   return (
     <Link
       href={`/gigs?category=${slug}`}
-      className={cn(
-        "lift group flex flex-col justify-between gap-7 rounded-xl border border-line",
-        "bg-raised p-5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-      )}
+      className="lift group flex items-start gap-4 rounded-lg border border-line bg-raised p-5"
     >
       <span
         aria-hidden
-        className={cn(
-          "grid size-11 place-items-center rounded-lg bg-accent-soft text-accent",
-          "transition-colors duration-200 group-hover:bg-accent group-hover:text-on-accent",
-        )}
+        className="grid size-10 shrink-0 place-items-center rounded-md bg-accent-soft text-accent"
       >
         <Icon name={icon} className="size-5" />
       </span>
-      <span>
-        <span className="block text-[14.5px] font-medium text-fg">{name}</span>
-        <span className="mt-0.5 block text-[12.5px] text-subtle">{blurb}</span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center justify-between gap-2 text-[15px] font-semibold text-fg">
+          {name}
+          <Icon
+            name="arrowRight"
+            className="size-4 text-subtle transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-fg"
+          />
+        </span>
+        <span className="mt-1 block text-[13px] leading-snug text-subtle">{examples}</span>
       </span>
     </Link>
   );
 }
 
-export interface ServiceCardData {
-  id: number;
-  title: string;
-  category: string;
-  image: string;
-  alt: string;
-  price: number;
-  rating: number;
-  reviews: number;
-  seller: string;
-  level: string;
-}
-
-export function ServiceCard({ item, href }: { item: ServiceCardData; href: string }) {
+/** A live listing from the catalogue. */
+export function GigCard({ gig }: { gig: GigSummary }) {
   return (
     <Link
-      href={href}
-      className={cn(
-        "lift group flex w-[19.5rem] shrink-0 snap-start flex-col overflow-hidden rounded-xl",
-        "border border-line bg-raised",
-        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-      )}
+      href={`/gigs/${gig.id}`}
+      className="lift group flex flex-col overflow-hidden rounded-lg border border-line bg-raised"
     >
-      <div className="relative aspect-[16/10] overflow-hidden bg-sunken">
-        <Image
-          src={item.image}
-          alt={item.alt}
-          fill
-          sizes="320px"
-          className="object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+      <div className="aspect-[16/10] overflow-hidden bg-sunken">
+        <Cover
+          src={gig.cover_url}
+          seed={gig.slug || gig.id}
+          motif={motifFor(gig.category_name)}
+          className="rounded-none transition-transform duration-500 group-hover:scale-[1.03]"
         />
-        <span className="absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
-          {item.level}
-        </span>
       </div>
-
       <div className="flex flex-1 flex-col p-4">
-        <p className="text-[11px] font-medium uppercase tracking-wider text-subtle">
-          {item.category}
+        {gig.category_name && <p className="eyebrow">{gig.category_name}</p>}
+        <p className="mt-1.5 line-clamp-2 text-[15px] font-semibold leading-snug text-fg">
+          {gig.title}
         </p>
-        <p className="mt-1.5 line-clamp-2 text-[14.5px] font-medium leading-snug text-fg">
-          {item.title}
-        </p>
-
-        <div className="mt-2 flex items-center gap-1.5 text-[12px]">
-          <Icon name="star" className="size-3.5 text-warn-500" />
-          <span className="tabular font-medium text-fg">{item.rating.toFixed(1)}</span>
-          <span className="text-subtle">({item.reviews})</span>
-        </div>
-
+        <p className="mt-1.5 text-[13px] text-muted">by {gig.seller_name}</p>
         <div className="mt-auto flex items-end justify-between gap-3 border-t border-line pt-3.5">
-          <span className="truncate text-[12px] text-muted">{item.seller}</span>
+          <span className="text-[12px] text-subtle">
+            {gig.rating_count > 0 ? `${gig.rating_average} ★ (${gig.rating_count})` : "New service"}
+          </span>
           <span className="text-right">
-            <span className="block text-[10.5px] uppercase tracking-wide text-subtle">
-              From
-            </span>
-            <Money amount={item.price} className="text-[15px] font-semibold text-fg" />
+            <span className="block text-[11px] text-subtle">From</span>
+            <Money amount={gig.starting_price} className="figure text-[15px] font-semibold text-fg" />
           </span>
         </div>
       </div>
@@ -472,47 +377,17 @@ export function ServiceCard({ item, href }: { item: ServiceCardData; href: strin
   );
 }
 
-/** A photograph with a caption card overlapping it, used to anchor a band. */
-export function PhotoFigure({
-  src,
-  alt,
-  caption,
-  captionBody,
-  priority = false,
-  className,
-}: {
-  src: string;
-  alt: string;
-  caption?: string;
-  captionBody?: string;
-  priority?: boolean;
-  className?: string;
-}) {
+export function FaqItem({ question, children }: { question: string; children: React.ReactNode }) {
   return (
-    <figure className={cn("relative", className)}>
-      <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-sunken">
-        <Image
-          src={src}
-          alt={alt}
-          fill
-          priority={priority}
-          sizes="(max-width: 1024px) 100vw, 560px"
-          className="object-cover"
+    <details className="group border-b border-line py-5 [&_summary::-webkit-details-marker]:hidden">
+      <summary className="flex cursor-pointer list-none items-start justify-between gap-6 text-[16px] font-semibold text-fg">
+        {question}
+        <Icon
+          name="plus"
+          className="mt-1 size-4 shrink-0 text-subtle transition-transform duration-200 group-open:rotate-45"
         />
-      </div>
-      {caption && (
-        <figcaption
-          className={cn(
-            "absolute -bottom-5 left-5 right-10 rounded-xl border border-line bg-raised",
-            "p-4 shadow-e3 sm:right-16",
-          )}
-        >
-          <p className="text-[13.5px] font-semibold text-fg">{caption}</p>
-          {captionBody && (
-            <p className="mt-1 text-[12.5px] leading-relaxed text-muted">{captionBody}</p>
-          )}
-        </figcaption>
-      )}
-    </figure>
+      </summary>
+      <div className="mt-3 max-w-3xl text-[15px] leading-relaxed text-muted">{children}</div>
+    </details>
   );
 }

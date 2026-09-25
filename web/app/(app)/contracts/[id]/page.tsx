@@ -415,7 +415,7 @@ function StarPicker({
             onClick={() => onChange(step)}
             className={cn(
               "rounded-sm p-0.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent",
-              step <= value ? "text-warn-500" : "text-line-strong hover:text-warn-400",
+              step <= value ? "text-brand-500" : "text-line-strong hover:text-brand-400",
             )}
           >
             <svg viewBox="0 0 24 24" width={20} height={20} fill="currentColor" aria-hidden>

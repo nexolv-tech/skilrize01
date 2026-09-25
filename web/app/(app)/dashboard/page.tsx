@@ -8,6 +8,7 @@ import {
   Alert,
   Badge,
   Button,
+  ButtonLink,
   Card,
   CardHeader,
   EmptyState,
@@ -335,28 +336,20 @@ function StudentPortalCard() {
   }
 
   return (
-    <Card className="relative overflow-hidden p-5">
-      <div className="bg-aurora absolute inset-0 opacity-70" aria-hidden />
-      <div className="relative">
-        <Badge tone="accent">
-          <Icon name="sparkles" className="size-3" />
-          Students
-        </Badge>
-        <h3 className="mt-3 text-[15px] font-semibold text-fg">Unlock your campus portal</h3>
-        <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
-          Verify with your university email and student ID to reach a private marketplace only your
-          university can see — plus peer messaging and communities.
-        </p>
-        {/* This was a disabled "Arriving in Phase 4" button long after Phase 4
-            shipped — the verification flow it advertises has been live and
-            reachable at /settings the whole time. */}
-        <Link href="/settings#student" className="mt-4 inline-block">
-          <Button size="sm" variant="secondary">
-            Start verification
-            <Icon name="arrowRight" className="size-3.5" />
-          </Button>
-        </Link>
-      </div>
+    <Card className="overflow-hidden border-campus/30 bg-campus-soft p-5">
+      <p className="eyebrow text-campus">Students</p>
+      <h3 className="mt-2 text-[15px] font-semibold text-fg">Unlock your campus portal</h3>
+      <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
+        Verify with your university email and student ID to reach a private marketplace only your
+        university can see — plus peer messaging and communities.
+      </p>
+      {/* This was a disabled "Arriving in Phase 4" button long after Phase 4
+          shipped — the verification flow it advertises has been live and
+          reachable at /settings the whole time. */}
+      <ButtonLink href="/settings#student" size="sm" variant="secondary" className="mt-4">
+        Start verification
+        <Icon name="arrowRight" className="size-3.5" />
+      </ButtonLink>
     </Card>
   );
 }

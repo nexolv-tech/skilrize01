@@ -9,6 +9,7 @@ import { LevelBadge, PromotedTag, SuccessScore } from "@/components/reputation";
 import { PageHeading } from "@/components/shell";
 import {
   Alert,
+  Avatar,
   Badge,
   Button,
   Card,
@@ -107,9 +108,7 @@ function GigResult({ gig }: { gig: SearchGig }) {
 
       <div className="flex flex-1 flex-col p-5">
         <div className="flex items-center gap-2">
-          <span className="grid size-6 shrink-0 place-items-center rounded-full bg-linear-to-br from-brand-400 to-brand-600 text-[10px] font-semibold text-white">
-            {gig.seller.display_name.slice(0, 1)}
-          </span>
+          <Avatar name={gig.seller.display_name} src={gig.seller.avatar_url} size={24} />
           <span className="truncate text-[12.5px] text-muted">{gig.seller.display_name}</span>
           <LevelBadge level={gig.seller.level} className="ml-auto shrink-0" />
         </div>

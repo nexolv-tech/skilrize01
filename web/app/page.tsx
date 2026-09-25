@@ -3,575 +3,378 @@
 /**
  * The landing page.
  *
- * Photographic and dense, on the pattern both large marketplaces converge on,
- * with two departures that are ours.
+ * Its job is to get a visitor to trust the platform with money. So the hero
+ * does not describe the product in the abstract; it shows the escrow slip —
+ * an order moving from paid, to delivered, to approved, to released — with
+ * the fee printed on it. The rest of the page answers the next questions in
+ * the order people ask them: what can I buy, how does it work, where is my
+ * money, and who is behind this.
  *
- * **The dual track is the hero's primary control.** Every competitor sells one
- * hiring model; this one carries both, so the choice sits above the search box
- * and changes what the search does. A page that averages the two sells neither.
- *
- * **Nothing here claims a number the platform has not earned.** No customer
- * quotes, no borrowed client logos, no listing counts — there are no customers,
- * clients or listings yet. What is claimed is what the software does today:
- * escrow, sealed two-way reviews, campus scoping. All of it checkable in the
- * repository.
+ * **Nothing here claims traction the platform has not earned.** No invented
+ * reviews, no borrowed logos, no listing counts: the services shown are the
+ * live catalogue, fetched from the API, and the section hides itself when the
+ * catalogue is empty. An earlier version carried six hard-coded "featured"
+ * services with made-up ratings, linking to gigs that did not exist.
  */
 
 import * as React from "react";
-import Image from "next/image";
 import Link from "next/link";
 
 import {
   CategoryTile,
-  HeroMedia,
+  EscrowTicket,
+  FaqItem,
+  GigCard,
   HeroSearch,
-  PhotoFigure,
-  ScrollRow,
   SectionHead,
-  ServiceCard,
   SuggestionPills,
   TrackSwitch,
-  type ServiceCardData,
   type Track,
 } from "@/components/marketing";
 import { MarketingHeader } from "@/components/shell";
-import { Button, Icon, Logo, cn, type IconName } from "@/components/ui";
+import { SiteFooter } from "@/components/site-footer";
+import { ButtonLink, Icon, Skeleton, type IconName } from "@/components/ui";
+import { gigs } from "@/lib/api";
+import { BUSINESS } from "@/lib/business";
+import { useLoader } from "@/lib/session";
 
-/* -------------------------------------------------------------------------- */
-/* Content                                                                    */
-/* -------------------------------------------------------------------------- */
-
-const CATEGORIES: Array<{ slug: string; name: string; icon: IconName; blurb: string }> = [
-  { slug: "development-it", name: "Development & IT", icon: "code", blurb: "Web, mobile, DevOps" },
-  { slug: "design-creative", name: "Design & Creative", icon: "palette", blurb: "Brand, UI, illustration" },
-  { slug: "writing-translation", name: "Writing & Translation", icon: "pen", blurb: "Copy, docs, localisation" },
-  { slug: "video-animation", name: "Video & Animation", icon: "video", blurb: "Editing, motion, VFX" },
-  { slug: "marketing-sales", name: "Marketing & Sales", icon: "megaphone", blurb: "SEO, ads, lifecycle" },
-  { slug: "data-analytics", name: "Data & Analytics", icon: "chart", blurb: "Pipelines, BI, ML" },
-  { slug: "business-admin", name: "Business & Admin", icon: "briefcase", blurb: "Ops, finance, VA" },
-  { slug: "academic-support", name: "Academic Support", icon: "book", blurb: "Research, tutoring, editing" },
+const CATEGORIES: Array<{ slug: string; name: string; icon: IconName; examples: string }> = [
+  { slug: "development-it", name: "Development & IT", icon: "code", examples: "Websites, mobile apps, APIs, DevOps" },
+  { slug: "design-creative", name: "Design & Creative", icon: "palette", examples: "Logos, UI/UX, illustration" },
+  { slug: "writing-translation", name: "Writing & Translation", icon: "pen", examples: "Copywriting, documentation, translation" },
+  { slug: "video-animation", name: "Video & Animation", icon: "video", examples: "Editing, motion graphics, subtitles" },
+  { slug: "marketing-sales", name: "Marketing & Sales", icon: "megaphone", examples: "SEO, social media, paid ads" },
+  { slug: "data-analytics", name: "Data & Analytics", icon: "chart", examples: "Dashboards, analysis, machine learning" },
+  { slug: "business-admin", name: "Business & Admin", icon: "briefcase", examples: "Virtual assistance, bookkeeping" },
+  { slug: "academic-support", name: "Academic Support", icon: "book", examples: "Tutoring, research help, study notes" },
 ];
 
-const POPULAR: ServiceCardData[] = [
-  { id: 3101, title: "I will design a complete brand identity system", category: "Design", image: "/img/svc-web.jpg", alt: "A designer's desk with a laptop and external monitor", price: 18000, rating: 4.9, reviews: 212, seller: "Meridian Studio", level: "Top Rated" },
-  { id: 3102, title: "I will build a production Next.js landing page", category: "Development", image: "/img/svc-code.jpg", alt: "Source code on a dark screen", price: 32000, rating: 5.0, reviews: 88, seller: "Hamza R.", level: "Level 2" },
-  { id: 3103, title: "I will edit your long-form video into shorts", category: "Video", image: "/img/svc-video.jpg", alt: "A photographer filming on a mountain ridge at sunrise", price: 9500, rating: 4.8, reviews: 341, seller: "Cutroom", level: "Level 2" },
-  { id: 3104, title: "I will write technical documentation that ships", category: "Writing", image: "/img/svc-writing.jpg", alt: "A fountain pen writing on lined paper", price: 14000, rating: 4.9, reviews: 126, seller: "Usman T.", level: "Top Rated" },
-  { id: 3105, title: "I will set up your analytics and reporting stack", category: "Data", image: "/img/svc-data.jpg", alt: "An analytics dashboard displayed on a laptop", price: 26000, rating: 4.9, reviews: 74, seller: "Nida S.", level: "Level 2" },
-  { id: 3106, title: "I will run a full technical SEO audit", category: "Marketing", image: "/img/svc-marketing.jpg", alt: "A marketing strategy note on a desk with pens", price: 12000, rating: 4.7, reviews: 198, seller: "Northline", level: "Level 1" },
+const FACTS: Array<{ icon: IconName; title: string; body: string }> = [
+  { icon: "shield", title: "Payment held in escrow", body: "Released only when you approve" },
+  { icon: "wallet", title: "Full refund on cancellation", body: "Sent back to your account" },
+  { icon: "id", title: "Verified identities", body: "Email and CNIC checked" },
+  { icon: "globe", title: "Prices in rupees", body: "No currency conversion" },
 ];
 
-/** Every line is a behaviour of the software, not a claim about traction. */
-const CAPABILITIES: Array<{ icon: IconName; title: string; body: string }> = [
-  { icon: "shield", title: "Escrow on every contract", body: "Funds are committed before work starts and released on acceptance. Neither side goes first on trust." },
-  { icon: "star", title: "Sealed two-way reviews", body: "Neither review publishes until both are in or the window closes. Nobody rates a reply to their own rating." },
-  { icon: "wallet", title: "One wallet, one reputation", body: "A five-star review from a bought service and one from a won brief are the same row in the same table." },
-  { icon: "building", title: "Private campus portals", body: "Verified students get a second marketplace scoped to their university, enforced in the database." },
-];
-
-const TRACK_DETAIL: Record<
-  Track,
-  {
-    icon: IconName;
-    heading: string;
-    blurb: string;
-    steps: Array<{ title: string; body: string }>;
-    cta: string;
-    href: string;
-    image: string;
-    alt: string;
-  }
-> = {
-  services: {
-    icon: "layers",
-    heading: "Buy a packaged service",
-    blurb: "Priced and dated before you ask. Order it the way you order anything else.",
-    steps: [
-      { title: "Pick a package", body: "Three tiers per service, each with its own price, delivery date and revision count." },
-      { title: "Send requirements", body: "The delivery clock does not start until you have handed over what the seller needs." },
-      { title: "Accept or revise", body: "Revisions are counted by the package you bought, not argued about afterwards." },
-    ],
-    cta: "Browse services",
-    href: "/gigs",
-    image: "/img/svc-web.jpg",
-    alt: "A tidy desk with a laptop and monitor showing a design in progress",
-  },
-  projects: {
-    icon: "briefcase",
-    heading: "Post a brief instead",
-    blurb: "Describe the work once and let qualified proposals come to you.",
-    steps: [
-      { title: "Post the brief", body: "Add screening questions and the unqualified proposals filter themselves out." },
-      { title: "Compare proposals", body: "Rivals never see each other's bids, so nobody is pricing against a leak." },
-      { title: "Award and fund", body: "Terms freeze at acceptance. Milestones are funded one at a time." },
-    ],
-    cta: "Post a brief",
-    href: "/projects/new",
-    image: "/img/work-team.jpg",
-    alt: "Two colleagues celebrating over a laptop in an office",
-  },
+const STEPS: Record<"hire" | "sell", Array<{ title: string; body: string }>> = {
+  hire: [
+    { title: "Choose a service, or post a brief", body: "Services have fixed prices and delivery times. Briefs collect proposals you can compare." },
+    { title: "Pay into escrow", body: "Your payment is held by SkilRize. The freelancer can see it is secured before starting." },
+    { title: "Share what's needed", body: "Answer the seller's questions. The delivery clock starts only once you have." },
+    { title: "Approve, and the payment is released", body: "Accept the delivery or ask for a revision. Nothing is released until you approve." },
+  ],
+  sell: [
+    { title: "Create a free account and verify it", body: "Confirm your email and CNIC once. Buyers see you are verified." },
+    { title: "List a service or send proposals", body: "Price your work in three packages, or bid on briefs that match your skills." },
+    { title: "Deliver the work", body: "Every order is funded before you start, so you never work on a promise." },
+    { title: "Get paid to your bank account", body: "When the client approves, your payment is released minus the platform fee." },
+  ],
 };
 
-const ESCROW_STAGES = [
-  { label: "Funded", body: "The client commits the money before a line of work is done." },
-  { label: "Delivered", body: "The freelancer submits. The clock and the files are both on the record." },
-  { label: "Accepted", body: "The client accepts — or the review window lapses and it auto-releases." },
-  { label: "Released", body: "Money moves to the freelancer's wallet. The ledger is append-only." },
-];
+const noSubscription = () => () => {};
 
-const FOOTER: Array<{ heading: string; links: Array<[string, string]> }> = [
-  { heading: "Marketplace", links: [["Browse services", "/gigs"], ["Browse briefs", "/projects"], ["Work showcase", "/showcase"], ["Search", "/search"]] },
-  { heading: "For freelancers", links: [["Sell a service", "/gigs/new"], ["Retainers", "/retainers"], ["Client CRM", "/crm"], ["Teams & agencies", "/teams"]] },
-  { heading: "Platform", links: [["Plans", "/pricing"], ["Communities", "/communities"], ["Campus portals", "/#campus"], ["How it works", "/#tracks"]] },
-];
-
-/* -------------------------------------------------------------------------- */
+/** Shown once, after Settings → Privacy & data erased the account and sent
+ *  the visitor here. */
+function AccountDeletedNotice() {
+  const deleted = React.useSyncExternalStore(
+    noSubscription,
+    () => new URLSearchParams(window.location.search).get("account") === "deleted",
+    () => false,
+  );
+  if (!deleted) return null;
+  return (
+    <div role="status" className="border-b border-line bg-positive-soft">
+      <p className="mx-auto max-w-7xl px-5 py-3 text-[14px] text-fg">
+        Your account has been deleted and you have been signed out. Thank you for using SkilRize.
+      </p>
+    </div>
+  );
+}
 
 export default function LandingPage() {
   const [track, setTrack] = React.useState<Track>("services");
-  const detail = TRACK_DETAIL[track];
+  const { data: live, loading } = useLoader(() => gigs.list({ sort: "newest", page_size: 8 }), []);
+  const services = live?.results ?? [];
 
   return (
     <div className="min-h-dvh bg-surface">
       <MarketingHeader />
+      <AccountDeletedNotice />
 
       <main id="main">
-        {/* ================================================================ */}
-        {/* Hero — full-bleed photograph, the way the category does it       */}
-        {/* ================================================================ */}
-        <section className="relative isolate overflow-hidden">
-          <HeroMedia poster="/img/hero.jpg" video="/img/hero.mp4" />
-          {/* Two scrims, not one. The horizontal ramp buys contrast for the
-              copy column and then gets out of the way, so the right half of the
-              frame still reads as a photograph — a single flat overlay dark
-              enough for white text turns the image into grey card stock. The
-              vertical pass only weights the top and bottom edges, where the
-              header and the capability strip sit. */}
-          <div
-            aria-hidden
-            className="absolute inset-0 -z-10 bg-gradient-to-r from-ink-1000/94 via-ink-1000/70 to-ink-1000/25"
-          />
-          <div
-            aria-hidden
-            className="absolute inset-0 -z-10 bg-gradient-to-t from-ink-1000/75 via-transparent to-ink-1000/45"
-          />
-
-          <div className="mx-auto flex min-h-[34rem] max-w-7xl items-center px-5 py-20 sm:min-h-[38rem] sm:py-28">
-            <div className="max-w-2xl">
-              <h1 className="display-1 text-white">
-                Find the right talent.
-                <br />
-                <span className="italic text-brand-300">Or become it.</span>
+        {/* ============================================================ */}
+        {/* Hero                                                          */}
+        {/* ============================================================ */}
+        <section className="border-b border-line">
+          <div className="mx-auto grid max-w-7xl items-center gap-14 px-5 py-16 sm:py-20 lg:grid-cols-[1.15fr_0.85fr] lg:gap-16 lg:py-24">
+            <div className="animate-rise">
+              <p className="eyebrow">Freelance marketplace · Pakistan</p>
+              <h1 className="display-xl mt-5 max-w-[13ch]">
+                Hire skilled freelancers. Pay only when the work is approved.
               </h1>
-
-              <p className="mt-6 max-w-xl text-[17px] leading-relaxed text-white/75">
-                Buy a packaged service at a fixed price, or post a brief and let proposals
-                come to you. Two ways to work — one account, one wallet, one reputation.
+              <p className="mt-6 max-w-xl text-[17px] leading-relaxed text-muted">
+                Buy a fixed-price service, or post a brief and compare proposals. Your payment
+                waits in escrow until you accept the delivery — and comes back to you if the order
+                is cancelled.
               </p>
 
-              <div className="mt-9 space-y-4">
-                <TrackSwitch value={track} onChange={setTrack} tone="dark" />
+              <div className="mt-9 max-w-xl space-y-4">
+                <TrackSwitch value={track} onChange={setTrack} />
                 <HeroSearch track={track} />
                 <SuggestionPills track={track} />
               </div>
             </div>
+
+            <EscrowTicket className="mx-auto w-full max-w-md lg:mx-0" />
           </div>
 
-          {/* Capability strip, in place of the borrowed client logos the
-              reference pages carry. We have no clients to name yet; we do have
-              guarantees, and those are true today. */}
-          <div className="relative border-t border-white/15 bg-black/35 backdrop-blur-md">
-            <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-8 gap-y-3 px-5 py-4">
-              <span className="text-[12px] font-medium uppercase tracking-wider text-white/50">
-                Built in
-              </span>
-              {[
-                "Escrow on every contract",
-                "Sealed two-way reviews",
-                "Verified identity",
-                "Campus portals",
-              ].map((item) => (
-                <span key={item} className="flex items-center gap-2 text-[13px] text-white/85">
-                  <Icon
-                    name="check"
-                    strokeWidth={2.6}
-                    className="size-3.5 shrink-0 text-money-400"
-                  />
-                  {item}
-                </span>
+          <div className="border-t border-line bg-raised">
+            <ul className="mx-auto grid max-w-7xl gap-px bg-line sm:grid-cols-2 lg:grid-cols-4">
+              {FACTS.map((fact) => (
+                <li key={fact.title} className="flex items-start gap-3 bg-raised px-5 py-5">
+                  <Icon name={fact.icon} className="mt-0.5 size-5 shrink-0 text-accent" />
+                  <span>
+                    <span className="block text-[14px] font-semibold text-fg">{fact.title}</span>
+                    <span className="block text-[13px] text-subtle">{fact.body}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        {/* ============================================================ */}
+        {/* Live services                                                 */}
+        {/* ============================================================ */}
+        {(loading || services.length > 0) && (
+          <section className="mx-auto max-w-7xl px-5 py-16 sm:py-20">
+            <SectionHead
+              eyebrow="Available now"
+              title="Services you can order today"
+              description="Every listing states its price, delivery time and number of revisions before you order — so there is nothing left to negotiate."
+              action={
+                <ButtonLink href="/gigs" variant="secondary">
+                  Browse all services
+                  <Icon name="arrowRight" className="size-4" />
+                </ButtonLink>
+              }
+            />
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+              {loading
+                ? Array.from({ length: 4 }, (_, index) => (
+                    <Skeleton key={index} className="aspect-[4/5] w-full rounded-lg" />
+                  ))
+                : services.map((gig) => <GigCard key={gig.id} gig={gig} />)}
+            </div>
+          </section>
+        )}
+
+        {/* ============================================================ */}
+        {/* Categories                                                    */}
+        {/* ============================================================ */}
+        <section className="border-y border-line bg-raised">
+          <div className="mx-auto max-w-7xl px-5 py-16 sm:py-20">
+            <SectionHead
+              eyebrow="Categories"
+              title="What you can get done"
+              description="Eight fields, one set of rules: every order in every category is funded in escrow and released on approval."
+            />
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {CATEGORIES.map((category) => (
+                <CategoryTile key={category.slug} {...category} />
               ))}
             </div>
           </div>
         </section>
 
-        {/* ================================================================ */}
-        {/* Categories                                                       */}
-        {/* ================================================================ */}
-        <section className="mx-auto max-w-7xl px-5 py-16 sm:py-20">
+        {/* ============================================================ */}
+        {/* How it works                                                  */}
+        {/* ============================================================ */}
+        <section id="how-it-works" className="mx-auto max-w-7xl scroll-mt-24 px-5 py-16 sm:py-20">
           <SectionHead
-            eyebrow="Explore"
-            title="Eight fields, one standard of work"
-            description="Every category runs the same contract, the same escrow and the same review rules. The difference is the craft, never the protection."
-            action={
-              /* Padded to a 44px target. It sits alone at the end of a heading
-                 row rather than inline in a paragraph, so it gets no exemption
-                 from the minimum. */
-              <Link
-                href="/gigs"
-                className={cn(
-                  "inline-flex min-h-11 items-center gap-1.5 text-[13.5px] font-medium",
-                  "text-accent underline-offset-4 hover:underline",
-                )}
-              >
-                See all services
-                <Icon name="arrowRight" className="size-3.5" />
-              </Link>
-            }
+            eyebrow="How it works"
+            title="Four steps, whichever side you are on"
           />
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {CATEGORIES.map((category) => (
-              <CategoryTile key={category.slug} {...category} />
+          <div className="grid gap-12 lg:grid-cols-2 lg:gap-16">
+            {(
+              [
+                ["hire", "If you're hiring"],
+                ["sell", "If you're freelancing"],
+              ] as const
+            ).map(([key, heading]) => (
+              <div key={key}>
+                <h3 className="text-[18px] font-bold text-fg">{heading}</h3>
+                <ol className="mt-6 space-y-6 border-l-2 border-line pl-6">
+                  {STEPS[key].map((step, index) => (
+                    <li key={step.title} className="relative">
+                      <span
+                        aria-hidden
+                        className="figure absolute -left-[37px] grid size-6 place-items-center rounded-full border-2 border-line bg-surface text-[11px] font-semibold text-fg"
+                      >
+                        {index + 1}
+                      </span>
+                      <p className="text-[15.5px] font-semibold text-fg">{step.title}</p>
+                      <p className="mt-1 text-[14.5px] leading-relaxed text-muted">{step.body}</p>
+                    </li>
+                  ))}
+                </ol>
+              </div>
             ))}
           </div>
         </section>
 
-        {/* ================================================================ */}
-        {/* Popular services                                                 */}
-        {/* ================================================================ */}
-        <section className="border-y border-line bg-raised">
+        {/* ============================================================ */}
+        {/* Where the money is                                            */}
+        {/* ============================================================ */}
+        <section id="payments" className="scroll-mt-24 border-y border-line bg-raised">
           <div className="mx-auto max-w-7xl px-5 py-16 sm:py-20">
             <SectionHead
-              eyebrow="Services"
-              title="Packaged work, priced before you ask"
-              description="Every listing states its tiers, delivery time and revision count up front — so the negotiation is finished before the conversation starts."
+              eyebrow="Payments"
+              title="Where your money is, at every step"
+              description="The same rules apply to every order and every contract. Nobody can spend a payment while it is in escrow."
             />
-            <ScrollRow>
-              {POPULAR.map((item) => (
-                <ServiceCard key={item.id} item={item} href={`/gigs/${item.id}`} />
-              ))}
-            </ScrollRow>
-          </div>
-        </section>
-
-        {/* ================================================================ */}
-        {/* The two tracks                                                   */}
-        {/* ================================================================ */}
-        <section id="tracks" className="mx-auto max-w-7xl scroll-mt-24 px-5 py-16 sm:py-20">
-          <SectionHead
-            eyebrow="How it works"
-            title="Two hiring models, under one roof"
-            description="Most marketplaces make you choose a platform before you have chosen an approach. Here it is a toggle, and everything downstream — messaging, escrow, reviews — is shared."
-          />
-
-          <div className="mb-10">
-            <TrackSwitch value={track} onChange={setTrack} />
-          </div>
-
-          <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
-            <PhotoFigure
-              src={detail.image}
-              alt={detail.alt}
-              caption={detail.heading}
-              captionBody={detail.blurb}
-            />
-
-            <div>
-              <ol className="space-y-7">
-                {detail.steps.map((step, index) => (
-                  <li key={step.title} className="flex gap-4">
-                    <span
-                      className={cn(
-                        "grid size-9 shrink-0 place-items-center rounded-full",
-                        "bg-accent-soft text-[13px] font-semibold text-accent",
-                      )}
-                    >
-                      {index + 1}
-                    </span>
-                    <div>
-                      <p className="heading-sans text-[16.5px] text-fg">{step.title}</p>
-                      <p className="mt-1.5 text-[14px] leading-relaxed text-muted">
-                        {step.body}
-                      </p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-
-              <Link href={detail.href} className="mt-9 inline-block">
-                <Button size="lg">
-                  <Icon name={detail.icon} className="size-4" />
-                  {detail.cta}
-                </Button>
-              </Link>
-            </div>
-          </div>
-        </section>
-
-        {/* ================================================================ */}
-        {/* Capabilities                                                     */}
-        {/* ================================================================ */}
-        <section className="border-y border-line bg-raised">
-          <div className="mx-auto max-w-7xl px-5 py-16">
-            <div className="grid gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-4">
-              {CAPABILITIES.map((item) => (
-                <div key={item.title}>
-                  <span className="grid size-10 place-items-center rounded-lg bg-accent-soft text-accent">
-                    <Icon name={item.icon} className="size-5" />
-                  </span>
-                  <p className="mt-4 text-[15px] font-medium text-fg">{item.title}</p>
-                  <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">
-                    {item.body}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* ================================================================ */}
-        {/* Campus — the dark band                                           */}
-        {/* ================================================================ */}
-        <section id="campus" className="scroll-mt-24 px-5 py-16 sm:py-20">
-          <div className="relative isolate mx-auto max-w-7xl overflow-hidden rounded-3xl bg-ink-1000">
-            <Image
-              src="/img/campus.jpg"
-              alt=""
-              fill
-              sizes="(max-width: 1280px) 100vw, 1280px"
-              className="-z-20 object-cover object-center opacity-45"
-            />
-            <div
-              aria-hidden
-              className="absolute inset-0 -z-10 bg-gradient-to-r from-ink-1000 via-ink-1000/90 to-ink-1000/50"
-            />
-
-            <div className="grid gap-12 p-8 sm:p-12 lg:grid-cols-2 lg:items-center lg:p-16">
-              <div>
-                <p className="eyebrow text-white/55">For universities</p>
-                <h2 className="heading-sans mt-3 text-[clamp(1.7rem,3.2vw,2.5rem)] leading-tight text-white">
-                  Your campus, its own marketplace
-                </h2>
-                <p className="mt-5 max-w-lg text-[15.5px] leading-relaxed text-white/70">
-                  Verify with a university email and a student ID, and a second marketplace
-                  opens — one only your campus can see. Post to it, sell in it, and build
-                  real reviews before you ever compete globally.
-                </p>
-
-                <ul className="mt-8 space-y-3.5">
+            <div className="overflow-x-auto rounded-lg border border-line">
+              <table className="w-full min-w-[40rem] border-collapse text-left text-[14.5px]">
+                <thead className="bg-sunken">
+                  <tr>
+                    <th scope="col" className="eyebrow px-5 py-3.5 font-medium">When</th>
+                    <th scope="col" className="eyebrow px-5 py-3.5 font-medium">Where the money is</th>
+                    <th scope="col" className="eyebrow px-5 py-3.5 font-medium">What happens next</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
                   {[
-                    "Scoped in the database, not the page — a campus listing cannot reach the global surface",
-                    "Switch surfaces in one click; profile, wallet and reviews all come with you",
-                    "Cross-tenant leakage is a release gate, re-run on every commit",
-                  ].map((line) => (
-                    <li key={line} className="flex gap-3 text-[14px] leading-relaxed text-white/80">
-                      <Icon
-                        name="check"
-                        strokeWidth={2.6}
-                        className="mt-0.5 size-4 shrink-0 text-money-400"
-                      />
-                      {line}
-                    </li>
+                    ["You place an order", "Held by SkilRize in escrow", "The freelancer starts once you share your requirements."],
+                    ["The work is delivered", "Still held in escrow", `You have ${BUSINESS.orderReviewDays} days (services) or ${BUSINESS.contractReviewDays} days (projects) to accept it or ask for a revision.`],
+                    ["You accept the work", "Released to the freelancer", `They receive it minus the ${BUSINESS.commissionPercent}% platform fee. You pay nothing extra.`],
+                    ["You don't respond in time", "Released automatically", "A delivery nobody answers is accepted when the review window closes, so no payment is held hostage."],
+                    ["The order is cancelled", "Refunded to you in full", "Sent back to the account you paid from."],
+                  ].map(([when, where, next]) => (
+                    <tr key={when}>
+                      <th scope="row" className="px-5 py-4 font-semibold text-fg">{when}</th>
+                      <td className="px-5 py-4 font-medium text-fg">{where}</td>
+                      <td className="px-5 py-4 leading-relaxed text-muted">{next}</td>
+                    </tr>
                   ))}
-                </ul>
-
-                <Link href="/signup" className="mt-9 inline-block">
-                  <Button size="lg" variant="secondary">
-                    Verify as a student
-                    <Icon name="arrowRight" className="size-4" />
-                  </Button>
-                </Link>
-              </div>
-
-              {/* The surface switch, shown rather than described. */}
-              <div className="glass-dark rounded-2xl p-5">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-white/45">
-                  Active marketplace
-                </p>
-                <div className="mt-3 space-y-2.5">
-                  <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3.5">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-white/10 text-white">
-                      <Icon name="globe" className="size-4.5" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[13.5px] font-medium text-white">Global</p>
-                      <p className="text-[11.5px] text-white/50">Open to everyone</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 rounded-xl border border-brand-400/50 bg-brand-500/25 p-3.5">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-brand-400 text-ink-950">
-                      <Icon name="building" className="size-4.5" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[13.5px] font-medium text-white">COMSATS</p>
-                      <p className="text-[11.5px] text-white/50">Verified students only</p>
-                    </div>
-                    <Icon name="check" strokeWidth={2.6} className="size-4 text-money-400" />
-                  </div>
-                </div>
-                <p className="mt-4 border-t border-white/10 pt-4 text-[12px] leading-relaxed text-white/50">
-                  Everything you post inherits the surface you are standing on. There is no
-                  second step to forget.
-                </p>
-              </div>
+                </tbody>
+              </table>
             </div>
+            <p className="mt-5 max-w-3xl text-[13.5px] leading-relaxed text-subtle">
+              Today you pay by bank transfer to {BUSINESS.operator}&apos;s business account. Card,
+              JazzCash, easypaisa and Raast payments are being added. Full details are in the{" "}
+              <Link href="/refunds" className="font-medium text-accent underline underline-offset-2">
+                Refund &amp; Cancellation Policy
+              </Link>
+              .
+            </p>
           </div>
         </section>
 
-        {/* ================================================================ */}
-        {/* Escrow                                                           */}
-        {/* ================================================================ */}
-        <section className="border-y border-line bg-raised">
-          <div className="mx-auto max-w-7xl px-5 py-16 sm:py-20">
-            <SectionHead
-              eyebrow="Getting paid"
-              title="Four states, and no ambiguity between them"
-              description="Money is never in a position where both sides believe they hold it. Every contract on both tracks moves through the same states in the same order."
-            />
-
-            <ol className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-              {ESCROW_STAGES.map((stage, index) => (
-                <li
-                  key={stage.label}
-                  className="relative rounded-xl border border-line bg-surface p-6"
-                >
-                  {index < ESCROW_STAGES.length - 1 && (
-                    <span
-                      aria-hidden
-                      className="absolute right-0 top-12 hidden h-px w-5 translate-x-full bg-line-strong lg:block"
-                    />
-                  )}
-                  <span className="eyebrow tabular">Step {index + 1}</span>
-                  <p className="heading-sans mt-2 text-[17px] text-fg">{stage.label}</p>
-                  <p className="mt-2 text-[13.5px] leading-relaxed text-muted">{stage.body}</p>
+        {/* ============================================================ */}
+        {/* Campus portals                                                */}
+        {/* ============================================================ */}
+        <section id="campus" className="scroll-mt-24 px-5 py-16 sm:py-20">
+          <div className="mx-auto grid max-w-7xl gap-10 rounded-2xl bg-campus-900 p-8 text-white sm:p-12 lg:grid-cols-[1.2fr_1fr] lg:items-center lg:p-16">
+            <div>
+              <p className="font-mono text-[11px] font-medium tracking-[0.06em] text-campus-100 uppercase">For university students</p>
+              <h2 className="display-lg mt-4">Your university, its own marketplace.</h2>
+              <p className="mt-5 max-w-lg text-[16px] leading-relaxed text-campus-100">
+                Verify with your university email and student ID, and a second marketplace opens
+                that only students of your university can see. Take on your first projects among
+                people you can trust, and build real reviews before you compete globally.
+              </p>
+              <div className="mt-8">
+                <ButtonLink href="/signup" size="lg">
+                  Create an account
+                  <Icon name="arrowRight" className="size-4" />
+                </ButtonLink>
+              </div>
+            </div>
+            <ul className="space-y-4">
+              {[
+                "Listings posted in your campus portal are visible only to verified students of your university.",
+                "Your profile, reviews and payments are the same account on both marketplaces.",
+                "Students are verified by university email and student ID before they get access.",
+              ].map((line) => (
+                <li key={line} className="flex gap-3 border-t border-white/15 pt-4 text-[15px] leading-relaxed text-campus-50">
+                  <Icon name="check" strokeWidth={2.6} className="mt-1 size-4 shrink-0 text-campus-400" />
+                  {line}
                 </li>
               ))}
-            </ol>
-
-            <p className="mx-auto mt-8 max-w-2xl text-center text-[13px] leading-relaxed text-subtle">
-              Card and mobile-money rails are being connected now. Until they are live,
-              contracts move through these states without a real charge — the state machine
-              is the finished part, and it is the part that decides who holds what.
-            </p>
+            </ul>
           </div>
         </section>
 
-        {/* ================================================================ */}
-        {/* Sell / plans                                                     */}
-        {/* ================================================================ */}
-        <section className="mx-auto max-w-7xl px-5 py-16 sm:py-20">
-          <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
-            <PhotoFigure
-              src="/img/campus-study.jpg"
-              alt="A group working together over laptops in a library"
-              caption="Free to hire, free to sell"
-              captionBody="Pro and Elite buy volume and visibility, never the basics."
-            />
+        {/* ============================================================ */}
+        {/* FAQ                                                           */}
+        {/* ============================================================ */}
+        <section className="mx-auto max-w-4xl px-5 pb-16 sm:pb-20">
+          <SectionHead eyebrow="Questions" title="Before you pay anyone" />
+          <div className="border-t border-line">
+            <FaqItem question="How do payments work?">
+              You pay the listed price when you order. SkilRize holds it in escrow — the freelancer
+              cannot touch it — until you approve the delivered work. Then it is released to them.
+            </FaqItem>
+            <FaqItem question="What does SkilRize charge?">
+              Buyers pay the listed price with no added fees. Freelancers pay a{" "}
+              {BUSINESS.commissionPercent}% platform fee, taken from the payment when it is
+              released. Creating an account and listing services is free.
+            </FaqItem>
+            <FaqItem question="When do I get a refund?">
+              If the freelancer cancels, if you cancel before sending your requirements, or if the
+              order passes its due date without being delivered, you are refunded in full. See the{" "}
+              <Link href="/refunds" className="font-medium text-accent underline underline-offset-2">
+                Refund &amp; Cancellation Policy
+              </Link>{" "}
+              for every case.
+            </FaqItem>
+            <FaqItem question="How long does delivery take?">
+              Every package states its delivery time before you order. The clock starts when you
+              submit the freelancer&apos;s requirements, so nobody is held to a deadline they could
+              not start on.
+            </FaqItem>
+            <FaqItem question="Is my personal information safe?">
+              Your identity-card and bank details are encrypted, sign-in is protected with optional
+              two-factor authentication, and you can download or delete your data at any time from
+              your account settings. See the{" "}
+              <Link href="/privacy" className="font-medium text-accent underline underline-offset-2">
+                Privacy Policy
+              </Link>
+              .
+            </FaqItem>
+            <FaqItem question="Who runs SkilRize?">
+              SkilRize is operated by {BUSINESS.operator}, a software studio based in{" "}
+              {BUSINESS.address.city}, {BUSINESS.address.country}. You can reach us at{" "}
+              <a href={`mailto:${BUSINESS.email}`} className="font-medium text-accent underline underline-offset-2">
+                {BUSINESS.email}
+              </a>{" "}
+              or on {BUSINESS.phone}.
+            </FaqItem>
+          </div>
+        </section>
+
+        {/* ============================================================ */}
+        {/* Close                                                         */}
+        {/* ============================================================ */}
+        <section className="border-t border-line bg-raised">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-8 px-5 py-14">
             <div>
-              <p className="eyebrow">Start earning</p>
-              <h2 className="heading-sans mt-3 text-[clamp(1.7rem,3.2vw,2.5rem)] leading-tight text-fg">
-                Everything you need to get paid is on the free plan
-              </h2>
-              <p className="mt-5 text-[15.5px] leading-relaxed text-muted">
-                Publish services, bid on briefs, run contracts and take payment through
-                escrow without paying us a subscription. The paid tiers exist for the point
-                at which freelancing is your income rather than your side project.
-              </p>
-              <div className="mt-8 flex flex-wrap gap-3">
-                <Link href="/signup">
-                  <Button size="lg">Start selling</Button>
-                </Link>
-                <Link href="/pricing">
-                  <Button size="lg" variant="secondary">
-                    Compare plans
-                    <Icon name="arrowRight" className="size-4" />
-                  </Button>
-                </Link>
-              </div>
+              <h2 className="display-md">Start with what you need done.</h2>
+              <p className="mt-2 text-[15px] text-muted">Free to join. You only pay when you order.</p>
             </div>
-          </div>
-        </section>
-
-        {/* ================================================================ */}
-        {/* Close                                                            */}
-        {/* ================================================================ */}
-        <section className="px-5 pb-20">
-          <div className="relative isolate mx-auto max-w-7xl overflow-hidden rounded-3xl bg-ink-1000 px-6 py-16 text-center sm:py-20">
-            <Image
-              src="/img/campus-study.jpg"
-              alt=""
-              fill
-              sizes="(max-width: 1280px) 100vw, 1280px"
-              className="-z-20 object-cover opacity-25"
-            />
-            <div aria-hidden className="absolute inset-0 -z-10 bg-ink-1000/70" />
-
-            <h2 className="display-2 mx-auto max-w-3xl text-white">
-              Start on either side. <span className="italic text-brand-300">Switch whenever.</span>
-            </h2>
-            <p className="mx-auto mt-5 max-w-xl text-[15.5px] leading-relaxed text-white/70">
-              The same account hires and gets hired. Nothing to migrate the day you decide
-              to do both.
-            </p>
-            <div className="mt-9 flex flex-wrap justify-center gap-3">
-              <Link href="/signup">
-                <Button size="lg">Create an account</Button>
-              </Link>
-              <Link href="/gigs">
-                <Button size="lg" variant="secondary">
-                  Browse first
-                </Button>
-              </Link>
+            <div className="flex flex-wrap gap-3">
+              <ButtonLink href="/gigs" size="lg">
+                Browse services
+              </ButtonLink>
+              <ButtonLink href="/projects/new" size="lg" variant="secondary">
+                Post a brief
+              </ButtonLink>
             </div>
-            <p className="mt-4 text-[12.5px] text-white/50">
-              Free to join. Verification is asked for only when money is about to move.
-            </p>
           </div>
         </section>
       </main>
 
-      {/* ================================================================== */}
-      {/* Footer                                                             */}
-      {/* ================================================================== */}
-      <footer className="border-t border-line bg-raised">
-        <div className="mx-auto max-w-7xl px-5 py-14">
-          <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <Logo />
-              <p className="mt-4 max-w-xs text-[13px] leading-relaxed text-muted">
-                A unified freelance marketplace — packaged services and open briefs, on one
-                account, with private campus portals for verified students.
-              </p>
-            </div>
-
-            {FOOTER.map((column) => (
-              <nav key={column.heading} aria-label={column.heading}>
-                <p className="text-[12.5px] font-semibold text-fg">{column.heading}</p>
-                <ul className="mt-3.5 space-y-2.5">
-                  {column.links.map(([label, href]) => (
-                    <li key={label}>
-                      <Link
-                        href={href}
-                        className="text-[13px] text-muted transition-colors duration-200 hover:text-fg"
-                      >
-                        {label}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </nav>
-            ))}
-          </div>
-
-          <div className="mt-12 flex flex-wrap items-center justify-between gap-4 border-t border-line pt-7">
-            <p className="text-[12.5px] text-subtle">
-              © {new Date().getFullYear()} SkilRize · Built by NEXOLV.TECH
-            </p>
-            <p className="text-[12.5px] text-subtle">
-              Photography under the Unsplash licence
-            </p>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
