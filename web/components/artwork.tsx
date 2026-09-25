@@ -1,23 +1,23 @@
 /**
- * Generated cover art.
+ * Generated covers.
  *
- * A marketplace catalogue is mostly pictures, and every listing needs one from
- * the moment it is published — long before a seller has uploaded anything. So
- * every gig gets a deterministic piece of vector art derived from its id and
- * category: the same listing always looks the same, related listings share a
- * visual family, and an empty catalogue still reads as a real product.
+ * Every listing needs a picture from the moment it is published — long before
+ * a seller has uploaded one. The first version drew little abstractions of
+ * each field (a code window, colour swatches, a book) over a gradient and a
+ * dot grid, which read exactly like generated stock art. These are set, not
+ * drawn: a flat field in the category's colour with the category's name cut
+ * large across it, the way a printed label or a book spine would carry it.
  *
- * Vector rather than photography is a deliberate trade. It costs no network
- * requests, has no licensing question, stays crisp at any size, follows the
- * light/dark theme, and never shows a stock photo of a smiling stranger who has
- * nothing to do with the work. When a seller uploads a real cover, that wins —
- * this is the floor, not the ceiling.
+ * The colour belongs to the category, not the listing, so it means something:
+ * every Development listing is lapis, every Academic one firozi, on every page.
+ * The seed only moves the lettering, so neighbours in a grid are not clones.
+ * When a seller uploads a real cover, that wins — this is the floor.
  */
 import * as React from "react";
 
 import { cn } from "./ui";
 
-/** Stable small hash, so the same input always yields the same artwork. */
+/** Stable small hash, so the same input always yields the same cover. */
 function hash(seed: string): number {
   let value = 2166136261;
   for (let index = 0; index < seed.length; index += 1) {
@@ -26,20 +26,6 @@ function hash(seed: string): number {
   }
   return Math.abs(value);
 }
-
-/**
- * Six palettes from the colours of Pakistani craft — marigold, the firozi of
- * Multan tilework, ajrak's madder red, mehndi green, lapis and slate — chosen
- * to sit together in a grid and beside the marigold brand without clashing.
- */
-const PALETTES: Array<[string, string, string]> = [
-  ["#9A5800", "#F2A10F", "#FEEFCF"], // marigold
-  ["#0B5552", "#139088", "#CAEBE6"], // firozi
-  ["#7E1D22", "#C7453E", "#F6DCD8"], // madder
-  ["#465619", "#8BA03A", "#E7EDCF"], // mehndi
-  ["#1E3A6E", "#3F6FC4", "#DCE6F7"], // lapis
-  ["#2B2A26", "#6E6A60", "#E6E4DE"], // slate
-];
 
 export type Motif =
   | "code"
@@ -67,206 +53,58 @@ export function motifFor(categoryName?: string | null): Motif {
   return MOTIF_BY_CATEGORY[categoryName] ?? "design";
 }
 
-/* -------------------------------------------------------------------------- */
-/* Motif compositions                                                         */
-/* -------------------------------------------------------------------------- */
+export interface Palette {
+  /** The field. */
+  deep: string;
+  /** The lettering, and the category's colour wherever it appears alone. */
+  mid: string;
+  /** A tint for light backgrounds. */
+  light: string;
+}
 
 /**
- * Each motif draws a loose abstraction of the work itself — a code window, a
- * palette of swatches, a video timeline — rather than a literal icon. Enough to
- * read at a glance in a grid, quiet enough not to shout over the title.
+ * One colour per field, from the dyes and glazes of Pakistani craft: lapis,
+ * ajrak's madder red, slate, multani clay, marigold, mehndi green, kohl, and
+ * the firozi of Multan tilework — which is also the campus portals' colour,
+ * so Academic Support shares it.
  */
-function Composition({
-  motif,
-  seed,
-  ink,
-  light,
-}: {
-  motif: Motif;
-  seed: number;
-  ink: string;
-  light: string;
-}) {
-  const jitter = (index: number, spread: number) => ((seed >> (index * 3)) % spread) - spread / 2;
+const PALETTES: Record<Motif, Palette> = {
+  code: { deep: "#1E3A6E", mid: "#3F6FC4", light: "#DCE6F7" }, // lapis
+  design: { deep: "#7E1D22", mid: "#C7453E", light: "#F6DCD8" }, // madder
+  writing: { deep: "#2B2A26", mid: "#6E6A60", light: "#E6E4DE" }, // slate
+  video: { deep: "#5E3D22", mid: "#B07D4F", light: "#F2E6D8" }, // multani clay
+  marketing: { deep: "#9A5800", mid: "#F2A10F", light: "#FEEFCF" }, // marigold
+  data: { deep: "#465619", mid: "#8BA03A", light: "#E7EDCF" }, // mehndi
+  business: { deep: "#23394A", mid: "#5C7A91", light: "#DEE6EC" }, // kohl
+  academic: { deep: "#0B5552", mid: "#139088", light: "#CAEBE6" }, // firozi
+};
 
-  switch (motif) {
-    case "code":
-      return (
-        <g>
-          <rect x="70" y="52" width="180" height="116" rx="10" fill={light} opacity="0.9" />
-          <rect x="70" y="52" width="180" height="20" rx="10" fill={ink} opacity="0.28" />
-          {[0, 1, 2].map((dot) => (
-            <circle key={dot} cx={84 + dot * 13} cy="62" r="3.5" fill={light} opacity="0.85" />
-          ))}
-          {[0, 1, 2, 3, 4].map((line) => (
-            <rect
-              key={line}
-              x={84 + (line % 2 === 0 ? 0 : 14)}
-              y={86 + line * 15}
-              width={Math.max(34, 118 - (line * 17 + Math.abs(jitter(line, 30))))}
-              height="7"
-              rx="3.5"
-              fill={ink}
-              opacity={0.18 + (line % 3) * 0.12}
-            />
-          ))}
-        </g>
-      );
-
-    case "design":
-      return (
-        <g>
-          {[0, 1, 2, 3].map((swatch) => (
-            <rect
-              key={swatch}
-              x={72 + swatch * 42}
-              y={64 + Math.abs(jitter(swatch, 22))}
-              width="34"
-              height="66"
-              rx="8"
-              fill={swatch % 2 === 0 ? light : ink}
-              opacity={swatch % 2 === 0 ? 0.92 : 0.34}
-            />
-          ))}
-          <circle cx="176" cy="150" r="24" fill={light} opacity="0.85" />
-          <circle cx="204" cy="150" r="24" fill={ink} opacity="0.3" />
-        </g>
-      );
-
-    case "writing":
-      return (
-        <g>
-          <rect x="76" y="48" width="168" height="124" rx="10" fill={light} opacity="0.9" />
-          {[0, 1, 2, 3, 4, 5].map((line) => (
-            <rect
-              key={line}
-              x="94"
-              y={70 + line * 17}
-              width={line === 5 ? 62 : 132 - Math.abs(jitter(line, 40))}
-              height="6"
-              rx="3"
-              fill={ink}
-              opacity={line === 0 ? 0.42 : 0.2}
-            />
-          ))}
-        </g>
-      );
-
-    case "video":
-      return (
-        <g>
-          <rect x="70" y="52" width="180" height="96" rx="10" fill={ink} opacity="0.3" />
-          <path d="M148 84 L178 100 L148 116 Z" fill={light} opacity="0.95" />
-          {[0, 1, 2, 3, 4, 5, 6, 7].map((frame) => (
-            <rect
-              key={frame}
-              x={72 + frame * 22.5}
-              y="156"
-              width="18"
-              height={12 + Math.abs(jitter(frame, 16))}
-              rx="3"
-              fill={light}
-              opacity={0.5 + (frame % 3) * 0.18}
-            />
-          ))}
-        </g>
-      );
-
-    case "marketing":
-      return (
-        <g>
-          {[0, 1, 2, 3, 4].map((bar) => {
-            const height = 32 + ((seed >> (bar * 2)) % 70);
-            return (
-              <rect
-                key={bar}
-                x={78 + bar * 34}
-                y={168 - height}
-                width="22"
-                height={height}
-                rx="6"
-                fill={bar === 3 ? light : ink}
-                opacity={bar === 3 ? 0.95 : 0.32}
-              />
-            );
-          })}
-          <path
-            d="M84 96 L118 74 L152 88 L186 56 L220 66"
-            stroke={light}
-            strokeWidth="4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            fill="none"
-            opacity="0.9"
-          />
-        </g>
-      );
-
-    case "data":
-      return (
-        <g>
-          <circle cx="118" cy="110" r="46" fill={ink} opacity="0.28" />
-          <path d="M118 64 A46 46 0 0 1 164 110 L118 110 Z" fill={light} opacity="0.95" />
-          {[0, 1, 2, 3].map((row) => (
-            <rect
-              key={row}
-              x="186"
-              y={76 + row * 20}
-              width={Math.max(24, 64 - row * 12)}
-              height="9"
-              rx="4.5"
-              fill={light}
-              opacity={0.75 - row * 0.14}
-            />
-          ))}
-        </g>
-      );
-
-    case "business":
-      return (
-        <g>
-          {[0, 1, 2].map((sheet) => (
-            <rect
-              key={sheet}
-              x={82 + sheet * 16}
-              y={58 + sheet * 12}
-              width="132"
-              height="104"
-              rx="9"
-              fill={sheet === 2 ? light : ink}
-              opacity={sheet === 2 ? 0.94 : 0.22 + sheet * 0.1}
-            />
-          ))}
-          {[0, 1, 2].map((line) => (
-            <rect
-              key={line}
-              x="130"
-              y={92 + line * 18}
-              width={line === 2 ? 44 : 82}
-              height="6"
-              rx="3"
-              fill={ink}
-              opacity="0.28"
-            />
-          ))}
-        </g>
-      );
-
-    case "academic":
-      return (
-        <g>
-          <path d="M76 70 Q160 50 244 70 L244 158 Q160 138 76 158 Z" fill={light} opacity="0.92" />
-          <path d="M160 60 L160 148" stroke={ink} strokeWidth="4" opacity="0.3" />
-          {[0, 1, 2].map((line) => (
-            <React.Fragment key={line}>
-              <rect x="96" y={88 + line * 18} width="48" height="5" rx="2.5" fill={ink} opacity="0.24" />
-              <rect x="176" y={88 + line * 18} width="48" height="5" rx="2.5" fill={ink} opacity="0.24" />
-            </React.Fragment>
-          ))}
-        </g>
-      );
-  }
+export function paletteFor(categoryName?: string | null): Palette {
+  return PALETTES[motifFor(categoryName)];
 }
+
+/** The word each field is set in on its cover, and its label above. */
+const WORD: Record<Motif, string> = {
+  code: "Development",
+  design: "Design",
+  writing: "Writing",
+  video: "Video",
+  marketing: "Marketing",
+  data: "Data",
+  business: "Business",
+  academic: "Academic",
+};
+
+const LABEL: Record<Motif, string> = {
+  code: "Development & IT",
+  design: "Design & Creative",
+  writing: "Writing & Translation",
+  video: "Video & Animation",
+  marketing: "Marketing & Sales",
+  data: "Data & Analytics",
+  business: "Business & Admin",
+  academic: "Academic Support",
+};
 
 /* -------------------------------------------------------------------------- */
 
@@ -282,11 +120,13 @@ export function CoverArt({
   className?: string;
   rounded?: boolean;
 }) {
-  const value = hash(String(seed));
-  const palette = PALETTES[value % PALETTES.length]!;
-  const [deep, mid, light] = palette;
-  const id = `art-${value.toString(36)}`;
-  const angle = value % 4;
+  const { deep, mid, light } = PALETTES[motif];
+  const word = WORD[motif];
+  // Short words are set to fill the width; long ones run off the right edge,
+  // cropped like a detail of a larger sign. Everything sits between y 30 and
+  // 195, the band that survives any card shape once the frame is sliced.
+  const size = Math.min(140, Math.max(92, 330 / (word.length * 0.46)));
+  const baseline = 188 - (hash(String(seed)) % 3) * 4;
 
   return (
     <svg
@@ -295,27 +135,31 @@ export function CoverArt({
       preserveAspectRatio="xMidYMid slice"
       aria-hidden
     >
-      <defs>
-        <linearGradient
-          id={id}
-          x1={angle % 2 === 0 ? "0" : "1"}
-          y1="0"
-          x2={angle < 2 ? "1" : "0"}
-          y2="1"
-        >
-          <stop offset="0%" stopColor={deep} />
-          <stop offset="100%" stopColor={mid} />
-        </linearGradient>
-        {/* A block-print dot grid, the way a woodblock repeats across cloth. */}
-        <pattern id={`${id}-dots`} width="16" height="16" patternUnits="userSpaceOnUse">
-          <circle cx="2" cy="2" r="1.3" fill={light} opacity="0.22" />
-        </pattern>
-      </defs>
-
-      <rect width="320" height="220" fill={`url(#${id})`} />
-      <rect width="320" height="220" fill={`url(#${id}-dots)`} />
-
-      <Composition motif={motif} seed={value} ink={deep} light={light} />
+      <rect width="320" height="220" fill={deep} />
+      <text
+        x="18"
+        y="50"
+        fill={light}
+        fillOpacity="0.8"
+        fontSize="10.5"
+        style={{ fontFamily: "var(--font-mono)", letterSpacing: "0.08em", textTransform: "uppercase" }}
+      >
+        {LABEL[motif]}
+      </text>
+      <text
+        x="12"
+        y={baseline}
+        fill={mid}
+        fontSize={size}
+        style={{
+          fontFamily: "var(--font-display)",
+          fontVariationSettings: '"wdth" 62',
+          fontWeight: 800,
+          letterSpacing: "-0.03em",
+        }}
+      >
+        {word}
+      </text>
     </svg>
   );
 }

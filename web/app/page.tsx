@@ -23,7 +23,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import {
-  CategoryTile,
+  CategoryRow,
   DualAccountCard,
   EscrowTicket,
   FaqItem,
@@ -42,15 +42,16 @@ import { gigs } from "@/lib/api";
 import { BUSINESS } from "@/lib/business";
 import { useLoader } from "@/lib/session";
 
-const CATEGORIES: Array<{ slug: string; name: string; icon: IconName; examples: string }> = [
-  { slug: "development-it", name: "Development & IT", icon: "code", examples: "Websites, mobile apps, APIs, DevOps" },
-  { slug: "design-creative", name: "Design & Creative", icon: "palette", examples: "Logos, UI/UX, illustration" },
-  { slug: "writing-translation", name: "Writing & Translation", icon: "pen", examples: "Copywriting, documentation, translation" },
-  { slug: "video-animation", name: "Video & Animation", icon: "video", examples: "Editing, motion graphics, subtitles" },
-  { slug: "marketing-sales", name: "Marketing & Sales", icon: "megaphone", examples: "SEO, social media, paid ads" },
-  { slug: "data-analytics", name: "Data & Analytics", icon: "chart", examples: "Dashboards, analysis, machine learning" },
-  { slug: "business-admin", name: "Business & Admin", icon: "briefcase", examples: "Virtual assistance, bookkeeping" },
-  { slug: "academic-support", name: "Academic Support", icon: "book", examples: "Tutoring, research help, study notes" },
+/** The jobs people actually order in each field — each one a search. */
+const CATEGORIES: Array<{ slug: string; name: string; tasks: string[] }> = [
+  { slug: "development-it", name: "Development & IT", tasks: ["Business website", "Android & iOS app", "Shopify store", "Bug fixes"] },
+  { slug: "design-creative", name: "Design & Creative", tasks: ["Logo & brand", "UI/UX design", "Social media posts", "Illustration"] },
+  { slug: "writing-translation", name: "Writing & Translation", tasks: ["Website copy", "Urdu translation", "Blog articles", "Proofreading"] },
+  { slug: "video-animation", name: "Video & Animation", tasks: ["Video editing", "Reels & shorts", "Motion graphics", "Subtitles"] },
+  { slug: "marketing-sales", name: "Marketing & Sales", tasks: ["SEO", "Social media management", "Google Ads", "Email campaigns"] },
+  { slug: "data-analytics", name: "Data & Analytics", tasks: ["Excel dashboards", "Power BI", "Data analysis", "Machine learning"] },
+  { slug: "business-admin", name: "Business & Admin", tasks: ["Virtual assistant", "Bookkeeping", "Data entry", "Business plans"] },
+  { slug: "academic-support", name: "Academic Support", tasks: ["Tutoring", "Research help", "Study notes", "Presentation design"] },
 ];
 
 const FACTS: Array<{ icon: IconName; title: string; body: string }> = [
@@ -168,7 +169,7 @@ export default function LandingPage() {
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
               {loading
                 ? Array.from({ length: 4 }, (_, index) => (
-                    <Skeleton key={index} className="aspect-[4/5] w-full rounded-lg" />
+                    <Skeleton key={index} className="h-60 w-full rounded-lg" />
                   ))
                 : services.map((gig) => <GigCard key={gig.id} gig={gig} />)}
             </div>
@@ -185,9 +186,9 @@ export default function LandingPage() {
               title="What you can get done"
               description="Eight fields, one set of rules: every order in every category is funded in escrow and released on approval."
             />
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-x-14 gap-y-10 md:grid-cols-2">
               {CATEGORIES.map((category) => (
-                <CategoryTile key={category.slug} {...category} />
+                <CategoryRow key={category.slug} {...category} />
               ))}
             </div>
           </div>

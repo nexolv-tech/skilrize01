@@ -14,7 +14,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { Cover, motifFor } from "@/components/artwork";
+import { paletteFor } from "@/components/artwork";
 import { Icon, Money, cn, type IconName } from "@/components/ui";
 import type { GigSummary } from "@/lib/api";
 import { BUSINESS } from "@/lib/business";
@@ -469,72 +469,101 @@ export function SectionHead({
   );
 }
 
-export function CategoryTile({
+/**
+ * One field in the category index: its name, set large, with a thread of the
+ * field's colour beside it, and the concrete jobs people actually order in it
+ * — each one a search — rather than an icon and a one-line description.
+ */
+export function CategoryRow({
   slug,
   name,
-  icon,
-  examples,
+  tasks,
 }: {
   slug: string;
   name: string;
-  icon: IconName;
-  examples: string;
+  tasks: string[];
 }) {
+  const { mid } = paletteFor(name);
   return (
-    <Link
-      href={`/gigs?category=${slug}`}
-      className="lift group flex items-start gap-4 rounded-lg border border-line bg-raised p-5"
-    >
-      <span
-        aria-hidden
-        className="grid size-10 shrink-0 place-items-center rounded-md bg-accent-soft text-accent"
-      >
-        <Icon name={icon} className="size-5" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center justify-between gap-2 text-[15px] font-semibold text-fg">
+    <div className="border-l-[3px] pl-5" style={{ borderColor: mid }}>
+      <div className="flex items-baseline justify-between gap-4">
+        <Link
+          href={`/gigs?category=${slug}`}
+          className="display-md text-fg underline-offset-[6px] transition-colors duration-150 hover:underline"
+        >
           {name}
-          <Icon
-            name="arrowRight"
-            className="size-4 text-subtle transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-fg"
-          />
-        </span>
-        <span className="mt-1 block text-[13px] leading-snug text-subtle">{examples}</span>
-      </span>
-    </Link>
+        </Link>
+        <Link
+          href={`/gigs?category=${slug}`}
+          className="eyebrow shrink-0 transition-colors duration-150 hover:text-fg"
+          aria-label={`All ${name} services`}
+        >
+          All →
+        </Link>
+      </div>
+      <ul className="mt-3.5 flex flex-wrap gap-2">
+        {tasks.map((task) => (
+          <li key={task}>
+            <Link
+              href={`/gigs?q=${encodeURIComponent(task)}`}
+              className="inline-flex min-h-9 items-center rounded-full border border-line-strong bg-surface px-3.5 text-[13px] font-medium text-fg transition-colors duration-150 hover:border-fg/40 hover:bg-sunken"
+            >
+              {task}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
-/** A live listing from the catalogue. */
+/** "I will build a website" reads as "Build a website" on a slip. */
+function offerFrom(title: string): string {
+  const offer = title.replace(/^i will\s+/i, "");
+  return offer.charAt(0).toUpperCase() + offer.slice(1);
+}
+
+/**
+ * A live listing, as an order slip — the same perforated paper as the escrow
+ * ticket, with the category's colour along the top. The offer, who sells it
+ * and what it costs, and no stand-in artwork; a seller's own photo, when they
+ * have uploaded one, takes the place of the colour band.
+ */
 export function GigCard({ gig }: { gig: GigSummary }) {
+  const { mid } = paletteFor(gig.category_name);
   return (
     <Link
       href={`/gigs/${gig.id}`}
-      className="lift group flex flex-col overflow-hidden rounded-lg border border-line bg-raised"
+      className="group ticket-edge flex flex-col rounded-t-lg border border-b-0 border-line bg-raised transition-transform duration-200 hover:-translate-y-0.5"
     >
-      <div className="aspect-[16/10] overflow-hidden bg-sunken">
-        <Cover
-          src={gig.cover_url}
-          seed={gig.slug || gig.id}
-          motif={motifFor(gig.category_name)}
-          className="rounded-none transition-transform duration-500 group-hover:scale-[1.03]"
-        />
-      </div>
-      <div className="flex flex-1 flex-col p-4">
-        {gig.category_name && <p className="eyebrow">{gig.category_name}</p>}
-        <p className="mt-1.5 line-clamp-2 text-[15px] font-semibold leading-snug text-fg">
-          {gig.title}
-        </p>
-        <p className="mt-1.5 text-[13px] text-muted">by {gig.seller_name}</p>
-        <div className="mt-auto flex items-end justify-between gap-3 border-t border-line pt-3.5">
-          <span className="text-[12px] text-subtle">
-            {gig.rating_count > 0 ? `${gig.rating_average} ★ (${gig.rating_count})` : "New service"}
-          </span>
-          <span className="text-right">
-            <span className="block text-[11px] text-subtle">From</span>
-            <Money amount={gig.starting_price} className="figure text-[15px] font-semibold text-fg" />
-          </span>
+      {gig.cover_url ? (
+        <div className="aspect-[16/9] overflow-hidden rounded-t-lg bg-sunken">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={gig.cover_url} alt="" loading="lazy" className="size-full object-cover" />
         </div>
+      ) : (
+        <span aria-hidden className="h-1.5 rounded-t-lg" style={{ backgroundColor: mid }} />
+      )}
+
+      <div className="flex flex-1 flex-col px-5 pt-4">
+        {gig.category_name && <p className="eyebrow">{gig.category_name}</p>}
+        <p className="mt-2 line-clamp-3 text-[16.5px] font-semibold leading-snug text-fg group-hover:underline group-hover:underline-offset-4">
+          {offerFrom(gig.title)}
+        </p>
+        <p className="mt-2 text-[13px] text-muted">
+          {gig.seller_name}
+          <span className="text-subtle">
+            {" · "}
+            {gig.rating_count > 0 ? `${gig.rating_average} ★ (${gig.rating_count})` : "New"}
+          </span>
+        </p>
+      </div>
+
+      <div className="perforation mx-5 mt-5" aria-hidden />
+
+      <div className="flex items-baseline justify-between gap-3 px-5 pt-3.5 pb-7">
+        <span className="eyebrow">From</span>
+        <Money amount={gig.starting_price} className="figure text-[18px] font-semibold text-fg" />
       </div>
     </Link>
   );
