@@ -56,7 +56,17 @@ class _SignInScreenState extends State<SignInScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('SkilRize', style: Theme.of(context).textTheme.headlineMedium),
+        // The logo, with "Skil" in near-white on the dark theme so it stays legible.
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Image.asset(
+            Theme.of(context).brightness == Brightness.dark
+                ? 'assets/brand/skilrize-logo-dark.png'
+                : 'assets/brand/skilrize-logo.png',
+            height: 40,
+            semanticLabel: 'SkilRize',
+          ),
+        ),
         const SizedBox(height: 6),
         Text('Welcome back', style: Theme.of(context).textTheme.bodyMedium),
         const SizedBox(height: 24),
