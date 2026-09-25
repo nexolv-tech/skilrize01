@@ -12,7 +12,21 @@
 
 {$DOMAIN}, www.{$DOMAIN} {
 	encode zstd gzip
-	reverse_proxy web:3000
+
+	# Uploaded pictures and videos are signed, relative /files/<token>/
+	# addresses. Served from this domain they are same-origin for the web
+	# app's CSP and the API's Cross-Origin-Resource-Policy. The Host header is
+	# rewritten because the API accepts only its own name (ALLOWED_HOSTS);
+	# Caddy already sends X-Forwarded-Proto, so no https redirect loop.
+	handle /files/* {
+		reverse_proxy api:8000 {
+			header_up Host {$API_DOMAIN}
+		}
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
 }
 
 {$API_DOMAIN} {

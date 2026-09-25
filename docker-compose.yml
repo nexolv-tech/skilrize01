@@ -76,6 +76,8 @@ services:
     build: ./web
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
+      # The /files/ rewrite runs in this container, where localhost is not the API.
+      API_INTERNAL_URL: http://api:8000
     volumes:
       - ./web:/app
       - /app/node_modules

@@ -31,6 +31,9 @@ export default function proxy(request: NextRequest) {
     // `data:` covers the inline SVG artwork; `blob:` covers client-side image
     // previews before an upload is committed.
     "img-src 'self' data: blob:",
+    // Service videos arrive through the same /files/ route as images; blob:
+    // covers the preview shown before an upload is sent.
+    "media-src 'self' blob:",
     "font-src 'self' data:",
     // The API is a separate origin, so it has to be named explicitly.
     `connect-src 'self' ${API_ORIGIN}${DEV ? " ws: wss:" : ""}`,

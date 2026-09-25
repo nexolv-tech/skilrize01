@@ -54,6 +54,19 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
+  // Uploaded files (pictures, videos, avatars) come back from the API as
+  // signed, relative /files/<token>/ addresses. Served through this origin
+  // they stay same-origin for the CSP's img-src/media-src 'self' and for the
+  // API's Cross-Origin-Resource-Policy, instead of 404ing against this app.
+  // In production Caddy serves /files/* straight from the API before a
+  // request reaches this app (deploy/Caddyfile); this rewrite covers local
+  // Docker (API_INTERNAL_URL, since localhost there is this container) and
+  // the test deploy, which falls back to the public API address.
+  async rewrites() {
+    const api =
+      process.env.API_INTERNAL_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+    return [{ source: "/files/:token", destination: `${api.replace(/\/$/, "")}/files/:token/` }];
+  },
 };
 
 export default nextConfig;
