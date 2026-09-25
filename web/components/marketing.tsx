@@ -14,8 +14,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { paletteFor } from "@/components/artwork";
-import { Icon, Money, cn, type IconName } from "@/components/ui";
+import { Avatar, Badge, Icon, Money, cn, type IconName } from "@/components/ui";
 import type { GigSummary } from "@/lib/api";
 import { BUSINESS } from "@/lib/business";
 
@@ -469,12 +468,8 @@ export function SectionHead({
   );
 }
 
-/**
- * One field in the category index: its name, set large, with a thread of the
- * field's colour beside it, and the concrete jobs people actually order in it
- * — each one a search — rather than an icon and a one-line description.
- */
-export function CategoryRow({
+/** One field in the category grid: its name and the jobs people order in it. */
+export function CategoryLink({
   slug,
   name,
   tasks,
@@ -483,89 +478,62 @@ export function CategoryRow({
   name: string;
   tasks: string[];
 }) {
-  const { mid } = paletteFor(name);
   return (
-    <div className="border-l-[3px] pl-5" style={{ borderColor: mid }}>
-      <div className="flex items-baseline justify-between gap-4">
-        <Link
-          href={`/gigs?category=${slug}`}
-          className="display-md text-fg underline-offset-[6px] transition-colors duration-150 hover:underline"
-        >
-          {name}
-        </Link>
-        <Link
-          href={`/gigs?category=${slug}`}
-          className="eyebrow shrink-0 transition-colors duration-150 hover:text-fg"
-          aria-label={`All ${name} services`}
-        >
-          All →
-        </Link>
-      </div>
-      <ul className="mt-3.5 flex flex-wrap gap-2">
-        {tasks.map((task) => (
-          <li key={task}>
-            <Link
-              href={`/gigs?q=${encodeURIComponent(task)}`}
-              className="inline-flex min-h-9 items-center rounded-full border border-line-strong bg-surface px-3.5 text-[13px] font-medium text-fg transition-colors duration-150 hover:border-fg/40 hover:bg-sunken"
-            >
-              {task}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <Link href={`/gigs?category=${slug}`} className="group block border-t border-line pt-4">
+      <span className="flex items-center justify-between gap-3 text-[16px] font-semibold text-fg">
+        <span className="underline-offset-4 group-hover:underline">{name}</span>
+        <Icon
+          name="arrowRight"
+          className="size-4 text-subtle transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-fg"
+        />
+      </span>
+      <span className="mt-1.5 block text-[14px] leading-relaxed text-muted">{tasks.join(", ")}</span>
+    </Link>
   );
 }
 
-/** "I will build a website" reads as "Build a website" on a slip. */
-function offerFrom(title: string): string {
-  const offer = title.replace(/^i will\s+/i, "");
-  return offer.charAt(0).toUpperCase() + offer.slice(1);
-}
-
 /**
- * A live listing, as an order slip — the same perforated paper as the escrow
- * ticket, with the category's colour along the top. The offer, who sells it
- * and what it costs, and no stand-in artwork; a seller's own photo, when they
- * have uploaded one, takes the place of the colour band.
+ * A listing card. Plain on purpose: what it is, who sells it, what it costs.
+ * A seller's own photo shows when they have uploaded one; otherwise there is
+ * no stand-in picture at all.
  */
 export function GigCard({ gig }: { gig: GigSummary }) {
-  const { mid } = paletteFor(gig.category_name);
   return (
-    <Link
-      href={`/gigs/${gig.id}`}
-      className="group ticket-edge flex flex-col rounded-t-lg border border-b-0 border-line bg-raised transition-transform duration-200 hover:-translate-y-0.5"
-    >
-      {gig.cover_url ? (
-        <div className="aspect-[16/9] overflow-hidden rounded-t-lg bg-sunken">
+    <article className="group relative flex flex-col rounded-lg border border-line bg-raised p-5 transition-[border-color,box-shadow] duration-200 hover:border-line-strong hover:shadow-e2">
+      {gig.cover_url && (
+        <div className="-mx-5 -mt-5 mb-4 aspect-[16/10] overflow-hidden rounded-t-lg bg-sunken">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={gig.cover_url} alt="" loading="lazy" className="size-full object-cover" />
         </div>
-      ) : (
-        <span aria-hidden className="h-1.5 rounded-t-lg" style={{ backgroundColor: mid }} />
       )}
 
-      <div className="flex flex-1 flex-col px-5 pt-4">
-        {gig.category_name && <p className="eyebrow">{gig.category_name}</p>}
-        <p className="mt-2 line-clamp-3 text-[16.5px] font-semibold leading-snug text-fg group-hover:underline group-hover:underline-offset-4">
-          {offerFrom(gig.title)}
-        </p>
-        <p className="mt-2 text-[13px] text-muted">
-          {gig.seller_name}
-          <span className="text-subtle">
-            {" · "}
-            {gig.rating_count > 0 ? `${gig.rating_average} ★ (${gig.rating_count})` : "New"}
-          </span>
-        </p>
+      {gig.category_name && <p className="text-[12.5px] text-subtle">{gig.category_name}</p>}
+      <h3 className="mt-1.5 line-clamp-2 text-[15.5px] font-semibold leading-snug text-fg">
+        {/* The whole card is the link's hit area; the title is its name. */}
+        <Link
+          href={`/gigs/${gig.id}`}
+          className="rounded-sm underline-offset-4 after:absolute after:inset-0 group-hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          {gig.title}
+        </Link>
+      </h3>
+
+      <div className="mt-3 flex items-center gap-2 text-[13px]">
+        <Avatar name={gig.seller_name} src={gig.seller_avatar} size={22} />
+        <span className="truncate text-muted">{gig.seller_name}</span>
+        {gig.seller_is_student && <Badge tone="accent">Student</Badge>}
       </div>
 
-      <div className="perforation mx-5 mt-5" aria-hidden />
-
-      <div className="flex items-baseline justify-between gap-3 px-5 pt-3.5 pb-7">
-        <span className="eyebrow">From</span>
-        <Money amount={gig.starting_price} className="figure text-[18px] font-semibold text-fg" />
+      <div className="mt-auto flex items-end justify-between gap-3 pt-5">
+        <span className="text-[12.5px] text-subtle">
+          {gig.rating_count > 0 ? `★ ${gig.rating_average} (${gig.rating_count})` : "New"}
+        </span>
+        <span className="text-right">
+          <span className="block text-[11.5px] text-subtle">Starting at</span>
+          <Money amount={gig.starting_price} className="text-[16px] font-semibold text-fg" />
+        </span>
       </div>
-    </Link>
+    </article>
   );
 }
 

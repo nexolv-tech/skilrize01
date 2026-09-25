@@ -4,7 +4,6 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { CoverArt, motifFor } from "@/components/artwork";
 import { LevelBadge, PromotedTag, SuccessScore } from "@/components/reputation";
 import { PageHeading } from "@/components/shell";
 import {
@@ -92,21 +91,13 @@ function GigResult({ gig }: { gig: SearchGig }) {
         "hover:border-accent/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
       )}
     >
-      <div className="relative aspect-[16/10] overflow-hidden bg-sunken">
-        <CoverArt
-          seed={gig.title}
-          motif={motifFor(gig.category)}
-          rounded={false}
-          className="transition-transform duration-500 group-hover:scale-[1.06]"
-        />
-        {gig.is_promoted && (
-          <div className="absolute right-3 top-3">
-            <PromotedTag />
+      <div className="flex flex-1 flex-col p-5">
+        {(gig.category || gig.is_promoted) && (
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <span className="text-[12.5px] text-subtle">{gig.category}</span>
+            {gig.is_promoted && <PromotedTag />}
           </div>
         )}
-      </div>
-
-      <div className="flex flex-1 flex-col p-5">
         <div className="flex items-center gap-2">
           <Avatar name={gig.seller.display_name} src={gig.seller.avatar_url} size={24} />
           <span className="truncate text-[12.5px] text-muted">{gig.seller.display_name}</span>

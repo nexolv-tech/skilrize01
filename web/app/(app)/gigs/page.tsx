@@ -4,23 +4,19 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { Cover, motifFor } from "@/components/artwork";
+import { GigCard } from "@/components/marketing";
 import {
-  Avatar,
-  Badge,
   Button,
   Card,
   EmptyState,
   Icon,
   Input,
-  Money,
   Select,
   Skeleton,
-  Stars,
   Tag,
   cn,
 } from "@/components/ui";
-import { gigs, marketplace, type Category, type GigSummary } from "@/lib/api";
+import { gigs, marketplace, type Category } from "@/lib/api";
 import { useLoader, useSession } from "@/lib/session";
 
 const SORTS = [
@@ -36,60 +32,6 @@ const DELIVERY = [
   ["7", "Up to 7 days"],
 ] as const;
 
-function GigCard({ gig }: { gig: GigSummary }) {
-  return (
-    <Card
-      as="article"
-      className="group relative overflow-hidden p-0 transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-e2"
-    >
-      <div className="aspect-[16/10] overflow-hidden bg-sunken">
-        <Cover
-          src={gig.cover_url}
-          seed={gig.slug || gig.id}
-          motif={motifFor(gig.category_name)}
-          alt=""
-          className="rounded-none transition-transform duration-500 group-hover:scale-105"
-        />
-      </div>
-
-      <div className="p-4">
-        <div className="flex items-center gap-2">
-          <Avatar name={gig.seller_name} src={gig.seller_avatar} size={24} />
-          <span className="truncate text-[12.5px] font-medium text-fg">{gig.seller_name}</span>
-          {gig.seller_is_student && <Badge tone="accent">Student</Badge>}
-        </div>
-
-        <h3 className="mt-2.5 line-clamp-2 text-[14px] font-medium leading-snug text-fg">
-          <Link
-            href={`/gigs/${gig.id}`}
-            className="rounded-sm after:absolute after:inset-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          >
-            {gig.title}
-          </Link>
-        </h3>
-
-        <div className="mt-2.5 flex items-center gap-1.5 text-[12px]">
-          {gig.rating_count > 0 ? (
-            <>
-              <Stars value={Number(gig.rating_average ?? 0)} size={12} />
-              <span className="font-medium text-fg">{gig.rating_average}</span>
-              <span className="text-subtle">({gig.rating_count})</span>
-            </>
-          ) : (
-            <span className="text-subtle">New seller</span>
-          )}
-        </div>
-
-        <div className="mt-3 flex items-end justify-between border-t border-line pt-3">
-          <span className="text-[11.5px] uppercase tracking-wide text-subtle">From</span>
-          <span className="text-[15px] font-semibold text-fg">
-            <Money amount={gig.starting_price} />
-          </span>
-        </div>
-      </div>
-    </Card>
-  );
-}
 
 function CatalogueContent() {
   const params = useSearchParams();

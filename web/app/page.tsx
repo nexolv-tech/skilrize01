@@ -23,7 +23,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import {
-  CategoryRow,
+  CategoryLink,
   DualAccountCard,
   EscrowTicket,
   FaqItem,
@@ -169,7 +169,7 @@ export default function LandingPage() {
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
               {loading
                 ? Array.from({ length: 4 }, (_, index) => (
-                    <Skeleton key={index} className="h-60 w-full rounded-lg" />
+                    <Skeleton key={index} className="h-48 w-full rounded-lg" />
                   ))
                 : services.map((gig) => <GigCard key={gig.id} gig={gig} />)}
             </div>
@@ -186,9 +186,9 @@ export default function LandingPage() {
               title="What you can get done"
               description="Eight fields, one set of rules: every order in every category is funded in escrow and released on approval."
             />
-            <div className="grid gap-x-14 gap-y-10 md:grid-cols-2">
+            <div className="grid gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-4">
               {CATEGORIES.map((category) => (
-                <CategoryRow key={category.slug} {...category} />
+                <CategoryLink key={category.slug} {...category} />
               ))}
             </div>
           </div>

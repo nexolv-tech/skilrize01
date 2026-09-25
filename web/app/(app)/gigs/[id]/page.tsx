@@ -4,7 +4,6 @@ import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
-import { CoverArt, motifFor } from "@/components/artwork";
 import {
   Alert,
   Avatar,
@@ -222,7 +221,6 @@ export default function GigDetailPage() {
     );
   }
 
-  const motif = motifFor(gig.category?.name);
   const images = gig.gallery_urls;
 
   return (
@@ -283,41 +281,35 @@ export default function GigDetailPage() {
             </div>
           </div>
 
-          {/* Gallery. Generated art stands in until the seller uploads. */}
-          <div className="overflow-hidden rounded-xl border border-line bg-sunken">
-            <div className="aspect-[16/9]">
-              {images.length > 0 ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={images[frame] ?? images[0]}
-                  alt=""
-                  className="size-full object-cover"
-                />
-              ) : (
-                <CoverArt seed={gig.slug || gig.id} motif={motif} rounded={false} />
+          {/* Gallery — only the seller's own images; no stand-in picture. */}
+          {images.length > 0 && (
+            <div className="overflow-hidden rounded-xl border border-line bg-sunken">
+              <div className="aspect-[16/9]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={images[frame] ?? images[0]} alt="" className="size-full object-cover" />
+              </div>
+              {images.length > 1 && (
+                <div className="flex gap-2 overflow-x-auto p-3">
+                  {images.map((url, index) => (
+                    <button
+                      key={url}
+                      type="button"
+                      onClick={() => setFrame(index)}
+                      aria-label={`Image ${index + 1}`}
+                      aria-current={index === frame}
+                      className={cn(
+                        "h-14 w-20 shrink-0 overflow-hidden rounded-md border-2 transition-colors",
+                        index === frame ? "border-accent" : "border-transparent hover:border-line-strong",
+                      )}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={url} alt="" className="size-full object-cover" />
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
-            {images.length > 1 && (
-              <div className="flex gap-2 overflow-x-auto p-3">
-                {images.map((url, index) => (
-                  <button
-                    key={url}
-                    type="button"
-                    onClick={() => setFrame(index)}
-                    aria-label={`Image ${index + 1}`}
-                    aria-current={index === frame}
-                    className={cn(
-                      "h-14 w-20 shrink-0 overflow-hidden rounded-md border-2 transition-colors",
-                      index === frame ? "border-accent" : "border-transparent hover:border-line-strong",
-                    )}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={url} alt="" className="size-full object-cover" />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          )}
 
           <Card className="p-6">
             <h2 className="text-[15px] font-semibold text-fg">About this service</h2>

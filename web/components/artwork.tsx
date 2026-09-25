@@ -1,31 +1,16 @@
 /**
- * Generated covers.
+ * Stand-in thumbnails.
  *
- * Every listing needs a picture from the moment it is published — long before
- * a seller has uploaded one. The first version drew little abstractions of
- * each field (a code window, colour swatches, a book) over a gradient and a
- * dot grid, which read exactly like generated stock art. These are set, not
- * drawn: a flat field in the category's colour with the category's name cut
- * large across it, the way a printed label or a book spine would carry it.
- *
- * The colour belongs to the category, not the listing, so it means something:
- * every Development listing is lapis, every Academic one firozi, on every page.
- * The seed only moves the lettering, so neighbours in a grid are not clones.
- * When a seller uploads a real cover, that wins — this is the floor.
+ * Listing cards and service pages show a picture only when the seller has
+ * uploaded one — an invented cover is worse than none. What remains is the
+ * small square a few screens need beside an order (checkout, orders, the
+ * showcase): a soft tint of the category's colour with its initial, quiet
+ * enough not to pass for a real image. The colour belongs to the category, so
+ * it stays the same on every page.
  */
 import * as React from "react";
 
 import { cn } from "./ui";
-
-/** Stable small hash, so the same input always yields the same cover. */
-function hash(seed: string): number {
-  let value = 2166136261;
-  for (let index = 0; index < seed.length; index += 1) {
-    value ^= seed.charCodeAt(index);
-    value = Math.imul(value, 16777619);
-  }
-  return Math.abs(value);
-}
 
 export type Motif =
   | "code"
@@ -53,12 +38,10 @@ export function motifFor(categoryName?: string | null): Motif {
   return MOTIF_BY_CATEGORY[categoryName] ?? "design";
 }
 
-export interface Palette {
-  /** The field. */
+interface Palette {
+  /** The initial. */
   deep: string;
-  /** The lettering, and the category's colour wherever it appears alone. */
-  mid: string;
-  /** A tint for light backgrounds. */
+  /** The tile. */
   light: string;
 }
 
@@ -69,65 +52,41 @@ export interface Palette {
  * so Academic Support shares it.
  */
 const PALETTES: Record<Motif, Palette> = {
-  code: { deep: "#1E3A6E", mid: "#3F6FC4", light: "#DCE6F7" }, // lapis
-  design: { deep: "#7E1D22", mid: "#C7453E", light: "#F6DCD8" }, // madder
-  writing: { deep: "#2B2A26", mid: "#6E6A60", light: "#E6E4DE" }, // slate
-  video: { deep: "#5E3D22", mid: "#B07D4F", light: "#F2E6D8" }, // multani clay
-  marketing: { deep: "#9A5800", mid: "#F2A10F", light: "#FEEFCF" }, // marigold
-  data: { deep: "#465619", mid: "#8BA03A", light: "#E7EDCF" }, // mehndi
-  business: { deep: "#23394A", mid: "#5C7A91", light: "#DEE6EC" }, // kohl
-  academic: { deep: "#0B5552", mid: "#139088", light: "#CAEBE6" }, // firozi
+  code: { deep: "#1E3A6E", light: "#DCE6F7" }, // lapis
+  design: { deep: "#7E1D22", light: "#F6DCD8" }, // madder
+  writing: { deep: "#2B2A26", light: "#E6E4DE" }, // slate
+  video: { deep: "#5E3D22", light: "#F2E6D8" }, // multani clay
+  marketing: { deep: "#9A5800", light: "#FEEFCF" }, // marigold
+  data: { deep: "#465619", light: "#E7EDCF" }, // mehndi
+  business: { deep: "#23394A", light: "#DEE6EC" }, // kohl
+  academic: { deep: "#0B5552", light: "#CAEBE6" }, // firozi
 };
 
-export function paletteFor(categoryName?: string | null): Palette {
-  return PALETTES[motifFor(categoryName)];
-}
-
-/** The word each field is set in on its cover, and its label above. */
-const WORD: Record<Motif, string> = {
-  code: "Development",
-  design: "Design",
-  writing: "Writing",
-  video: "Video",
-  marketing: "Marketing",
-  data: "Data",
-  business: "Business",
-  academic: "Academic",
-};
-
-const LABEL: Record<Motif, string> = {
-  code: "Development & IT",
-  design: "Design & Creative",
-  writing: "Writing & Translation",
-  video: "Video & Animation",
-  marketing: "Marketing & Sales",
-  data: "Data & Analytics",
-  business: "Business & Admin",
-  academic: "Academic Support",
+const INITIAL: Record<Motif, string> = {
+  code: "D",
+  design: "D",
+  writing: "W",
+  video: "V",
+  marketing: "M",
+  data: "D",
+  business: "B",
+  academic: "A",
 };
 
 /* -------------------------------------------------------------------------- */
 
 export function CoverArt({
-  seed,
   motif = "design",
   className,
   rounded = true,
 }: {
-  /** Anything stable and unique — a gig id, a slug. */
-  seed: string | number;
+  /** Kept for callers; the tile depends only on the category. */
+  seed?: string | number;
   motif?: Motif;
   className?: string;
   rounded?: boolean;
 }) {
-  const { deep, mid, light } = PALETTES[motif];
-  const word = WORD[motif];
-  // Short words are set to fill the width; long ones run off the right edge,
-  // cropped like a detail of a larger sign. Everything sits between y 30 and
-  // 195, the band that survives any card shape once the frame is sliced.
-  const size = Math.min(140, Math.max(92, 330 / (word.length * 0.46)));
-  const baseline = 188 - (hash(String(seed)) % 3) * 4;
-
+  const { deep, light } = PALETTES[motif];
   return (
     <svg
       viewBox="0 0 320 220"
@@ -135,30 +94,18 @@ export function CoverArt({
       preserveAspectRatio="xMidYMid slice"
       aria-hidden
     >
-      <rect width="320" height="220" fill={deep} />
+      <rect width="320" height="220" fill={light} />
       <text
-        x="18"
-        y="50"
-        fill={light}
-        fillOpacity="0.8"
-        fontSize="10.5"
-        style={{ fontFamily: "var(--font-mono)", letterSpacing: "0.08em", textTransform: "uppercase" }}
+        x="160"
+        y="112"
+        textAnchor="middle"
+        dominantBaseline="central"
+        fill={deep}
+        fillOpacity="0.55"
+        fontSize="92"
+        style={{ fontFamily: "var(--font-sans)", fontWeight: 600 }}
       >
-        {LABEL[motif]}
-      </text>
-      <text
-        x="12"
-        y={baseline}
-        fill={mid}
-        fontSize={size}
-        style={{
-          fontFamily: "var(--font-display)",
-          fontVariationSettings: '"wdth" 62',
-          fontWeight: 800,
-          letterSpacing: "-0.03em",
-        }}
-      >
-        {word}
+        {INITIAL[motif]}
       </text>
     </svg>
   );
