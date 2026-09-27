@@ -72,7 +72,7 @@ const STEPS: Record<"hire" | "sell", Array<{ title: string; body: string }>> = {
     { title: "Create a free account and verify it", body: "Confirm your email and CNIC once. Buyers see you are verified." },
     { title: "List a service or send proposals", body: "Price your work in three packages, or bid on briefs that match your skills." },
     { title: "Deliver the work", body: "Every order is funded before you start, so you never work on a promise." },
-    { title: "Get paid to your bank account", body: "When the client approves, your payment is released minus the platform fee." },
+    { title: "Get paid to your bank or wallet", body: "When the client approves, your payment is released minus the platform fee." },
   ],
 };
 
@@ -272,11 +272,11 @@ export default function LandingPage() {
                 </thead>
                 <tbody className="divide-y divide-line">
                   {[
-                    ["You place an order", "Held by SkilRize in escrow", "The freelancer starts once you share your requirements."],
+                    ["You pay at checkout", "Held by SkilRize in escrow", "Pay by card, Easypaisa, JazzCash or 1Bill through Swich. The freelancer starts once you share your requirements."],
                     ["The work is delivered", "Still held in escrow", `You have ${BUSINESS.orderReviewDays} days (services) or ${BUSINESS.contractReviewDays} days (projects) to accept it or ask for a revision.`],
                     ["You accept the work", "Released to the freelancer", `They receive it minus the ${BUSINESS.commissionPercent}% platform fee. You pay nothing extra.`],
                     ["You don't respond in time", "Released automatically", "A delivery nobody answers is accepted when the review window closes, so no payment is held hostage."],
-                    ["The order is cancelled", "Refunded to you in full", "Sent back to the account you paid from."],
+                    ["The order is cancelled", "Refunded to you in full", "Returned to the card or wallet you paid with."],
                   ].map(([when, where, next]) => (
                     <tr key={when}>
                       <th scope="row" className="px-5 py-4 font-semibold text-fg">{when}</th>
@@ -288,8 +288,9 @@ export default function LandingPage() {
               </table>
             </div>
             <p className="mt-5 max-w-3xl text-[13.5px] leading-relaxed text-subtle">
-              Today you pay by bank transfer to {BUSINESS.operator}&apos;s business account. Card,
-              JazzCash, easypaisa and Raast payments are being added. Full details are in the{" "}
+              Payments are processed by Swich, a licensed Pakistani payment gateway: debit and
+              credit cards, Easypaisa, JazzCash and 1Bill. You pay on Swich&apos;s secure page, so
+              SkilRize never sees your card number or wallet PIN. Full details are in the{" "}
               <Link href="/refunds" className="font-medium text-accent underline underline-offset-2">
                 Refund &amp; Cancellation Policy
               </Link>

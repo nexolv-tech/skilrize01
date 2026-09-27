@@ -19,6 +19,7 @@ import { orders, type GigOrder, type OrderStatus } from "@/lib/api";
 import { formatRelative, useLoader } from "@/lib/session";
 
 const TONES: Record<OrderStatus, "neutral" | "accent" | "positive" | "caution" | "critical"> = {
+  awaiting_payment: "caution",
   pending_requirements: "caution",
   active: "accent",
   delivered: "caution",
@@ -28,6 +29,7 @@ const TONES: Record<OrderStatus, "neutral" | "accent" | "positive" | "caution" |
 };
 
 const LABELS: Record<OrderStatus, string> = {
+  awaiting_payment: "Awaiting payment",
   pending_requirements: "Needs requirements",
   active: "In progress",
   delivered: "Delivered",

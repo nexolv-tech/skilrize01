@@ -18,20 +18,44 @@ import {
   Textarea,
   cn,
 } from "@/components/ui";
+import { SwichPay } from "@/components/payments";
 import { orders, type GigOrder, type OrderStatus } from "@/lib/api";
 import { formatRelative, useAsyncAction, useLoader } from "@/lib/session";
 
 const STEPS: Array<{ status: OrderStatus; label: string }> = [
+  { status: "awaiting_payment", label: "Payment" },
   { status: "pending_requirements", label: "Requirements" },
   { status: "active", label: "In progress" },
   { status: "delivered", label: "Delivered" },
   { status: "completed", label: "Complete" },
 ];
 
+/** An order placed but not paid for: the seller cannot see it yet. */
+function AwaitingPayment({ order }: { order: GigOrder }) {
+  const pay = useAsyncAction(() => orders.pay(order.id));
+  return (
+    <Card>
+      <CardHeader
+        title="Complete your payment"
+        description="Your order is saved, but the seller only sees it once the payment goes through. If you left Swich's page or the payment was declined, try again below. Unpaid orders close after 48 hours; nothing is charged."
+      />
+      <div className="space-y-4 p-5">
+        <SwichPay
+          amount={order.price}
+          label="Pay now"
+          error={pay.error}
+          onStart={() => pay.run()}
+        />
+      </div>
+    </Card>
+  );
+}
+
 function Progress({ order }: { order: GigOrder }) {
   const index = STEPS.findIndex((step) => step.status === order.status);
   // A revision loops back to "in progress" rather than inventing a fifth step.
-  const current = order.status === "revision" ? 1 : index === -1 ? 0 : index;
+  const inProgress = STEPS.findIndex((step) => step.status === "active");
+  const current = order.status === "revision" ? inProgress : index === -1 ? 0 : index;
 
   return (
     <ol className="flex items-center gap-2">
@@ -175,6 +199,11 @@ export default function OrderWorkspacePage() {
               </Alert>
             )}
           </Card>
+
+          {/* --- Unpaid: the order waits for Swich --- */}
+          {order.status === "awaiting_payment" && isBuyer && (
+            <AwaitingPayment order={order} />
+          )}
 
           {/* --- The requirements gate --- */}
           {order.status === "pending_requirements" &&
@@ -486,7 +515,9 @@ export default function OrderWorkspacePage() {
             </div>
           </Card>
 
-          {order.status !== "completed" && order.status !== "cancelled" && (
+          {order.status !== "completed" &&
+            order.status !== "cancelled" &&
+            order.status !== "awaiting_payment" && (
             <Card className="p-5">
               <div className="flex gap-3">
                 <Icon name="shield" className="mt-0.5 size-4 shrink-0 text-positive" />
@@ -508,13 +539,19 @@ export default function OrderWorkspacePage() {
                 confirmingCancel ? (
                   <div className="mt-3 space-y-3">
                     <p className="text-[12.5px] leading-relaxed text-muted">
-                      The order closes and {isBuyer ? "you are" : "the buyer is"} refunded{" "}
-                      <Money amount={order.price} /> in full. This cannot be undone.
+                      {order.status === "awaiting_payment" ? (
+                        "The order closes. Nothing has been paid, so nothing is charged."
+                      ) : (
+                        <>
+                          The order closes and {isBuyer ? "you are" : "the buyer is"} refunded{" "}
+                          <Money amount={order.price} /> in full. This cannot be undone.
+                        </>
+                      )}
                     </p>
                     {cancel.error && <Alert tone="critical">{cancel.error}</Alert>}
                     <div className="flex flex-wrap gap-2">
                       <Button size="sm" variant="danger" loading={cancel.pending} onClick={() => void cancel.run()}>
-                        Cancel and refund
+                        {order.status === "awaiting_payment" ? "Cancel the order" : "Cancel and refund"}
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => setConfirmingCancel(false)}>
                         Keep the order
@@ -524,7 +561,9 @@ export default function OrderWorkspacePage() {
                 ) : (
                   <>
                     <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
-                      {isBuyer ? "You" : "The buyer"} will be refunded in full.
+                      {order.status === "awaiting_payment"
+                        ? "Nothing has been paid yet, so nothing is charged."
+                        : `${isBuyer ? "You" : "The buyer"} will be refunded in full.`}
                     </p>
                     <Button size="sm" variant="secondary" className="mt-3" onClick={() => setConfirmingCancel(true)}>
                       Cancel order…

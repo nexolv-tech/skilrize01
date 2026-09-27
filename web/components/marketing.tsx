@@ -26,7 +26,7 @@ const TICKET_STEPS: Array<{ label: string; detail: string }> = [
   { label: "You pay into escrow", detail: "Held by SkilRize" },
   { label: "Work delivered", detail: "Files and notes on the record" },
   { label: "You approve the work", detail: "Or ask for a revision" },
-  { label: "Released to the freelancer", detail: "Sent to their bank account" },
+  { label: "Released to the freelancer", detail: "Sent to their bank or wallet" },
 ];
 
 /** Seconds at which each step inks in. The stamp changes after the last. */

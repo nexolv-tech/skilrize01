@@ -26,8 +26,8 @@ export const BUSINESS = {
   hours: "Monday to Saturday, 10:00–18:00 PKT",
   siteUrl: "https://skilrize.com",
   /** Kept in step with LEGAL_*_VERSION in api/config/settings.py. */
-  legalVersion: "2026-09-25",
-  legalEffective: "25 September 2026",
+  legalVersion: "2026-09-27",
+  legalEffective: "27 September 2026",
   currency: "Pakistani rupees (PKR)",
   /** Default platform commission, mirrored from PLATFORM_COMMISSION_PERCENT. */
   commissionPercent: 10,

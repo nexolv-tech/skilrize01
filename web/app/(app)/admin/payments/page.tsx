@@ -164,13 +164,15 @@ function TransfersTab({ state }: { state: State }) {
             <PersonLink person={row.payee} label="For" />
           </p>
           <p className="text-[13px] text-muted">
-            Transfer reference:{" "}
+            Reference:{" "}
             <span className="font-medium text-fg">{row.reference_note || "none given"}</span> ·
             reported {formatRelative(row.reported_at)} · <Where contractId={row.contract_id} orderId={row.order_id} />
           </p>
           {row.confirmed_at ? (
             <StatusText tone="positive">
-              Confirmed {formatRelative(row.confirmed_at)} by {row.confirmed_by?.name}
+              {row.confirmed_by
+                ? `Confirmed ${formatRelative(row.confirmed_at)} by ${row.confirmed_by.name}`
+                : `Received through Swich ${formatRelative(row.confirmed_at)}`}
             </StatusText>
           ) : (
             <div className="flex flex-wrap items-start gap-2">
@@ -228,13 +230,15 @@ function PlansTab({ state }: { state: State }) {
             <PersonLink person={row.payer} label="From" />
           </p>
           <p className="text-[13px] text-muted">
-            Transfer reference:{" "}
+            Reference:{" "}
             <span className="font-medium text-fg">{row.reference_note || "none given"}</span> ·
             reported {formatRelative(row.reported_at)}
           </p>
           {row.confirmed_at ? (
             <StatusText tone="positive">
-              Confirmed {formatRelative(row.confirmed_at)} by {row.confirmed_by?.name}
+              {row.confirmed_by
+                ? `Confirmed ${formatRelative(row.confirmed_at)} by ${row.confirmed_by.name}`
+                : `Received through Swich ${formatRelative(row.confirmed_at)}`}
             </StatusText>
           ) : (
             <div className="flex flex-wrap items-start gap-2">
@@ -403,7 +407,7 @@ function PaymentsContent() {
     <>
       <AdminHeading
         title="Payments"
-        description="Money comes in by bank transfer and goes out by bank transfer. Confirm what reached the account, then record each payout and refund once you have sent it."
+        description="Buyers pay through Swich by card, Easypaisa, JazzCash or 1Bill, and each payment is confirmed automatically. Payouts to freelancers and refunds to buyers are sent from your bank or Swich account and recorded here."
         action={<StateSwitch value={state} onChange={setState} options={STATES} />}
       />
       <AdminTabs
@@ -416,7 +420,7 @@ function PaymentsContent() {
           });
         }}
         tabs={[
-          { value: "transfers", label: "Payments in", count: queues.transfers },
+          { value: "transfers", label: "Payments in", count: queues.transfers || undefined },
           { value: "plans", label: "Plans" },
           { value: "payouts", label: "Payouts", count: queues.payouts },
           { value: "refunds", label: "Refunds", count: queues.refunds },
@@ -424,8 +428,9 @@ function PaymentsContent() {
       />
       {tab === "transfers" && (
         <Alert tone="neutral" className="mb-5">
-          Buyers pay by bank transfer and report it at checkout, with their transfer reference.
-          Until you confirm a payment here, SkilRize has only their word that it arrived.
+          Payments made through Swich arrive here already confirmed, under Done. To do lists only
+          payments recorded by hand, such as a milestone an admin marked funded, until you match
+          each against your statement.
         </Alert>
       )}
       {tab === "transfers" && <TransfersTab key={state} state={state} />}

@@ -783,13 +783,10 @@ export const contracts = {
   accept: (id: number) => api.post<ContractDetail>(`/contracts/${id}/accept/`),
   cancel: (id: number) => api.post<ContractDetail>(`/contracts/${id}/cancel/`),
 
-  // Marks a milestone funded — the client has already transferred the
-  // money to the platform's own bank account (`payments.bankTransferInstructions`)
-  // and this call is them confirming that (Phase 3, D42).
-  fund: (id: number, milestoneId: number, referenceNote = "") =>
-    api.post<ContractDetail>(`/contracts/${id}/milestones/${milestoneId}/fund/`, {
-      reference_note: referenceNote,
-    }),
+  // Starts a Swich checkout for the milestone; it is funded when Swich
+  // confirms the payment, not by this call (D55).
+  fund: (id: number, milestoneId: number) =>
+    api.post<CheckoutStart>(`/contracts/${id}/milestones/${milestoneId}/fund/`),
   release: (id: number, milestoneId: number) =>
     api.post<ContractDetail>(`/contracts/${id}/milestones/${milestoneId}/release/`),
   deliver: (id: number, milestoneId: number, note: string, files: File[] = []) => {
@@ -825,14 +822,28 @@ export const contracts = {
 /* Payments — Phase 3, D42                                                    */
 /* -------------------------------------------------------------------------- */
 
-export interface BankTransferInstructions {
-  /** False until the platform's receiving account is configured; every
-   *  funding endpoint refuses with `payments_unavailable` meanwhile. */
+export interface PaymentOptions {
+  /** False until the Swich merchant account is live; every payment refuses
+   *  with `payments_unavailable` meanwhile and nothing is taken. */
   available: boolean;
-  bank_name: string;
-  account_title: string;
-  account_number: string;
+  provider: string;
+  methods: Array<{ id: string; label: string; detail: string }>;
   commission_percent: string;
+}
+
+/** Every "pay" endpoint answers with where to send the buyer (D55). */
+export interface CheckoutStart {
+  checkout_url: string;
+  payment_reference: string;
+}
+
+export interface ChargeStatus {
+  reference: string;
+  purpose: "order" | "milestone" | "plan";
+  status: "created" | "paid" | "failed" | "expired";
+  amount: string;
+  order_id: number | null;
+  contract_id: number | null;
 }
 
 export interface PayoutProfile {
@@ -869,11 +880,10 @@ export interface Refund {
 }
 
 export const payments = {
-  // Where to actually send money to fund a milestone or order — shown
-  // before the client confirms they've paid, not asked for by any
-  // gateway (Phase 3, D42).
-  bankTransferInstructions: () =>
-    api.get<BankTransferInstructions>("/payments/bank-transfer-instructions/"),
+  // How a buyer can pay, through Swich (D55).
+  options: () => api.get<PaymentOptions>("/payments/options/"),
+  charge: (reference: string) =>
+    api.get<ChargeStatus>(`/payments/charges/${encodeURIComponent(reference)}/`),
   payoutProfile: () => api.get<PayoutProfile>("/payments/payout-profile/"),
   savePayoutProfile: (body: {
     bank_name: string;
@@ -973,6 +983,7 @@ export interface GigDetail {
 }
 
 export type OrderStatus =
+  | "awaiting_payment"
   | "pending_requirements"
   | "active"
   | "delivered"
@@ -1039,11 +1050,10 @@ export const gigs = {
     return request<GigDetail>(`/gigs/${id}/video/`, { method: "POST", body: form });
   },
   removeVideo: (id: number) => api.delete<GigDetail>(`/gigs/${id}/video/`),
-  // Paid up front, the same trust basis as `contracts.fund` — the buyer
-  // has already transferred payment to the platform's own bank account
-  // (Phase 3, D42).
-  order: (id: number, body: { package: number; extras?: number[]; reference_note?: string }) =>
-    api.post<GigOrder>(`/gigs/${id}/order/`, body),
+  // Places the order and starts a Swich checkout; the order opens to the
+  // seller once Swich confirms the payment (D55).
+  order: (id: number, body: { package: number; extras?: number[] }) =>
+    api.post<CheckoutStart & { order: GigOrder }>(`/gigs/${id}/order/`, body),
   sellerDashboard: () =>
     api.get<{
       gigs: number;
@@ -1071,6 +1081,8 @@ export const orders = {
     api.post<GigOrder>(`/orders/${id}/request-revision/`, { note }),
   accept: (id: number) => api.post<GigOrder>(`/orders/${id}/accept/`),
   cancel: (id: number) => api.post<GigOrder>(`/orders/${id}/cancel/`),
+  /** Try paying again after leaving Swich's page or a declined payment. */
+  pay: (id: number) => api.post<CheckoutStart>(`/orders/${id}/pay/`),
 };
 
 /* -------------------------------------------------------------------------- */
@@ -1604,15 +1616,12 @@ export const professional = {
     api.get<{ subscription: UserSubscription | null; entitlements: Entitlements }>(
       "/subscription/",
     ),
-  // A paid tier declares a bank transfer the same way `contracts.fund` and
-  // `gigs.order` do (Phase 3, D42) — `referenceNote` is ignored server-side
-  // for the free tier, which needs no declaration.
-  subscribe: (tier: PlanTier, interval: "monthly" | "yearly" = "monthly", referenceNote = "") =>
-    api.post<UserSubscription>("/subscription/subscribe/", {
-      tier,
-      interval,
-      reference_note: referenceNote,
-    }),
+  /** Free switches at once; a paid tier answers with a Swich checkout. */
+  subscribe: (tier: PlanTier, interval: "monthly" | "yearly" = "monthly") =>
+    api.post<UserSubscription | CheckoutStart | { subscription: null; detail: string }>(
+      "/subscription/subscribe/",
+      { tier, interval },
+    ),
   cancelSubscription: () => api.post<UserSubscription>("/subscription/cancel/"),
 
   contacts: (filters: Record<string, string | undefined> = {}) =>
@@ -2129,11 +2138,11 @@ export interface AdminUserSummary {
 export interface AdminPlatformSettings {
   environment: string;
   commission_percent: string;
-  bank_transfer: {
+  payments: {
     available: boolean;
-    bank_name: string;
-    account_title: string;
-    account_number_last4: string;
+    provider: string;
+    environment: string;
+    callback_url: string;
   };
   email: { backend: string; from: string; sending: boolean };
   security: {

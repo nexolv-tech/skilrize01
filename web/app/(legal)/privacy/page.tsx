@@ -81,8 +81,9 @@ export default function PrivacyPolicyPage() {
           orders, contracts, files you deliver, time you log, messages, reviews and community posts.
         </li>
         <li>
-          <strong>Payments:</strong> the amount, date and the transfer reference you give when you
-          pay for an order. We do not currently accept cards, so we never receive card numbers.
+          <strong>Payments:</strong> the amount, the date, the method type (card, wallet or 1Bill)
+          and Swich&apos;s transaction reference. You enter card and wallet details on Swich&apos;s
+          page, so we never receive your card number, CVV or wallet PIN.
         </li>
         <li>
           <strong>Messages to us</strong>, if you contact support.
@@ -190,9 +191,10 @@ export default function PrivacyPolicyPage() {
           backup storage).
         </li>
         <li>
-          <strong>Banks and payment providers</strong>, to receive payments and send payouts and
-          refunds. When card and mobile-wallet payments launch, a licensed Pakistani payment
-          service provider will process them, and this policy will name it.
+          <strong>Swich</strong> (a licensed Pakistani payment gateway) processes payments by
+          card, Easypaisa, JazzCash and 1Bill, and refunds. We pass it the amount, a reference for
+          the order, and your name, email and phone number for the payment page. Banks and wallet
+          providers receive the details needed to send payouts and refunds.
         </li>
         <li>
           <strong>Services you connect</strong> yourself (see section 2).

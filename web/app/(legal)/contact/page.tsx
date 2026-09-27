@@ -40,7 +40,7 @@ const TOPICS: Array<{ title: string; include: string; link?: [string, string] }>
   },
   {
     title: "A payment you made",
-    include: "The amount, the date, and the transfer reference from your bank.",
+    include: "Your order number, the amount, the date, and the Swich transaction reference from your receipt.",
     link: ["How payments work", "/#how-it-works"],
   },
   {

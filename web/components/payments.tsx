@@ -1,134 +1,125 @@
 "use client";
 
 /**
- * Escrow funding UI — the platform's own bank account, shown before a
- * client confirms they've paid (Phase 3, D42). Shared between the
- * contract-milestone flow, the gig checkout and plan upgrades, which all
- * fund the same way: a real bank transfer this app cannot verify, followed
- * by the client's own confirmation.
+ * Paying through Swich (D55). Shared by the service checkout, a brief's
+ * milestone and plan upgrades: each asks its own endpoint to start a
+ * checkout, then sends the buyer's browser to Swich's secure page, where
+ * they pay by card, Easypaisa, JazzCash or 1Bill. Nothing is held until
+ * Swich confirms the payment to the server; the page the buyer returns to
+ * (`/payments/return`) only shows what that confirmation recorded.
  */
 
 import * as React from "react";
-import Link from "next/link";
 
-import { Alert, Button, Field, Input, Money, Skeleton } from "@/components/ui";
-import { payments } from "@/lib/api";
+import { Alert, Button, Icon, Money, Skeleton, cn } from "@/components/ui";
+import { payments, type CheckoutStart, type PaymentOptions } from "@/lib/api";
 import { BUSINESS } from "@/lib/business";
 import { useLoader } from "@/lib/session";
 
-function CopyValue({ value }: { value: string }) {
-  const [copied, setCopied] = React.useState(false);
+/** The ways to pay, as the buyer will see them on Swich's page. */
+export function PaymentMethods({
+  options,
+  className,
+}: {
+  options: PaymentOptions | null;
+  className?: string;
+}) {
+  if (!options) return <Skeleton className={cn("h-24 w-full", className)} />;
   return (
-    <button
-      type="button"
-      onClick={() => {
-        void navigator.clipboard?.writeText(value).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        });
-      }}
-      className="figure rounded-sm px-1 text-right font-medium text-fg underline decoration-line-strong decoration-dotted underline-offset-4 hover:decoration-fg"
-      aria-label={`Copy ${value}`}
-    >
-      {copied ? "Copied" : value}
-    </button>
+    <ul className={cn("grid gap-2 sm:grid-cols-2", className)} aria-label="Ways to pay">
+      {options.methods.map((method) => (
+        <li
+          key={method.id}
+          className="flex items-center gap-3 rounded-md border border-line bg-raised p-3"
+        >
+          <span className="grid size-8 shrink-0 place-items-center rounded-md bg-sunken text-muted">
+            <Icon name={method.id === "card" ? "wallet" : method.id === "1bill" ? "file" : "phone"} className="size-4" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[13.5px] font-medium text-fg">{method.label}</span>
+            <span className="block text-[12px] text-muted">{method.detail}</span>
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
-export function BankTransferPanel({
-  amount,
-  onConfirm,
-  pending,
-  onCancel,
-  confirmLabel = "I've sent the payment",
-  confirmDisabled = false,
-}: {
-  amount: string;
-  onConfirm: (referenceNote: string) => void;
-  pending: boolean;
-  onCancel?: () => void;
-  confirmLabel?: string;
-  /** For a caller with its own precondition — the checkout's terms box. */
-  confirmDisabled?: boolean;
-}) {
-  const { data } = useLoader(() => payments.bankTransferInstructions(), []);
-  const [reference, setReference] = React.useState("");
+export function PaymentsOpeningSoon() {
+  return (
+    <Alert tone="neutral" title="Card and wallet payments are opening shortly">
+      Nothing has been charged and no order was placed. To buy now, email{" "}
+      <a href={`mailto:${BUSINESS.email}`} className="font-medium underline">
+        {BUSINESS.email}
+      </a>{" "}
+      or call {BUSINESS.phone}.
+    </Alert>
+  );
+}
 
-  if (data && !data.available) {
-    return (
-      <Alert tone="caution" title="Payments are not open yet">
-        Bank transfer will be available shortly. Nothing has been charged. To place this order now,
-        email <a href={`mailto:${BUSINESS.email}`} className="font-medium underline">{BUSINESS.email}</a>{" "}
-        or call {BUSINESS.phone}.
-      </Alert>
-    );
-  }
+/**
+ * The pay button: starts the checkout with `onStart` and hands the browser
+ * to Swich. `onStart` is the caller's own endpoint (an order, a milestone,
+ * a plan), which also places what is being paid for.
+ */
+export function SwichPay({
+  amount,
+  onStart,
+  label = "Pay securely",
+  disabled = false,
+  error,
+  showMethods = true,
+}: {
+  amount: string | number;
+  onStart: () => Promise<CheckoutStart | undefined>;
+  label?: string;
+  /** For a caller with its own precondition, such as the checkout's terms box. */
+  disabled?: boolean;
+  error?: string | null;
+  showMethods?: boolean;
+}) {
+  const { data: options } = useLoader(() => payments.options(), []);
+  const [leaving, setLeaving] = React.useState(false);
+
+  if (options && !options.available) return <PaymentsOpeningSoon />;
 
   return (
-    <div className="w-full space-y-4 rounded-md border border-line bg-sunken p-4">
-      <p className="text-[13.5px] font-medium text-fg">
-        Transfer <Money amount={amount} /> to this account, then confirm below.
-      </p>
-      {data ? (
-        <dl className="space-y-1.5 text-[13px] text-muted">
-          <div className="flex justify-between gap-3">
-            <dt>Bank</dt>
-            <dd className="font-medium text-fg">{data.bank_name}</dd>
-          </div>
-          <div className="flex justify-between gap-3">
-            <dt>Account title</dt>
-            <dd className="font-medium text-fg">{data.account_title}</dd>
-          </div>
-          <div className="flex justify-between gap-3">
-            <dt>Account number / IBAN</dt>
-            <dd>
-              <CopyValue value={data.account_number} />
-            </dd>
-          </div>
-        </dl>
-      ) : (
-        <Skeleton className="h-16 w-full" />
-      )}
-      <Field
-        label="Transfer reference"
-        htmlFor="reference_note"
-        hint="The transaction ID from your bank or app. It helps us match your payment quickly."
+    <div className="space-y-4">
+      {showMethods && <PaymentMethods options={options} />}
+      {error && <Alert tone="critical">{error}</Alert>}
+      <Button
+        className="w-full"
+        size="lg"
+        loading={leaving}
+        disabled={!options || disabled}
+        onClick={async () => {
+          setLeaving(true);
+          const started = await onStart();
+          if (started?.checkout_url) {
+            window.location.assign(started.checkout_url);
+          } else {
+            setLeaving(false);
+          }
+        }}
       >
-        <Input
-          id="reference_note"
-          value={reference}
-          maxLength={200}
-          onChange={(event) => setReference(event.target.value)}
-          placeholder="e.g. FT2609251234"
-        />
-      </Field>
-      <p className="text-[12px] leading-relaxed text-subtle">
-        Only confirm once the transfer has gone through. Orders whose payment does not arrive
-        within three business days are cancelled — see the{" "}
-        <Link href="/terms#escrow" className="underline underline-offset-2">
-          Terms
-        </Link>
-        .
+        <Icon name="lock" className="size-4" />
+        {label} · <Money amount={amount} />
+      </Button>
+      <p className="flex gap-2 text-[12px] leading-relaxed text-subtle">
+        <Icon name="shield" className="mt-0.5 size-3.5 shrink-0" />
+        You pay on Swich&apos;s secure page, our licensed payment partner. SkilRize never sees
+        your card number or wallet PIN, and the money is held in escrow until you approve the
+        work.
       </p>
-      <div className="flex flex-wrap gap-2">
-        <Button loading={pending} disabled={!data || confirmDisabled} onClick={() => onConfirm(reference)}>
-          {confirmLabel}
-        </Button>
-        {onCancel && (
-          <Button variant="ghost" onClick={onCancel}>
-            Cancel
-          </Button>
-        )}
-      </div>
     </div>
   );
 }
 
-/** The other half of the split — what a client sees before releasing a
+/** The other half of the split: what a client sees before releasing a
  * milestone, so "release" doesn't look like the freelancer gets the full
  * amount when the platform's commission comes out first. */
 export function ReleaseEstimate({ amount }: { amount: string }) {
-  const { data } = useLoader(() => payments.bankTransferInstructions(), []);
+  const { data } = useLoader(() => payments.options(), []);
   const commission = data ? Number(data.commission_percent) : null;
   const net = commission !== null ? (Number(amount) * (1 - commission / 100)).toFixed(2) : null;
 

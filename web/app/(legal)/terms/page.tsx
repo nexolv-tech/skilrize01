@@ -117,14 +117,13 @@ export default function TermsPage() {
       <h2 id="escrow">6. Payments and escrow</h2>
       <ul>
         <li>
-          All prices are in {BUSINESS.currency}. Today you pay by bank transfer to{" "}
-          {BUSINESS.operator}&apos;s business account, whose details are shown at checkout; card
-          and mobile-wallet payments are being added.
+          All prices are in {BUSINESS.currency}. You pay at checkout by debit or credit card,
+          Easypaisa, JazzCash or 1Bill, through Swich, a licensed Pakistani payment gateway. You
+          enter your card or wallet details on Swich&apos;s secure page; we never receive them.
         </li>
         <li>
-          When you confirm that you have paid, the order starts on your word. If the payment does
-          not reach our account within three business days, we may cancel the order. Confirming a
-          payment you have not made is fraud, and we will close the account that does it.
+          An order starts only once Swich confirms your payment to us. If a payment is not
+          completed, nothing is charged; an order left unpaid for 48 hours is closed.
         </li>
         <li>
           Money you pay is held by us in escrow. Neither side can use it while it is held.
@@ -136,13 +135,13 @@ export default function TermsPage() {
           for a contract milestone.
         </li>
         <li>
-          It is <strong>refunded</strong> to the buyer when an order or milestone is cancelled
-          under section 9.
+          It is <strong>refunded</strong> to the buyer, to the card or wallet they paid with,
+          when an order or milestone is cancelled under section 9.
         </li>
         <li>
-          We aim to send payouts within seven business days of a release, to the bank account on
-          the freelancer&apos;s verified payout profile. A freelancer must complete that profile to
-          be paid.
+          We aim to send payouts within seven business days of a release, to the bank account or
+          mobile wallet on the freelancer&apos;s verified payout profile. A freelancer must
+          complete that profile to be paid.
         </li>
       </ul>
 

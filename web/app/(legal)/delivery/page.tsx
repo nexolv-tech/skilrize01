@@ -59,9 +59,10 @@ export default function DeliveryPolicyPage() {
           you sign in, or create an account and verify your email and identity card.
         </li>
         <li>
-          <strong>Pay.</strong> Transfer the total to {BUSINESS.operator}&apos;s business bank
-          account shown at checkout, enter the transfer reference, and confirm. The money is held
-          in escrow — the freelancer cannot touch it yet. You get an order page straight away.
+          <strong>Pay.</strong> Click <em>Pay and place order</em> and pay on Swich&apos;s secure
+          page by debit or credit card, Easypaisa, JazzCash or 1Bill. Once Swich confirms the
+          payment, the money is held in escrow (the freelancer cannot touch it yet) and your order
+          opens.
         </li>
         <li>
           <strong>Send your requirements.</strong> Answer the freelancer&apos;s questions and attach
@@ -146,8 +147,8 @@ export default function DeliveryPolicyPage() {
       <h2 id="where">7. Where we operate</h2>
       <p>
         SkilRize is run from Pakistan and priced in {BUSINESS.currency}. Anyone aged 18 or over may
-        use it, wherever they live, but payments are currently made by bank transfer to a Pakistani
-        bank account.
+        use it, wherever they live. Payments are taken in Pakistani rupees through Swich, by card,
+        Easypaisa, JazzCash or 1Bill.
       </p>
 
       <h2 id="support">8. Support</h2>

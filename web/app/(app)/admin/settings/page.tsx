@@ -54,18 +54,23 @@ export default function AdminSettingsPage() {
             <CardHeader title="Payments" />
             <dl className="divide-y divide-line">
               <Line
-                label="Bank account shown to buyers"
-                ok={data.bank_transfer.available}
+                label="Online payments (Swich)"
+                ok={data.payments.available}
                 value={
-                  data.bank_transfer.available
-                    ? `${data.bank_transfer.bank_name} · ${data.bank_transfer.account_title} · ending ${data.bank_transfer.account_number_last4}`
-                    : "Not set"
+                  data.payments.available
+                    ? `Taking payments · Swich ${data.payments.environment}`
+                    : "Not taking payments yet"
                 }
                 hint={
-                  data.bank_transfer.available
+                  data.payments.available
                     ? undefined
-                    : "Checkout cannot take payments until PLATFORM_BANK_NAME, PLATFORM_BANK_ACCOUNT_TITLE and PLATFORM_BANK_ACCOUNT_NUMBER are set."
+                    : "Checkout says payments are opening shortly until SWICH_ENABLED, SWICH_CLIENT_ID and SWICH_SECRET_KEY are set."
                 }
+              />
+              <Line
+                label="Callback URL for Swich"
+                value={<span className="break-all font-mono text-[12.5px]">{data.payments.callback_url}</span>}
+                hint="Register this in the Swich merchant portal: it is how Swich confirms each payment."
               />
               <Line label="Commission" value={`${data.commission_percent}% of each release`} />
             </dl>

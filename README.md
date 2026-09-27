@@ -16,12 +16,12 @@ Built to the specification in *Platform Requirements & Technical Architecture*
 | 0 · Foundations | ✅ | Auth, security, tenancy, files, notifications |
 | 1 · Projects & bidding | ✅ | Post a brief, compare proposals, award, contract |
 | 2 · Gigs | ✅ | Productised services, packages, order lifecycle |
-| 3 · Payments & escrow | ✅ | Custodial escrow — client transfers to the platform's own bank account, admin-fulfilled payout on release, commission split — see below |
+| 3 · Payments & escrow | ✅ | Escrow paid through Swich's hosted checkout (card, Easypaisa, JazzCash, 1Bill), confirmed by its checksum-verified callback; payouts and refunds recorded in the admin console; commission split — see below (D55) |
 | 4 · Student portals | ✅ | Verification, surface switching, leakage gate |
 | 5 · Communities & social | ✅ | Discussion, chat, events, resources, messaging, feed |
 | 6 · Search, reputation & trust | ✅ | FTS, ranking, JSS, seller levels, integrity, promotion |
 | 7 · Mobile | ✅ | Flutter client, full parity with the web app's signed-in surface — marketplace, money-moving contract/gig actions, messaging, communities, search, the professional layer, challenges, integrations, admin console, student verification, settings, feed/showcase — behind a 5-tab shell; see below |
-| 8 · Professional layer | ✅ | CRM, subscriptions, retainers, agencies, workspaces — plan billing wired to the same custodial bank-transfer model as Phase 3, see below |
+| 8 · Professional layer | ✅ | CRM, subscriptions, retainers, agencies, workspaces — plan billing paid through Swich like everything else, see below |
 | 9 · Admin console | ✅ | Role-gated operator console: payments in and out, identity and student checks, users and roles, services, briefs, categories, reports, orders, contracts, settings, audit log — see below |
 | 10 · Integrations | ✅ | Zoom/Google Meet meeting scheduling, GitHub/Figma/Notion read-only activity feeds — every provider real, all off by default, see below |
 | 11 · Hardening | ✅ | Rate limiting, HSTS, error tracking, a wired Celery beat schedule, retry/backoff, a DB index audit, and the admin 2FA enrolment fix — see below |
@@ -62,14 +62,35 @@ Built after Swich's reviewers could not reach a checkout from any service:
   `web/lib/business.ts`.
 - **A redesign** that drops the generated look for one built around the
   escrow slip (see Visual layer).
-- **Guards** — funding refuses while no platform bank account is
-  configured; phone verification stays off until an SMS provider exists.
+- **Guards** — payments refuse while Swich is not configured, and
+  checkout says so; phone verification stays off until an SMS provider
+  exists.
+
+### Payments now: Swich (D55)
+
+*27 September 2026. The operator has an NTN and is opening a Swich
+merchant account, so bank transfer is gone and every payment goes through
+Swich. What follows under "Phase 3, rebuilt" is the history of the
+custodial model it replaced.*
+
+| Step | What happens | Where |
+| --- | --- | --- |
+| Pay | The order (or milestone, or plan) is recorded and the buyer is sent to Swich's hosted checkout: card, Easypaisa, JazzCash or 1Bill. SkilRize never sees card or wallet details. | `api/payments/checkout.py` (`start`), `api/payments/swich.py` |
+| Confirm | Swich calls `/api/v1/payments/swich/callback/` server to server. The checksum is recomputed with the merchant SecretKey (constant-time compare); a forged, repeated or wrong-amount callback funds nothing. | `api/payments/views.py` (`swich_callback`), `checkout.record_callback` |
+| Hold | Only then is the milestone funded and the order opened to its seller, who never sees an unpaid (`awaiting_payment`) order. | `checkout._settle_order` / `_settle_milestone` / `_settle_plan` |
+| Return | The buyer lands on `/payments/return`, which reads what the callback recorded and never decides anything itself. | `web/app/(app)/payments/return` |
+| Release, refund | Unchanged: `payments.settlement`, fulfilled by an operator and recorded in the admin console. | `api/payments/settlement.py`, `/admin/payments` |
+
+A failed or abandoned payment can be retried from the order page; an order
+unpaid for `UNPAID_ORDER_HOURS` (48) is closed by the hourly sweep. Money
+arriving for something already closed is recorded as a refund owed. Until
+`SWICH_ENABLED` and the merchant keys are set, checkout lists the methods
+and says payments are opening shortly, and no order is placed. Tests pay
+by playing Swich's part with a test key (`payments/testing.py`).
 
 ### Phase 3, rebuilt: custodial escrow, not a gateway
 
-*Update, September 2026: the operator now has an NTN and is re-applying to
-Swich (D48). Until that merchant account is live, the custodial model
-described here is what runs.*
+*Superseded by D55 above; kept as the record of the custodial model.*
 
 Phase 3 originally landed on **Swich** (D41) — a real Pakistan-native
 payment gateway, verified against its actual sandbox. That integration was
@@ -321,7 +342,7 @@ Seat limits are checked against the **agency owner's** plan rather than the
 inviter's — otherwise an admin on a free plan could grow a team past what was
 paid for.
 
-**Billing, wired to Phase 3's custodial model (D43).** `subscribe` used to
+**Billing (D43, paid through Swich since D55).** `subscribe` used to
 activate a paid tier for free — a real gap the pricing page said so about
 outright. Now a paid tier runs on the same trust basis `fund_milestone` and
 `gigs.order` do: the caller has already transferred the plan's price to
@@ -370,7 +391,7 @@ it (`api/console/`):
 | Area | Who | What |
 | --- | --- | --- |
 | Overview | every admin | Queues waiting today, money figures (finance), marketplace figures |
-| Payments | Finance Admin | Confirm each bank transfer against the statement or mark it not received (cancels the order); send payouts and refunds, with bank details shown on request and every view logged |
+| Payments | Finance Admin | See Swich payments as they arrive, confirm any payment recorded by hand or mark it not received (cancels the order); send payouts and refunds, with bank details shown on request and every view logged |
 | Orders | Finance, Support, Dispute | Every service order with where its payment stands; cancel one whose payment never came |
 | Verifications | Verification Officer | CNIC checks with the photo on screen, approve or reject with a reason; student checks |
 | Users | Support Agent | Search, filter, account summary, suspend, sign out everywhere; Super Admin grants roles |
@@ -661,14 +682,13 @@ Everything below is what exists, not how to use it.
 | The only command that should ever update the live site | `deploy/deploy.sh` |
 
 The infrastructure above gets a live, reachable site with working auth,
-email, uploads, and 2FA; see D32. Phase 3's custodial escrow (D42) adds one
-more production requirement on top of it: `PLATFORM_BANK_NAME`,
-`PLATFORM_BANK_ACCOUNT_TITLE`, and `PLATFORM_BANK_ACCOUNT_NUMBER` in
-`production.env` have to point at a real account the platform controls
-before launch — every other setting in this list has a safe default or
-can stay disabled. Without a bank account every funding endpoint refuses
-with `payments_unavailable` (D46) and checkout tells buyers payments are
-not open yet — safe, but nobody can buy anything.
+email, uploads, and 2FA; see D32. Taking payments adds one more production
+requirement (D55): `SWICH_ENABLED=True` with the merchant account's
+`SWICH_CLIENT_ID`, `SWICH_CLIENT_SECRET` and `SWICH_SECRET_KEY` in
+`production.env`, and the callback URL registered in the Swich merchant
+portal (step 11 of `deploy/README.md`). Until then every payment refuses
+with `payments_unavailable` and checkout tells buyers payments are opening
+shortly — safe, but nobody can buy anything.
 
 ### Free test deploy (not production)
 

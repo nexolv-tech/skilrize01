@@ -30,7 +30,7 @@ export default function RefundPolicyPage() {
           Your money sits in escrow until you approve the work. If an order is cancelled before
           delivery, you get all of it back — no fee is deducted. You can cancel before you send
           requirements, or once the freelancer misses the due date; the freelancer can cancel any
-          time before delivering. We pay refunds to the account you paid from, within seven
+          time before delivering. We refund to the card or wallet you paid with, within seven
           business days.
         </p>
       }
@@ -153,26 +153,27 @@ export default function RefundPolicyPage() {
       <h2 id="how-paid">6. How you receive a refund</h2>
       <ul>
         <li>
-          Refunds are paid to the account you paid from, within seven business days of the
-          cancellation. Your order page shows the refund&apos;s status, and we email you when it
-          is sent.
+          Refunds go back to the card, Easypaisa or JazzCash account you paid with, through our
+          payment partner Swich, within seven business days of the cancellation. A 1Bill payment
+          is refunded to a bank account or wallet in your name. Your order page shows the
+          refund&apos;s status, and we email you when it is sent.
         </li>
         <li>
-          We cover the transfer cost. Your own bank may charge a fee to receive money; we cannot
-          control that.
+          We do not deduct any fee from a refund. Your bank takes its own time to show the money
+          on your card statement, usually a few working days.
         </li>
         <li>
-          If we cannot send the refund to the original account, we will contact you to confirm a
-          different account in your name.
+          If a refund cannot be returned to the original card or wallet, we will contact you to
+          confirm a bank account or wallet in your name.
         </li>
       </ul>
 
-      <h2 id="fraud">7. Payments that never arrive</h2>
+      <h2 id="fraud">7. Payments that are not completed</h2>
       <p>
-        An order starts when the buyer confirms they have paid. If the payment does not reach our
-        account within three business days, we cancel the order and nothing is owed to either side.
-        Confirming a payment you did not make is fraud; we close the account and may report it.
-        See the <Link href="/terms">Terms of Service</Link>, section 6.
+        An order starts only when Swich confirms the payment to us. If you leave Swich&apos;s page
+        or a payment is declined, nothing is charged and you can try again from your order page.
+        An order left unpaid for 48 hours is closed, and nothing is owed to either side. See the{" "}
+        <Link href="/terms">Terms of Service</Link>, section 6.
       </p>
 
       <h2 id="contact">8. Contact</h2>

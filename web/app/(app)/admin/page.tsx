@@ -24,7 +24,7 @@ const QUEUES: Queue[] = [
     label: "Payments to confirm",
     href: "/admin/payments",
     icon: "wallet",
-    hint: "Check each against the bank statement.",
+    hint: "Recorded by hand: match each against the statement.",
   },
   {
     key: "payouts",

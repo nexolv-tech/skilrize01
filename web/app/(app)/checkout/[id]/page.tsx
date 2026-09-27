@@ -17,7 +17,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { BankTransferPanel } from "@/components/payments";
+import { PaymentMethods, PaymentsOpeningSoon, SwichPay } from "@/components/payments";
 import { TwoFactorRequiredPrompt } from "@/components/two-factor";
 import {
   Alert,
@@ -33,7 +33,7 @@ import {
   Stars,
   cn,
 } from "@/components/ui";
-import { gigs, type GigDetail, type Tier } from "@/lib/api";
+import { gigs, payments, type GigDetail, type Tier } from "@/lib/api";
 import { BUSINESS } from "@/lib/business";
 import { useAsyncAction, useLoader, useSession } from "@/lib/session";
 
@@ -371,31 +371,22 @@ function SummarySlip({ gig, selection }: { gig: GigDetail; selection: Selection 
 /* Payment                                                                    */
 /* -------------------------------------------------------------------------- */
 
-const METHODS: Array<{ id: string; label: string; detail: string; available: boolean }> = [
-  { id: "bank", label: "Bank transfer", detail: "IBFT or Raast, from any Pakistani bank or app", available: true },
-  { id: "card", label: "Debit or credit card", detail: "Visa, Mastercard, UnionPay", available: false },
-  { id: "wallet", label: "JazzCash or Easypaisa", detail: "Mobile wallet", available: false },
-];
-
 function PaymentCard({ gig, selection }: { gig: GigDetail; selection: Selection }) {
-  const router = useRouter();
   const { user, loading: sessionLoading } = useSession();
   const [accepted, setAccepted] = React.useState(false);
-  const lastReference = React.useRef("");
+  const { data: options } = useLoader(() => payments.options(), []);
 
-  const buy = useAsyncAction(async (referenceNote: string) => {
-    lastReference.current = referenceNote;
-    const order = await gigs.order(gig.id, {
-      package: selection.selected!.id,
-      extras: selection.extraIds,
-      reference_note: referenceNote,
-    });
-    router.push(`/orders/${order.id}`);
-  });
+  // Places the order (it waits, unseen by the seller, until Swich confirms
+  // the payment) and returns where to send the buyer to pay.
+  const buy = useAsyncAction(() =>
+    gigs.order(gig.id, { package: selection.selected!.id, extras: selection.extraIds }),
+  );
 
   let body: React.ReactNode;
   if (sessionLoading) {
     body = <Skeleton className="h-28 w-full" />;
+  } else if (options && !options.available) {
+    body = <PaymentsOpeningSoon />;
   } else if (!user) {
     const next = encodeURIComponent(selection.here);
     body = (
@@ -427,7 +418,15 @@ function PaymentCard({ gig, selection }: { gig: GigDetail; selection: Selection 
       </div>
     );
   } else if (buy.code === "two_factor_required") {
-    body = <TwoFactorRequiredPrompt onComplete={() => void buy.run(lastReference.current)} />;
+    body = (
+      <TwoFactorRequiredPrompt
+        onComplete={() => {
+          void buy.run().then((started) => {
+            if (started?.checkout_url) window.location.assign(started.checkout_url);
+          });
+        }}
+      />
+    );
   } else {
     body = (
       <div className="space-y-5">
@@ -439,8 +438,6 @@ function PaymentCard({ gig, selection }: { gig: GigDetail; selection: Selection 
             </Link>
             .
           </Alert>
-        ) : buy.error ? (
-          <Alert tone="critical">{buy.error}</Alert>
         ) : null}
 
         <label className="flex cursor-pointer gap-3 rounded-md border border-line p-3.5 text-[13.5px] leading-relaxed text-fg">
@@ -463,12 +460,13 @@ function PaymentCard({ gig, selection }: { gig: GigDetail; selection: Selection 
           </span>
         </label>
 
-        <BankTransferPanel
-          amount={String(selection.total)}
-          pending={buy.pending}
-          confirmDisabled={!accepted}
-          confirmLabel="I've paid — place my order"
-          onConfirm={(referenceNote) => void buy.run(referenceNote)}
+        <SwichPay
+          amount={selection.total}
+          label="Pay and place order"
+          disabled={!accepted}
+          showMethods={false}
+          error={buy.code === "device_cooloff" ? null : buy.error}
+          onStart={() => buy.run()}
         />
       </div>
     );
@@ -476,40 +474,12 @@ function PaymentCard({ gig, selection }: { gig: GigDetail; selection: Selection 
 
   return (
     <Card>
-      <CardHeader title="Payment" description="Choose how to pay. Every method pays into escrow." />
+      <CardHeader
+        title="Payment"
+        description="Pay by card, Easypaisa, JazzCash or 1Bill through Swich. Every method pays into escrow."
+      />
       <div className="space-y-5 p-5">
-        <fieldset>
-          <legend className="sr-only">Payment method</legend>
-          <div className="grid gap-2">
-            {METHODS.map((method) => (
-              <label
-                key={method.id}
-                className={cn(
-                  "flex items-center gap-3 rounded-md border p-3.5",
-                  method.available
-                    ? "cursor-pointer border-accent bg-accent-soft"
-                    : "cursor-not-allowed border-line opacity-60",
-                )}
-              >
-                <input
-                  type="radio"
-                  name="method"
-                  value={method.id}
-                  defaultChecked={method.available}
-                  disabled={!method.available}
-                  className="size-4 accent-[var(--accent)]"
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[14px] font-medium text-fg">{method.label}</span>
-                  <span className="block text-[12.5px] text-muted">{method.detail}</span>
-                </span>
-                {!method.available && (
-                  <span className="eyebrow shrink-0 text-[10.5px]">Coming soon</span>
-                )}
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <PaymentMethods options={options} />
         {body}
       </div>
     </Card>

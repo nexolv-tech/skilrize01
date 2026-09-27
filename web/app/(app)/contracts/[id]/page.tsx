@@ -24,7 +24,7 @@ import {
   ButtonLink,
 } from "@/components/ui";
 import { ActivityFeedPanel, MeetingsPanel } from "@/components/integrations";
-import { BankTransferPanel, ReleaseEstimate } from "@/components/payments";
+import { SwichPay, ReleaseEstimate } from "@/components/payments";
 import { TwoFactorRequiredPrompt } from "@/components/two-factor";
 import {
   contracts,
@@ -95,10 +95,8 @@ function MilestoneRow({
   const [delivering, setDelivering] = React.useState(false);
   const [funding, setFunding] = React.useState(false);
 
-  const fund = useAsyncAction(async (referenceNote: string) => {
-    onChanged(await contracts.fund(contract.id, milestone.id, referenceNote));
-    setFunding(false);
-  });
+  // Starts a Swich checkout; the milestone is funded when Swich confirms.
+  const fund = useAsyncAction(() => contracts.fund(contract.id, milestone.id));
   const release = useAsyncAction(async () => {
     onChanged(await contracts.release(contract.id, milestone.id));
   });
@@ -164,12 +162,17 @@ function MilestoneRow({
           milestone.status === "pending" &&
           contract.status === "active" &&
           (funding ? (
-            <BankTransferPanel
-              amount={milestone.amount}
-              pending={fund.pending}
-              onConfirm={(referenceNote) => void fund.run(referenceNote)}
-              onCancel={() => setFunding(false)}
-            />
+            <div className="w-full space-y-3 rounded-md border border-line bg-sunken p-4">
+              <SwichPay
+                amount={milestone.amount}
+                label="Pay into escrow"
+                error={fund.error}
+                onStart={() => fund.run()}
+              />
+              <Button size="sm" variant="ghost" onClick={() => setFunding(false)}>
+                Cancel
+              </Button>
+            </div>
           ) : (
             <Button size="sm" onClick={() => setFunding(true)}>
               <Icon name="lock" className="size-3.5" />
@@ -259,7 +262,13 @@ function MilestoneRow({
       {blockedCode === "two_factor_required" && (
         <div className="mt-4">
           <TwoFactorRequiredPrompt
-            onComplete={() => void (fund.code ? fund.run("") : release.run())}
+            onComplete={() =>
+              void (fund.code
+                ? fund.run().then((started) => {
+                    if (started?.checkout_url) window.location.assign(started.checkout_url);
+                  })
+                : release.run())
+            }
           />
         </div>
       )}

@@ -17,7 +17,7 @@ import * as React from "react";
 import Link from "next/link";
 
 import { PageHeading } from "@/components/shell";
-import { BankTransferPanel } from "@/components/payments";
+import { SwichPay } from "@/components/payments";
 import {
   Alert,
   Badge,
@@ -29,7 +29,13 @@ import {
   Skeleton,
   cn,
 } from "@/components/ui";
-import { UNLIMITED, professional, type PlanTier, type SubscriptionPlan } from "@/lib/api";
+import {
+  UNLIMITED,
+  professional,
+  type CheckoutStart,
+  type PlanTier,
+  type SubscriptionPlan,
+} from "@/lib/api";
 import { useAsyncAction, useLoader, useSession } from "@/lib/session";
 
 type Interval = "monthly" | "yearly";
@@ -53,7 +59,7 @@ function PlanCard({
   onChoose,
   pending,
   payingFor,
-  onConfirmPayment,
+  onStartPayment,
   onCancelPayment,
 }: {
   plan: SubscriptionPlan;
@@ -62,7 +68,7 @@ function PlanCard({
   onChoose: (tier: PlanTier) => void;
   pending: PlanTier | null;
   payingFor: boolean;
-  onConfirmPayment: (referenceNote: string) => void;
+  onStartPayment: () => Promise<CheckoutStart | undefined>;
   onCancelPayment: () => void;
 }) {
   const featured = plan.tier === "pro";
@@ -115,12 +121,12 @@ function PlanCard({
               Current plan
             </Button>
           ) : payingFor ? (
-            <BankTransferPanel
-              amount={price}
-              pending={pending === plan.tier}
-              onConfirm={onConfirmPayment}
-              onCancel={onCancelPayment}
-            />
+            <div className="space-y-3">
+              <SwichPay amount={price} label="Pay" showMethods={false} onStart={onStartPayment} />
+              <Button variant="ghost" size="sm" block onClick={onCancelPayment}>
+                Cancel
+              </Button>
+            </div>
           ) : (
             <Button
               block
@@ -189,25 +195,29 @@ export default function PricingPage() {
   const subscribe = useAsyncAction(professional.subscribe);
   const cancel = useAsyncAction(professional.cancelSubscription);
   const [choosing, setChoosing] = React.useState<PlanTier | null>(null);
-  // The paid tier currently showing its `BankTransferPanel` in place of a
-  // "Choose" button — null once confirmed, cancelled, or never opened.
+  // The paid tier showing its pay panel in place of a "Choose" button.
   const [payingForTier, setPayingForTier] = React.useState<PlanTier | null>(null);
 
   const currentTier = mine.data?.entitlements.tier ?? null;
   const subscription = mine.data?.subscription ?? null;
 
-  async function confirm(tier: PlanTier, referenceNote = "") {
+  async function confirm(tier: PlanTier) {
     setChoosing(tier);
-    const result = await subscribe.run(tier, interval, referenceNote);
+    const result = await subscribe.run(tier, interval);
     setChoosing(null);
     setPayingForTier(null);
     if (result !== undefined) await mine.reload();
   }
 
+  /** A paid tier: start the Swich checkout; the plan begins once paid. */
+  async function startPayment(tier: PlanTier) {
+    const result = await subscribe.run(tier, interval);
+    return result && "checkout_url" in result ? result : undefined;
+  }
+
   function choose(tier: PlanTier) {
     const plan = plans.data?.find((row) => row.tier === tier);
-    // Free needs no bank transfer — same trust basis as everywhere else in
-    // the product, just nothing to declare (Phase 3, D42).
+    // Free needs no payment: it switches at once.
     if (!plan?.is_paid) {
       void confirm(tier);
       return;
@@ -258,7 +268,7 @@ export default function PricingPage() {
               onChoose={user ? choose : () => undefined}
               pending={choosing}
               payingFor={payingForTier === plan.tier}
-              onConfirmPayment={(referenceNote) => void confirm(plan.tier, referenceNote)}
+              onStartPayment={() => startPayment(plan.tier)}
               onCancelPayment={() => setPayingForTier(null)}
             />
           ))}

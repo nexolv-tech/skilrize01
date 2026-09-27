@@ -19,6 +19,7 @@ type Filter = "" | OrderStatus;
 
 const CHIPS: Array<{ value: Filter; label: string }> = [
   { value: "", label: "All" },
+  { value: "awaiting_payment", label: "Awaiting payment" },
   { value: "pending_requirements", label: "Waiting for requirements" },
   { value: "active", label: "In progress" },
   { value: "delivered", label: "Delivered" },
@@ -28,6 +29,7 @@ const CHIPS: Array<{ value: Filter; label: string }> = [
 ];
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
+  awaiting_payment: "Awaiting payment",
   pending_requirements: "Waiting for requirements",
   active: "In progress",
   delivered: "Delivered",
