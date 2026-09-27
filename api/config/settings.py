@@ -421,19 +421,22 @@ FCM_ENABLED = config("FCM_ENABLED", default=False, cast=bool)
 FCM_PROJECT_ID = config("FCM_PROJECT_ID", default="")
 FCM_CREDENTIALS_JSON = config("FCM_CREDENTIALS_JSON", default="")
 
-# Payments — custodial escrow (Phase 3, D42). No payment gateway: a
-# licensed merchant account (Swich or otherwise) needs an NTN for
-# production use, which isn't available yet (D41 documents the Swich
-# integration this replaced, and why). A client funding a milestone
-# transfers money directly to the platform's own bank account — shown
-# below — and the platform manually pays the freelancer out on release,
-# minus its commission. Real money moves, just outside any API this
-# codebase calls; everything here is bookkeeping and the UI's escrow
-# framing around a transfer that happens by hand.
+# Payments (D55). Buyers pay through Swich's hosted checkout — debit or
+# credit card, Easypaisa, JazzCash, 1Bill — and SkilRize holds the money in
+# escrow until the work is approved, then pays the freelancer minus its
+# commission. Nothing is taken until Swich is enabled with a merchant
+# account's keys: until then checkout says payments are opening and places
+# no order. SWICH_ENV picks Swich's sandbox or production hosts, separately
+# from this server's own ENVIRONMENT. The callback URL to register in the
+# Swich merchant portal is <API origin>/api/v1/payments/swich/callback/.
 PLATFORM_COMMISSION_PERCENT = config("PLATFORM_COMMISSION_PERCENT", default="10.0")
-PLATFORM_BANK_NAME = config("PLATFORM_BANK_NAME", default="")
-PLATFORM_BANK_ACCOUNT_TITLE = config("PLATFORM_BANK_ACCOUNT_TITLE", default="")
-PLATFORM_BANK_ACCOUNT_NUMBER = config("PLATFORM_BANK_ACCOUNT_NUMBER", default="")
+SWICH_ENABLED = config("SWICH_ENABLED", default=False, cast=bool)
+SWICH_ENV = config("SWICH_ENV", default="sandbox")
+SWICH_CLIENT_ID = config("SWICH_CLIENT_ID", default="")
+SWICH_CLIENT_SECRET = config("SWICH_CLIENT_SECRET", default="")
+SWICH_SECRET_KEY = config("SWICH_SECRET_KEY", default="")
+#: An order left unpaid this long is cancelled; nothing was taken.
+UNPAID_ORDER_HOURS = config("UNPAID_ORDER_HOURS", default=48, cast=int)
 
 # Phone verification needs an SMS provider to deliver the code, and none is
 # connected yet — every provider charges per message to an arbitrary number.
@@ -447,8 +450,8 @@ PHONE_VERIFICATION_REQUIRED = config("PHONE_VERIFICATION_REQUIRED", default=Fals
 # to that document: signup records which version each user accepted
 # (`accounts.LegalAcceptance`), and the client compares against these to know
 # when an existing user needs to accept a new one.
-LEGAL_TERMS_VERSION = "2026-09-25"
-LEGAL_PRIVACY_VERSION = "2026-09-25"
+LEGAL_TERMS_VERSION = "2026-09-27"
+LEGAL_PRIVACY_VERSION = "2026-09-27"
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"

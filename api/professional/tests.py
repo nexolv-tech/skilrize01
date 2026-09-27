@@ -129,13 +129,25 @@ def test_only_one_subscription_can_be_live(tiers):
         subscribe(user, tiers[Plan.Tier.ELITE])
 
 
+def _buy(client, tier: str, interval: str = "monthly"):
+    """Subscribe through Swich: start the checkout, then deliver the
+    callback Swich sends once paid (D55)."""
+    from payments.testing import swich_pays
+
+    response = client.post(
+        "/api/v1/subscription/subscribe/", {"tier": tier, "interval": interval}, format="json"
+    )
+    swich_pays(response)
+    return response
+
+
 @pytest.mark.django_db
 def test_switching_tiers_replaces_rather_than_stacks(tiers):
     user = make_user("switcher@example.com")
     client = sign_in(user)
 
-    client.post("/api/v1/subscription/subscribe/", {"tier": "pro"}, format="json")
-    client.post("/api/v1/subscription/subscribe/", {"tier": "elite"}, format="json")
+    _buy(client, "pro")
+    _buy(client, "elite")
 
     live = Subscription.objects.filter(user=user, status__in=Subscription.LIVE_STATUSES)
     assert live.count() == 1
@@ -146,7 +158,7 @@ def test_switching_tiers_replaces_rather_than_stacks(tiers):
 def test_cancelling_keeps_the_period_the_user_paid_for(tiers):
     user = make_user("canceller@example.com")
     client = sign_in(user)
-    client.post("/api/v1/subscription/subscribe/", {"tier": "pro"}, format="json")
+    _buy(client, "pro")
 
     response = client.post("/api/v1/subscription/cancel/", {}, format="json")
     assert response.status_code == 200
@@ -156,25 +168,29 @@ def test_cancelling_keeps_the_period_the_user_paid_for(tiers):
 
 
 @pytest.mark.django_db
-def test_subscribing_to_a_paid_tier_records_a_bank_transfer_declaration(tiers):
-    """Phase 3, D42 extended to plan billing: a paid `subscribe` declares a
-    bank transfer the same way `contracts.fund_milestone`/`gigs.order` do."""
+def test_a_paid_tier_starts_only_once_swich_confirms_the_payment(tiers):
+    """D55: subscribing sends the member to Swich; the plan and its payment
+    record appear when Swich's callback confirms it, not before."""
     from payments.models import SubscriptionPayment
+    from payments.testing import swich_pays
 
     user = make_user("payer@example.com")
     client = sign_in(user)
 
     response = client.post(
-        "/api/v1/subscription/subscribe/",
-        {"tier": "pro", "interval": "yearly", "reference_note": "IBFT-4471"},
-        format="json",
+        "/api/v1/subscription/subscribe/", {"tier": "pro", "interval": "yearly"}, format="json"
     )
     assert response.status_code == 201
+    assert response.data["checkout_url"].startswith("https://sandbox-payin-pwa.swichnow.com/")
+    assert not Subscription.objects.filter(user=user).exists()
+
+    swich_pays(response)
 
     subscription = Subscription.objects.get(user=user, status__in=Subscription.LIVE_STATUSES)
+    assert subscription.interval == "yearly"
     payment = SubscriptionPayment.objects.get(subscription=subscription)
     assert payment.amount == tiers[Plan.Tier.PRO].yearly_price
-    assert payment.reference_note == "IBFT-4471"
+    assert payment.confirmed_at is not None
     assert payment.paid_by == user
 
 

@@ -22,8 +22,6 @@ from core.models import AuditLog, NotificationCategory, StoredFile
 from core.notify import dispatch
 from core.pagination import StandardPagination
 from payments.settlement import (
-    PAYMENTS_UNAVAILABLE,
-    bank_transfer_available,
     queue_payout,
     queue_refund,
 )
@@ -235,17 +233,25 @@ class GigViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated, CanMoveMoney])
     @transaction.atomic
     def order(self, request, pk=None):
-        """Buy a package. The buyer has transferred payment directly to
-        the platform's own bank account (see
-        `GET /payments/bank-transfer-instructions/`) — this call is them
-        confirming that, the same trust basis `contracts.fund_milestone`
-        runs on (Phase 3, D42)."""
+        """Place an order and send the buyer to Swich to pay (D55).
+
+        The order waits as `awaiting_payment`, unseen by the seller, until
+        Swich's checksum-verified callback confirms the payment
+        (`payments.checkout.record_callback`). Only then is the milestone
+        funded, the order opened to the seller and the gig's order count
+        raised. Priced from what the server found, never from the request.
+        """
+        from payments import checkout
+        from payments.views import checkout_response
+
         gig = self.get_object()
         allowed, reason = gig.accepts_order_from(request.user)
         if not allowed:
             return _bad(reason, "order_not_allowed")
-        if not bank_transfer_available():
-            return Response(PAYMENTS_UNAVAILABLE, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        if not checkout.available():
+            return Response(
+                checkout.PAYMENTS_UNAVAILABLE, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
 
         serializer = CreateOrderSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -259,7 +265,6 @@ class GigViewSet(viewsets.ModelViewSet):
             )
         )
 
-        # Priced from what the server found, never from the request body.
         total = package.price + sum((extra.price for extra in extras), Decimal("0"))
         delivery_days = max(1, package.delivery_days + sum(extra.extra_days for extra in extras))
 
@@ -272,32 +277,16 @@ class GigViewSet(viewsets.ModelViewSet):
             visibility=gig.visibility,
             university=gig.university,
         )
-        milestone = Milestone.objects.create(
+        Milestone.objects.create(
             contract=contract, order=0, title=package.name or "Delivery", amount=total
         )
-        # A gig purchase is paid up front and needs no separate freelancer
-        # acceptance, so the contract is live and the milestone funded
-        # from the moment the order exists — the buyer has already
-        # transferred the money to the platform's own account by the time
-        # this request is made (Phase 3, D42).
-        contract.accept()
-
-        from payments.models import EscrowFunding
-
-        EscrowFunding.objects.create(
-            milestone=milestone,
-            amount=milestone.amount,
-            reference_note=str(request.data.get("reference_note", ""))[:200],
-            funded_by=request.user,
-        )
-        milestone.fund()
-
         order = Order.objects.create(
             gig=gig,
             package=package,
             buyer=request.user,
             seller=gig.seller,
             contract=contract,
+            status=Order.Status.AWAITING_PAYMENT,
             price=total,
             delivery_days=delivery_days,
             revisions_allowed=package.revisions,
@@ -312,27 +301,19 @@ class GigViewSet(viewsets.ModelViewSet):
             },
         )
         order.extras.set(extras)
-        Gig.objects.filter(pk=gig.pk).update(orders_count=F("orders_count") + 1)
-
-        ContractEvent.log(
-            contract,
-            ContractEvent.Kind.FUNDED,
-            actor=request.user,
-            body="Order placed and funded — held in escrow. Waiting for requirements.",
+        charge, url = checkout.start(
+            purpose="order",
+            payer=request.user,
+            amount=total,
+            item=f"Order #{order.pk}",
+            description=gig.title,
+            order=order,
         )
         AuditLog.record(
             actor=request.user, action=AuditLog.Action.CREATE, target=order, request=request
         )
-        dispatch(
-            gig.seller,
-            NotificationCategory.ORDER,
-            "New order received",
-            f"{request.user.display_name} ordered “{gig.title}”.",
-            data={"order_id": order.id},
-        )
-        return Response(
-            OrderSerializer(order, context={"request": request}).data,
-            status=status.HTTP_201_CREATED,
+        return checkout_response(
+            charge, url, order=OrderSerializer(order, context={"request": request}).data
         )
 
 
@@ -346,8 +327,12 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        # An order its buyer has not paid for yet is theirs alone: the seller
+        # hears of it only once the payment is confirmed.
         queryset = (
-            Order.objects.filter(Q(buyer=user) | Q(seller=user))
+            Order.objects.filter(
+                Q(buyer=user) | (Q(seller=user) & ~Q(status=Order.Status.AWAITING_PAYMENT))
+            )
             .select_related("gig", "package", "buyer", "seller", "contract")
             .prefetch_related("extras")
         )
@@ -358,6 +343,36 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
                 queryset.filter(buyer=user) if role == "buyer" else queryset.filter(seller=user)
             )
         return queryset
+
+    @action(
+        detail=True,
+        methods=["post"],
+        permission_classes=[IsAuthenticated, IsOrderParty, CanMoveMoney],
+    )
+    def pay(self, request, pk=None):
+        """Try the payment again, after abandoning Swich's page or a declined
+        card. A fresh charge each time; the order is unchanged."""
+        from payments import checkout
+        from payments.views import checkout_response
+
+        order = self.get_object()
+        if order.buyer_id != request.user.pk:
+            return _forbidden("Only the buyer pays for an order.")
+        if order.status != Order.Status.AWAITING_PAYMENT:
+            return _bad("This order does not need paying.", "not_awaiting_payment")
+        if not checkout.available():
+            return Response(
+                checkout.PAYMENTS_UNAVAILABLE, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        charge, url = checkout.start(
+            purpose="order",
+            payer=request.user,
+            amount=order.price,
+            item=f"Order #{order.pk}",
+            description=order.gig.title,
+            order=order,
+        )
+        return checkout_response(charge, url, http_status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"])
     def requirements(self, request, pk=None):

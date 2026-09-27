@@ -185,15 +185,28 @@ def test_a_campus_gig_never_appears_in_the_global_catalogue(seller, buyer):
 # --- Ordering --------------------------------------------------------------
 
 
-def _order(gig, buyer, *, extras=None):
-    """Buy a package. Ordering funds the milestone immediately from the
-    buyer's confirmation that they've transferred the money to the
-    platform's own bank account — no gateway, no callback (Phase 3, D42)."""
+def _place(gig, buyer, *, extras=None):
+    """Place an order without paying: it waits for Swich (D55)."""
     package = gig.packages.get(tier=Package.Tier.STANDARD)
-    body = {"package": package.pk, "reference_note": "test transfer"}
+    body = {"package": package.pk}
     if extras:
         body["extras"] = extras
     return sign_in(buyer).post(f"/api/v1/gigs/{gig.pk}/order/", body, format="json")
+
+
+def _order(gig, buyer, *, extras=None):
+    """Buy a package: place the order, then pay for it the way Swich
+    confirms a payment, through the checksum-verified callback. Returns the
+    placing response with `data` swapped for the paid order, so callers read
+    `data["id"]` and the order's state after payment."""
+    from payments.testing import swich_pays
+
+    response = _place(gig, buyer, extras=extras)
+    if response.status_code != 201:
+        return response
+    assert swich_pays(response).data["status"] == "paid"
+    response.data = sign_in(buyer).get(f"/api/v1/orders/{response.data['order']['id']}/").data
+    return response
 
 
 @pytest.mark.django_db
@@ -257,7 +270,7 @@ def test_a_price_sent_by_the_buyer_is_ignored(gig, buyer):
     response = sign_in(buyer).post(
         f"/api/v1/gigs/{gig.pk}/order/", {"package": package.pk, "price": "1"}, format="json"
     )
-    assert Order.objects.get(pk=response.data["id"]).price == 8000
+    assert Order.objects.get(pk=response.data["order"]["id"]).price == 8000
 
 
 @pytest.mark.django_db

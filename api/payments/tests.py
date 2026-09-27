@@ -22,7 +22,8 @@ from contracts.tests import _fund, _give_payout_profile
 from core.scope import GLOBAL_SCOPE, use_scope
 from marketplace.tests import make_user, sign_in
 
-from .models import EscrowFunding, Payout, PayoutProfile
+from .models import Charge, EscrowFunding, Payout, PayoutProfile, Refund
+from .testing import swich_pays, swich_says
 
 
 def _release(client_api, contract, milestone):
@@ -93,27 +94,18 @@ def test_a_payout_profile_is_incomplete_until_every_field_is_set(parties):
     assert profile.is_complete is True
 
 
-# --- bank_transfer_instructions ----------------------------------------------
+# --- What a buyer can pay with ----------------------------------------------
 
 
 @pytest.mark.django_db
-@override_settings(
-    PLATFORM_BANK_NAME="Habib Bank",
-    PLATFORM_BANK_ACCOUNT_TITLE="SkilRize Pvt Ltd",
-    PLATFORM_BANK_ACCOUNT_NUMBER="PK00HABB0000009999999",
-    PLATFORM_COMMISSION_PERCENT="12.5",
-)
-def test_bank_transfer_instructions_returns_the_platform_account(parties):
-    client_user, _ = parties
-    response = sign_in(client_user).get("/api/v1/payments/bank-transfer-instructions/")
+@override_settings(PLATFORM_COMMISSION_PERCENT="12.5")
+def test_the_payment_options_name_swich_and_its_methods(client):
+    response = client.get("/api/v1/payments/options/")
     assert response.status_code == 200
-    assert response.data == {
-        "available": True,
-        "bank_name": "Habib Bank",
-        "account_title": "SkilRize Pvt Ltd",
-        "account_number": "PK00HABB0000009999999",
-        "commission_percent": "12.5",
-    }
+    assert response.data["available"] is True
+    assert response.data["provider"] == "Swich"
+    assert [m["id"] for m in response.data["methods"]] == ["card", "easypaisa", "jazzcash", "1bill"]
+    assert response.data["commission_percent"] == "12.5"
 
 
 # --- Payout profile -----------------------------------------------------------
@@ -170,23 +162,26 @@ def test_saving_a_payout_profile_round_trips_the_plain_fields(parties):
 
 
 @pytest.mark.django_db
-def test_funding_a_milestone_records_the_escrow_funding_and_marks_it_funded(funded_milestone):
-    contract, milestone, client_user, _ = funded_milestone
+def test_a_milestone_is_funded_only_once_swich_confirms_the_payment(funded_milestone):
+    contract, milestone, client_user, freelancer = funded_milestone
     client_api = sign_in(client_user)
 
-    response = client_api.post(
-        f"/api/v1/contracts/{contract.pk}/milestones/{milestone.pk}/fund/",
-        {"reference_note": "IBFT ref 12345"},
-        format="json",
-    )
+    response = client_api.post(f"/api/v1/contracts/{contract.pk}/milestones/{milestone.pk}/fund/")
     assert response.status_code == 200
+    assert "checksum=" in response.data["checkout_url"]
+    # Sent to Swich, but nothing is held until Swich says it was paid.
+    milestone.refresh_from_db()
+    assert milestone.status == Milestone.Status.PENDING
+
+    assert swich_pays(response).data["status"] == "paid"
 
     milestone.refresh_from_db()
     assert milestone.status == Milestone.Status.FUNDED
     funding = EscrowFunding.objects.get(milestone=milestone)
     assert funding.amount == milestone.amount
     assert funding.funded_by_id == client_user.pk
-    assert funding.reference_note == "IBFT ref 12345"
+    assert funding.confirmed_at is not None
+    assert funding.reference_note.startswith("Swich ")
 
 
 @pytest.mark.django_db
@@ -278,3 +273,179 @@ def test_my_payouts_lists_only_the_callers_own_payouts(funded_milestone):
     assert mine.data["results"][0]["milestone_title"] == "Homepage"
 
     assert sign_in(stranger).get("/api/v1/payments/payouts/").data["count"] == 0
+
+
+# --- Swich: the callback is the only thing that funds (D55) ----------------------
+
+
+def _start_order(gig, buyer):
+    from gigs.tests import _place
+
+    response = _place(gig, buyer)
+    assert response.status_code == 201, response.data
+    return response
+
+
+@pytest.mark.django_db
+def test_an_order_waits_for_payment_and_the_seller_does_not_see_it(gig, buyer, seller):
+    from gigs.models import Order
+
+    response = _start_order(gig, buyer)
+
+    order = Order.objects.get(pk=response.data["order"]["id"])
+    assert order.status == Order.Status.AWAITING_PAYMENT
+    assert order.contract.milestones.get().status == Milestone.Status.PENDING
+    assert sign_in(seller).get("/api/v1/orders/").data["count"] == 0
+    gig.refresh_from_db()
+    assert gig.orders_count == 0
+
+    swich_pays(response)
+
+    order.refresh_from_db()
+    assert order.status == Order.Status.PENDING_REQUIREMENTS
+    assert sign_in(seller).get("/api/v1/orders/").data["count"] == 1
+    gig.refresh_from_db()
+    assert gig.orders_count == 1
+
+
+@pytest.mark.django_db
+def test_a_forged_callback_funds_nothing(gig, buyer):
+    from gigs.models import Order
+
+    response = _start_order(gig, buyer)
+    reference = response.data["payment_reference"]
+
+    forged = sign_in(buyer).get(
+        "/api/v1/payments/swich/callback/",
+        {
+            "CustomerTransactionId": reference,
+            "OrderId": "X",
+            "Amount": "15000.00",
+            "Status": "Success",
+            "checksum": "0" * 64,
+        },
+    )
+
+    assert forged.status_code == 400
+    assert Order.objects.get(pk=response.data["order"]["id"]).status == "awaiting_payment"
+    assert Charge.objects.get(reference=reference).status == Charge.Status.CREATED
+
+
+@pytest.mark.django_db
+def test_a_repeated_callback_is_applied_once(gig, buyer):
+    from gigs.models import Order
+
+    response = _start_order(gig, buyer)
+    reference = response.data["payment_reference"]
+
+    assert swich_says(reference).data["status"] == "paid"
+    assert swich_says(reference).data["status"] == "duplicate"
+
+    order = Order.objects.get(pk=response.data["order"]["id"])
+    assert EscrowFunding.objects.filter(milestone__contract=order.contract).count() == 1
+    gig.refresh_from_db()
+    assert gig.orders_count == 1
+
+
+@pytest.mark.django_db
+def test_a_failed_payment_can_be_tried_again(gig, buyer):
+    from gigs.models import Order
+
+    response = _start_order(gig, buyer)
+    order_id = response.data["order"]["id"]
+
+    assert swich_says(response.data["payment_reference"], "Failed").data["status"] == "failed"
+    assert Order.objects.get(pk=order_id).status == Order.Status.AWAITING_PAYMENT
+
+    retry = sign_in(buyer).post(f"/api/v1/orders/{order_id}/pay/")
+    assert retry.status_code == 200
+    assert retry.data["payment_reference"] != response.data["payment_reference"]
+    swich_pays(retry)
+    assert Order.objects.get(pk=order_id).status == Order.Status.PENDING_REQUIREMENTS
+
+
+@pytest.mark.django_db
+def test_a_different_amount_is_never_funded(gig, buyer):
+    from gigs.models import Order
+
+    response = _start_order(gig, buyer)
+
+    outcome = swich_says(response.data["payment_reference"], amount="1.00")
+
+    assert outcome.data["status"] == "amount_mismatch"
+    assert Order.objects.get(pk=response.data["order"]["id"]).status == "awaiting_payment"
+
+
+@pytest.mark.django_db
+def test_an_unpaid_order_is_cancelled_by_the_buyer_without_a_refund(gig, buyer):
+    from gigs.models import Order
+
+    response = _start_order(gig, buyer)
+    order_id = response.data["order"]["id"]
+
+    cancelled = sign_in(buyer).post(f"/api/v1/orders/{order_id}/cancel/")
+
+    assert cancelled.status_code == 200
+    assert Order.objects.get(pk=order_id).status == Order.Status.CANCELLED
+    assert not Refund.objects.exists()
+
+
+@pytest.mark.django_db
+def test_a_payment_for_an_order_already_closed_is_owed_back(gig, buyer):
+    from gigs.models import Order
+
+    response = _start_order(gig, buyer)
+    sign_in(buyer).post(f"/api/v1/orders/{response.data['order']['id']}/cancel/")
+
+    swich_pays(response)
+
+    assert Order.objects.get(pk=response.data["order"]["id"]).status == Order.Status.CANCELLED
+    assert Refund.objects.get(client=buyer).amount == 15000
+
+
+@pytest.mark.django_db
+def test_unpaid_orders_close_after_the_window(gig, buyer, settings):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from gigs.models import Order
+
+    from .checkout import expire_unpaid
+
+    response = _start_order(gig, buyer)
+
+    early = expire_unpaid()
+    late = expire_unpaid(now=timezone.now() + timedelta(hours=settings.UNPAID_ORDER_HOURS + 1))
+
+    assert early == {"charges": 0, "orders": 0}
+    assert late == {"charges": 1, "orders": 1}
+    assert Order.objects.get(pk=response.data["order"]["id"]).status == Order.Status.CANCELLED
+
+
+@pytest.mark.django_db
+def test_nothing_is_taken_while_swich_is_off(gig, buyer, settings):
+    from gigs.models import Order
+
+    settings.SWICH_ENABLED = False
+
+    from gigs.tests import _place
+
+    response = _place(gig, buyer)
+
+    assert response.status_code == 503
+    assert response.data["code"] == "payments_unavailable"
+    assert not Order.objects.exists()
+    assert sign_in(buyer).get("/api/v1/payments/options/").data["available"] is False
+
+
+@pytest.mark.django_db
+def test_only_the_payer_can_read_a_charge(gig, buyer, seller):
+    response = _start_order(gig, buyer)
+    url = f"/api/v1/payments/charges/{response.data['payment_reference']}/"
+
+    assert sign_in(seller).get(url).status_code == 404
+    mine = sign_in(buyer).get(url)
+    assert mine.status_code == 200
+    assert mine.data["status"] == "created"
+    assert mine.data["order_id"] == response.data["order"]["id"]

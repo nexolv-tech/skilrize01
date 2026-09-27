@@ -40,7 +40,7 @@ from core.notify import dispatch
 from core.pagination import StandardPagination
 from gigs.models import Gig, Order
 from marketplace.models import Category, Project
-from payments import settlement
+from payments import settlement, swich
 from payments.models import EscrowFunding, Payout, PayoutProfile, Refund, SubscriptionPayment
 from professional.models import Subscription
 
@@ -276,7 +276,7 @@ def transfer_not_received(request, pk):
                 (
                     contract.client,
                     f"We did not receive your payment for “{milestone.title}”. Fund it "
-                    "again once the transfer is sent, quoting your transfer reference.",
+                    "again to continue.",
                 ),
                 (
                     contract.freelancer,
@@ -349,7 +349,7 @@ def plan_payment_not_received(request, pk):
         NotificationCategory.PAYMENT,
         "Plan cancelled — payment not received",
         f"We did not receive your payment for {payment.subscription.plan.name}, so the plan "
-        "was cancelled. If you did pay, reply with your transfer reference.",
+        "was cancelled. If you did pay, reply with your payment reference.",
     )
     return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1087,17 +1087,16 @@ def platform_settings(request):
     from integrations.models import Provider
     from integrations.providers import registry
 
-    account = settings.PLATFORM_BANK_ACCOUNT_NUMBER or ""
     backend = settings.EMAIL_BACKEND.rsplit(".", 1)[-1]
     return Response(
         {
             "environment": settings.ENVIRONMENT,
             "commission_percent": str(settlement.commission_percent()),
-            "bank_transfer": {
-                "available": settlement.bank_transfer_available(),
-                "bank_name": settings.PLATFORM_BANK_NAME,
-                "account_title": settings.PLATFORM_BANK_ACCOUNT_TITLE,
-                "account_number_last4": account[-4:] if account else "",
+            "payments": {
+                "available": swich.is_enabled(),
+                "provider": "Swich",
+                "environment": settings.SWICH_ENV,
+                "callback_url": request.build_absolute_uri("/api/v1/payments/swich/callback/"),
             },
             "email": {
                 "backend": backend,

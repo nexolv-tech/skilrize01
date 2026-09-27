@@ -21,15 +21,16 @@ from marketplace.tests import make_user, sign_in
 
 
 def _fund(client_api, contract, milestone, reference_note: str = "") -> None:
-    """Fund a milestone the way it actually happens now: a plain
-    confirmation that the client has transferred the money to the
-    platform's own bank account — no gateway, no callback (Phase 3, D42)."""
+    """Fund a milestone the way it happens in production (D55): start a
+    Swich checkout, then deliver the checksum-verified callback Swich sends
+    once the client has paid. `reference_note` is kept for callers' sake."""
+    from payments.testing import swich_pays
+
     response = client_api.post(
-        f"/api/v1/contracts/{contract.pk}/milestones/{milestone.pk}/fund/",
-        {"reference_note": reference_note},
-        format="json",
+        f"/api/v1/contracts/{contract.pk}/milestones/{milestone.pk}/fund/", {}, format="json"
     )
     assert response.status_code == 200, response.data
+    assert swich_pays(response).data["status"] == "paid"
 
 
 def _give_payout_profile(freelancer) -> None:

@@ -265,6 +265,9 @@ class Order(TimestampedModel):
     """A purchase of one package, plus any extras."""
 
     class Status(models.TextChoices):
+        #: Placed, but Swich has not confirmed the payment yet (D55). The
+        #: seller does not see it and no work starts.
+        AWAITING_PAYMENT = "awaiting_payment", "Awaiting payment"
         PENDING_REQUIREMENTS = "pending_requirements", "Waiting for requirements"
         ACTIVE = "active", "In progress"
         DELIVERED = "delivered", "Delivered"
@@ -365,6 +368,11 @@ class Order(TimestampedModel):
         """
         if self.status in (self.Status.COMPLETED, self.Status.CANCELLED):
             return False, "This order is already closed."
+        if self.status == self.Status.AWAITING_PAYMENT:
+            # Nothing was taken, so there is nothing to refund.
+            if user.pk == self.buyer_id:
+                return True, ""
+            return False, "This order is waiting for the buyer's payment."
         if self.status == self.Status.DELIVERED:
             return False, "Work has been delivered. Accept it or request a revision instead."
         if user.pk == self.seller_id:

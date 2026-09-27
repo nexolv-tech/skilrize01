@@ -30,22 +30,20 @@ from core.models import TimestampedModel
 
 
 class EscrowFunding(TimestampedModel):
-    """A milestone's money, reported as transferred to the platform's bank
-    account. Nothing here verifies the transfer actually happened — there
-    is no gateway to ask — so this is the client's own declaration, the
-    same trust basis the pre-Phase-3 `Milestone.fund()` always ran on.
-    What's real is everything downstream of it: the money is genuinely
-    expected to already be in the platform's account by the time a
-    freelancer is told to start work.
-    """
+    """A milestone's money, held in escrow. Created when Swich's
+    checksum-verified callback confirms the payment (`payments.checkout`,
+    D55), already confirmed; or recorded by an admin for money received
+    another way, in which case it waits in the console until someone
+    matches it against the statement (D54). Records made before D55 were
+    buyers' own bank-transfer declarations (D42)."""
 
     milestone = models.OneToOneField(
         "contracts.Milestone", on_delete=models.CASCADE, related_name="funding"
     )
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     currency = models.CharField(max_length=3, default="PKR")
-    #: Whatever the client typed as their bank transfer reference — a
-    #: courtesy for reconciliation, not a verified value.
+    #: Swich's transaction id ("Swich …"), or whatever reference was
+    #: recorded with a payment taken another way.
     reference_note = models.CharField(max_length=200, blank=True)
     funded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
@@ -66,9 +64,8 @@ class EscrowFunding(TimestampedModel):
 
 
 class SubscriptionPayment(TimestampedModel):
-    """A subscription period's price, reported as transferred to the
-    platform's bank account — the same client-declared trust basis
-    `EscrowFunding` runs on, just for plan billing instead of a milestone.
+    """A subscription period's price, paid through Swich (D55) and
+    confirmed by its callback, the way `EscrowFunding` is for escrow.
 
     Unlike escrow there is nothing to release later: the whole amount is
     the platform's, so there is no matching `Payout` on the other end —
@@ -243,3 +240,58 @@ class Refund(TimestampedModel):
 
     def __str__(self) -> str:
         return f"Refund(milestone={self.milestone_id}, {self.status})"
+
+
+class Charge(TimestampedModel):
+    """One attempt to take a payment through Swich's hosted checkout (D55).
+
+    A buyer can abandon Swich's page or have a card declined and try again,
+    so an order or milestone can have several charges; at most one ends
+    `paid`. The `reference` is what Swich calls the customerTransactionId:
+    it is how the callback finds this row, and it never repeats.
+    """
+
+    class Purpose(models.TextChoices):
+        ORDER = "order", "Service order"
+        MILESTONE = "milestone", "Milestone"
+        PLAN = "plan", "Plan"
+
+    class Status(models.TextChoices):
+        CREATED = "created", "Waiting for payment"
+        PAID = "paid", "Paid"
+        FAILED = "failed", "Failed"
+        EXPIRED = "expired", "Expired"
+
+    reference = models.CharField(max_length=40, unique=True)
+    purpose = models.CharField(max_length=10, choices=Purpose.choices)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.CREATED)
+    payer = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="charges"
+    )
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=3, default="PKR")
+    milestone = models.ForeignKey(
+        "contracts.Milestone",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="charges",
+    )
+    order = models.ForeignKey(
+        "gigs.Order", null=True, blank=True, on_delete=models.CASCADE, related_name="charges"
+    )
+    plan = models.ForeignKey(
+        "professional.Plan", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    interval = models.CharField(max_length=10, blank=True)
+    #: Swich's own id for the payment, from the callback.
+    swich_order_id = models.CharField(max_length=80, blank=True)
+    callback_payload = models.JSONField(default=dict, blank=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["status", "created_at"])]
+
+    def __str__(self) -> str:
+        return f"Charge({self.reference}, {self.purpose}, {self.status})"

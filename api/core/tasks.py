@@ -174,10 +174,12 @@ def auto_release_deliveries() -> dict:
     """Settle deliveries nobody answered within their review window — gig
     orders after `Order.ACCEPTANCE_WINDOW_DAYS`, contract milestones after
     `Contract.REVIEW_WINDOW_DAYS`. Runs hourly
-    (`core/migrations/0006_schedule_auto_release.py`)."""
+    (`core/migrations/0006_schedule_auto_release.py`). The same pass closes
+    orders nobody finished paying for (`payments.checkout.expire_unpaid`)."""
+    from payments.checkout import expire_unpaid
     from payments.settlement import auto_release_lapsed
 
-    return auto_release_lapsed()
+    return {**auto_release_lapsed(), "unpaid": expire_unpaid()}
 
 
 @shared_task

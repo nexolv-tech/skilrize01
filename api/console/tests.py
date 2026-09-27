@@ -84,9 +84,31 @@ def test_a_superuser_is_a_super_admin_to_the_web_app():
 # --- Money in ------------------------------------------------------------------
 
 
+def _recorded_by_hand(**filters) -> EscrowFunding:
+    """A payment that did not come through Swich's callback, such as one an
+    admin recorded against a milestone (D54): it waits to be confirmed."""
+    funding = EscrowFunding.objects.get(**filters)
+    funding.confirmed_at = None
+    funding.save(update_fields=["confirmed_at"])
+    return funding
+
+
+@pytest.mark.django_db
+def test_a_swich_payment_arrives_already_confirmed(gig, buyer):
+    """Swich's verified callback is the confirmation (D55); nothing waits."""
+    order = _active_order(gig, buyer)
+    _, api = admin(R.FINANCE_ADMIN)
+
+    assert api.get("/api/v1/admin/payments/transfers/").data["count"] == 0
+    received = api.get("/api/v1/admin/payments/transfers/", {"state": "confirmed"}).data
+    assert [row["order_id"] for row in received["results"]] == [order.pk]
+    assert received["results"][0]["confirmed_by"] is None
+
+
 @pytest.mark.django_db
 def test_confirming_a_transfer_records_it_and_tells_the_buyer(gig, buyer):
     order = _active_order(gig, buyer)
+    _recorded_by_hand(milestone__contract=order.contract)
     officer, api = admin(R.FINANCE_ADMIN)
 
     queue = api.get("/api/v1/admin/payments/transfers/").data["results"]
@@ -106,7 +128,7 @@ def test_confirming_a_transfer_records_it_and_tells_the_buyer(gig, buyer):
 def test_a_transfer_that_never_arrived_voids_the_order(gig, buyer):
     order = _active_order(gig, buyer)
     _, api = admin(R.FINANCE_ADMIN)
-    funding = EscrowFunding.objects.get(milestone__contract=order.contract)
+    funding = _recorded_by_hand(milestone__contract=order.contract)
 
     response = api.post(
         f"/api/v1/admin/payments/transfers/{funding.pk}/not-received/",
@@ -127,7 +149,7 @@ def test_a_brief_milestone_that_was_never_paid_goes_back_to_awaiting_funding(awa
     milestone = _activate(awarded, freelancer)
     _fund(sign_in(client_user), awarded, milestone, "ref 123")
     _, api = admin(R.FINANCE_ADMIN)
-    funding = EscrowFunding.objects.get(milestone=milestone)
+    funding = _recorded_by_hand(milestone=milestone)
 
     response = api.post(f"/api/v1/admin/payments/transfers/{funding.pk}/not-received/")
 

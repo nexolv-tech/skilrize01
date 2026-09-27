@@ -325,11 +325,9 @@ class Milestone(TimestampedModel):
         return self.status not in (self.Status.PENDING, self.Status.CANCELLED)
 
     def fund(self) -> None:
-        """Money is secured — the client has transferred it to the
-        platform's own bank account and confirmed doing so
-        (`contracts.views.fund_milestone`). Nothing here verifies the
-        transfer landed; there is no gateway to ask (Phase 3, D42, which
-        replaced the Swich integration in D41)."""
+        """Money is secured in escrow: called when Swich confirms the
+        payment (`payments.checkout`, D55), or by an admin who recorded a
+        payment received another way."""
         self.status = self.Status.FUNDED
         self.funded_at = timezone.now()
         self.save(update_fields=["status", "funded_at", "updated_at"])

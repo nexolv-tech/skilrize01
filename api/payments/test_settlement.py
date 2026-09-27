@@ -215,9 +215,9 @@ def test_releasing_twice_never_creates_a_second_payout(gig, buyer, seller):
 
 
 @pytest.mark.django_db
-def test_an_order_is_refused_when_there_is_no_account_to_pay_into(gig, buyer, settings):
-    """A blank account on the checkout page must not still accept "I've paid"."""
-    settings.PLATFORM_BANK_ACCOUNT_NUMBER = ""
+def test_an_order_is_refused_while_payments_are_off(gig, buyer, settings):
+    """With no Swich merchant account nothing can be paid, so no order is placed."""
+    settings.SWICH_ENABLED = False
 
     response = _order(gig, buyer)
 
@@ -227,10 +227,10 @@ def test_an_order_is_refused_when_there_is_no_account_to_pay_into(gig, buyer, se
 
 
 @pytest.mark.django_db
-def test_a_milestone_is_not_funded_when_there_is_no_account_to_pay_into(awarded, parties, settings):
+def test_a_milestone_is_not_funded_while_payments_are_off(awarded, parties, settings):
     client_user, freelancer = parties
     milestone = _activate(awarded, freelancer)
-    settings.PLATFORM_BANK_NAME = ""
+    settings.SWICH_SECRET_KEY = ""
 
     response = sign_in(client_user).post(
         f"/api/v1/contracts/{awarded.pk}/milestones/{milestone.pk}/fund/", {}, format="json"
@@ -242,12 +242,12 @@ def test_a_milestone_is_not_funded_when_there_is_no_account_to_pay_into(awarded,
 
 
 @pytest.mark.django_db
-def test_the_payment_instructions_say_whether_payment_is_possible(buyer, settings):
+def test_the_payment_options_say_whether_payment_is_possible(buyer, settings):
     api = sign_in(buyer)
-    assert api.get("/api/v1/payments/bank-transfer-instructions/").data["available"] is True
+    assert api.get("/api/v1/payments/options/").data["available"] is True
 
-    settings.PLATFORM_BANK_ACCOUNT_TITLE = ""
-    assert api.get("/api/v1/payments/bank-transfer-instructions/").data["available"] is False
+    settings.SWICH_CLIENT_ID = ""
+    assert api.get("/api/v1/payments/options/").data["available"] is False
 
 
 # --- Payment never received -----------------------------------------------------

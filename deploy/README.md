@@ -205,7 +205,25 @@ Put each app's client ID and secret in `deploy/production.env`, set its
 `./deploy/deploy.sh`. Only providers with both keys and the flag set leave
 "Coming soon".
 
-## 11. From now on: updating the live site
+## 11. Turn on payments (Swich)
+
+Until this is done, checkout lists the payment methods and says payments
+are opening shortly; nothing can be bought. When Swich gives you the
+merchant account:
+
+1. In the Swich merchant portal, register the **callback URL**
+   `https://api.your-domain.com/api/v1/payments/swich/callback/`
+   (Admin console → Settings shows the exact one). This is how Swich tells
+   SkilRize a payment went through; without it no order is ever funded.
+2. In `deploy/production.env` set `SWICH_ENABLED=True`, `SWICH_ENV=production`
+   and the three keys Swich issues: `SWICH_CLIENT_ID`, `SWICH_CLIENT_SECRET`,
+   `SWICH_SECRET_KEY`.
+3. Run `./deploy/deploy.sh`. Admin console → Settings should now show
+   "Online payments (Swich): Taking payments".
+4. Place a small real order yourself and check it appears under Payments →
+   Payments in (Done) as "Received through Swich".
+
+## 12. From now on: updating the live site
 
 Never edit files on this server. The workflow is always:
 

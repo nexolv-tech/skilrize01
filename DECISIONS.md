@@ -2157,6 +2157,62 @@ each model's app. The older admin endpoints stay where D35 put them.
 
 ---
 
+## D55 · Payments through Swich; bank transfer removed
+
+The operator has an NTN and is opening a Swich merchant account, and asked
+for bank transfer to go: buyers pay by debit or credit card, Easypaisa,
+JazzCash or 1Bill, and the site should say so everywhere before Swich
+reviews it.
+
+**The adapter came back from D41, not rewritten.** The Pay In half of the
+Swich adapter built and checked against Swich's real sandbox in D41 (hosted
+checkout URL, checksum formulas, callback verification) was restored from
+git history as `payments/swich.py`, with its documented formulas unchanged.
+Its Payout half was not: the IBFT bank-code question D41 left open is still
+open, so payouts and refunds stay operator-sent and are recorded in the
+admin console (D54).
+
+**The callback is the only thing that funds.** Paying now creates a
+`Charge` (one attempt; a declined card is retried with a new one) and sends
+the buyer to Swich. Nothing is held until Swich's server-to-server callback
+arrives with a checksum only the merchant SecretKey can produce, compared in
+constant time. It then funds the milestone (an `EscrowFunding` created
+already confirmed), opens the order to its seller, raises the gig's order
+count, or starts the plan, once: a repeated callback is a no-op, a
+different amount is logged and funds nothing, and money arriving for an
+order cancelled in the meantime is recorded as a refund owed. The page the
+buyer returns to only reads that record.
+
+**Orders now wait to be paid.** `Order.Status.AWAITING_PAYMENT` holds an
+order between checkout and Swich's confirmation. Its seller does not see
+it; its buyer can pay again or cancel with nothing to refund; the hourly
+sweep closes it after `UNPAID_ORDER_HOURS` (48). Milestones keep their
+existing `pending` state for the same wait, and a plan simply starts on
+payment.
+
+**Off until the merchant account is live.** `SWICH_ENABLED`, the keys and
+`SWICH_ENV` (Swich's own sandbox or production, independent of this
+server's environment) gate everything. With them unset, checkout lists the
+methods and says card and wallet payments are opening shortly; no order is
+placed and nothing is charged. That is what the live site shows until the
+keys are added.
+
+**What changed around it.** The platform bank account settings and the
+bank-transfer panel are gone. Terms, Refund, Delivery, Privacy (Swich named
+as the payment processor) and Contact pages say how payment works now, and
+the legal documents move to version 2026-09-27, so existing members accept
+them again. Refunds go back to the card or wallet paid with. The admin
+console's Payments in lists Swich payments as received automatically; its
+to-do queue now holds only payments an admin recorded by hand. The mobile
+app still speaks the old bank-transfer API and needs its pay screens
+pointed at the Swich checkout before its next release.
+
+Tests pay the way production does, by delivering a correctly signed
+callback with a test key (`payments/testing.py`), so every order, milestone
+and plan in the suite goes through the real verification path.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, a personal relationship, or an

@@ -22,7 +22,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from accounts.auth import CanMoveMoney
-from core.models import AuditLog, NotificationCategory
+from core.models import NotificationCategory
 from core.notify import dispatch
 from core.pagination import StandardPagination
 
@@ -130,14 +130,11 @@ def my_subscription(request):
 def subscribe(request):
     """Start or change a plan.
 
-    Switching to Free needs no declaration — nothing is being paid for, so
-    `existing.cancel()` is the whole story. A paid tier runs on the same
-    trust basis `contracts.fund_milestone` and `gigs.order` do (Phase 3,
-    D42): the caller has already transferred the plan's price to the
-    platform's own bank account (`GET /payments/bank-transfer-instructions/`
-    gives the details), and this call is them confirming that — gated by
-    `CanMoveMoney` for the same reason funding or releasing a milestone is,
-    since it is the same kind of declaration.
+    Switching to Free needs no payment, so `existing.cancel()` is the whole
+    story. A paid tier sends the member to Swich (D55); the plan starts
+    when Swich confirms the payment (`payments.checkout._settle_plan`),
+    which also ends any plan it replaces. Gated by `CanMoveMoney`, like
+    every other payment.
     """
     tier = (request.data.get("tier") or "").strip()
     interval = request.data.get("interval") or Subscription.Interval.MONTHLY
@@ -161,53 +158,25 @@ def subscribe(request):
     if not CanMoveMoney().has_permission(request, None):
         return _forbidden("Complete your profile before transacting.", "profile_incomplete")
 
-    from payments.settlement import PAYMENTS_UNAVAILABLE, bank_transfer_available
+    from payments import checkout
+    from payments.views import checkout_response
 
-    if not bank_transfer_available():
-        return Response(PAYMENTS_UNAVAILABLE, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-
-    if existing:
-        # Switching tiers ends the old subscription outright rather than
-        # stacking a second one — the partial unique constraint would refuse it
-        # anyway, and proration is a billing concern for a real gateway, not
-        # a bank-transfer declaration.
-        existing.status = Subscription.Status.CANCELLED
-        existing.cancelled_at = timezone.now()
-        existing.save(update_fields=["status", "cancelled_at", "updated_at"])
-
-    span = timedelta(days=365 if interval == Subscription.Interval.YEARLY else 30)
-    subscription = Subscription.objects.create(
-        user=request.user,
-        plan=plan,
-        interval=interval,
-        status=Subscription.Status.ACTIVE,
-        current_period_end=timezone.now() + span,
-    )
-
-    from payments.models import SubscriptionPayment
+    if not checkout.available():
+        return Response(checkout.PAYMENTS_UNAVAILABLE, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    if interval not in Subscription.Interval.values:
+        return _bad("Choose monthly or yearly billing.", "bad_interval")
 
     price = plan.yearly_price if interval == Subscription.Interval.YEARLY else plan.monthly_price
-    SubscriptionPayment.objects.create(
-        subscription=subscription,
+    charge, url = checkout.start(
+        purpose="plan",
+        payer=request.user,
         amount=price,
-        reference_note=str(request.data.get("reference_note", ""))[:200],
-        paid_by=request.user,
+        item=f"{plan.name} plan",
+        description=f"SkilRize {plan.name}, {interval}",
+        plan=plan,
+        interval=interval,
     )
-
-    AuditLog.record(
-        actor=request.user,
-        action=AuditLog.Action.CREATE,
-        target=subscription,
-        request=request,
-        justification=f"Subscribed to {plan.name} ({interval}), bank transfer reported.",
-    )
-    dispatch(
-        request.user,
-        NotificationCategory.ANNOUNCEMENT,
-        f"You are on {plan.name}",
-        "Your new limits are active immediately.",
-    )
-    return Response(SubscriptionSerializer(subscription).data, status=status.HTTP_201_CREATED)
+    return checkout_response(charge, url)
 
 
 @api_view(["POST"])

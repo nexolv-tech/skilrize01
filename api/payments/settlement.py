@@ -3,8 +3,9 @@ Settlement — the only two ways money leaves escrow.
 
 **Release** sends a milestone's money forward to the freelancer, minus the
 platform's commission, as a `Payout`. **Refund** sends it back to the client,
-as a `Refund`. Both are fulfilled by hand (custodial escrow, D42); what lives
-here is the bookkeeping, and it lives here once.
+as a `Refund`. Money comes in through Swich (`payments.checkout`, D55); an
+operator sends payouts and refunds and records them in the admin console.
+What lives here is the bookkeeping, and it lives here once.
 
 Every path that settles escrow goes through these functions: a client
 releasing a milestone, a buyer accepting a gig order, the auto-release sweep
@@ -28,35 +29,8 @@ from .models import Payout, Refund
 HELD_STATES = ("funded", "in_progress", "delivered")
 
 
-#: Returned, with a 503, by every endpoint that takes a client's word that
-#: money was sent, when there is nowhere it could have been sent to.
-PAYMENTS_UNAVAILABLE = {
-    "detail": (
-        "Payments are not open yet. Nothing has been charged — please contact support "
-        "to place this order."
-    ),
-    "code": "payments_unavailable",
-}
-
-
 def commission_percent() -> Decimal:
     return Decimal(str(settings.PLATFORM_COMMISSION_PERCENT))
-
-
-def bank_transfer_available() -> bool:
-    """Whether the platform has a bank account for clients to pay into.
-
-    Every funding path (a gig order, a milestone, a paid plan) records the
-    client's own declaration that they transferred the money. A deployment
-    without `PLATFORM_BANK_*` configured shows the client a blank account
-    and would still accept that declaration — an order "funded" by a
-    transfer that could not have happened. Funding refuses instead.
-    """
-    return bool(
-        settings.PLATFORM_BANK_NAME
-        and settings.PLATFORM_BANK_ACCOUNT_TITLE
-        and settings.PLATFORM_BANK_ACCOUNT_NUMBER
-    )
 
 
 def queue_payout(milestone) -> Payout:
@@ -111,7 +85,7 @@ def queue_refund(milestone, *, reason: str, actor=None) -> Refund | None:
 
 @transaction.atomic
 def void_unpaid_order(order, *, actor, note: str = "") -> bool:
-    """Cancel an order whose bank transfer never arrived — without a refund.
+    """Cancel an order whose payment never arrived — without a refund.
 
     An order starts on the buyer's word that they paid (D42). When the money
     never reaches the platform's account, the Terms let the platform cancel
@@ -156,7 +130,7 @@ def void_unpaid_order(order, *, actor, note: str = "") -> bool:
         (
             order.buyer,
             f"We did not receive your payment for “{order.gig.title}”, so the order was "
-            "cancelled. If you did pay, reply with your transfer reference.",
+            "cancelled. If you did pay, reply with your payment reference.",
         ),
         (
             order.seller,

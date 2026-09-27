@@ -259,16 +259,16 @@ class ContractViewSet(viewsets.ReadOnlyModelViewSet):
         permission_classes=[IsAuthenticated, IsContractParty, CanMoveMoney],
     )
     def fund_milestone(self, request, pk=None, milestone_id=None):
-        """Mark a milestone funded.
+        """Send the client to Swich to pay for a milestone (D55).
 
-        There is no gateway behind this — the client has already
-        transferred the money directly to the platform's own bank account
-        (`GET /payments/bank-transfer-instructions/` gives the details)
-        and this call is them confirming that. Nothing here verifies the
-        transfer landed; the honest framing is in `EscrowFunding`'s own
-        docstring, not hidden by pretending a webhook confirmed it
-        (Phase 3, D42, which replaced the Swich integration in D41).
+        Nothing is funded here: the milestone stays awaiting payment until
+        Swich's checksum-verified callback confirms it
+        (`payments.checkout.record_callback`), which funds it and tells the
+        freelancer to start.
         """
+        from payments import checkout
+        from payments.views import checkout_response
+
         contract = self.get_object()
         milestone = get_object_or_404(contract.milestones, pk=milestone_id)
 
@@ -278,42 +278,20 @@ class ContractViewSet(viewsets.ReadOnlyModelViewSet):
             return _bad("The contract must be active before funding.")
         if milestone.status != Milestone.Status.PENDING:
             return _bad("This milestone is already funded.")
-        from payments.models import EscrowFunding
-        from payments.settlement import PAYMENTS_UNAVAILABLE, bank_transfer_available
+        if not checkout.available():
+            return Response(
+                checkout.PAYMENTS_UNAVAILABLE, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
 
-        if not bank_transfer_available():
-            return Response(PAYMENTS_UNAVAILABLE, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-
-        EscrowFunding.objects.create(
-            milestone=milestone,
+        charge, url = checkout.start(
+            purpose="milestone",
+            payer=request.user,
             amount=milestone.amount,
-            reference_note=str(request.data.get("reference_note", ""))[:200],
-            funded_by=request.user,
+            item=f"Contract #{contract.pk}",
+            description=f"{contract.title}: {milestone.title}",
+            milestone=milestone,
         )
-        milestone.fund()
-        ContractEvent.log(
-            contract,
-            ContractEvent.Kind.FUNDED,
-            actor=request.user,
-            body=f"“{milestone.title}” funded — held in escrow.",
-            milestone_id=milestone.id,
-            amount=str(milestone.amount),
-        )
-        AuditLog.record(
-            actor=request.user,
-            action=AuditLog.Action.UPDATE,
-            target=milestone,
-            request=request,
-            justification="Milestone funded (client-reported bank transfer).",
-        )
-        dispatch(
-            contract.freelancer,
-            NotificationCategory.PAYMENT,
-            "Milestone funded",
-            f"“{milestone.title}” is funded and held in escrow — you can safely start work.",
-            data={"contract_id": contract.id},
-        )
-        return Response(self._detail(contract, request))
+        return checkout_response(charge, url, http_status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="milestones/(?P<milestone_id>[^/.]+)/deliver")
     def deliver_milestone(self, request, pk=None, milestone_id=None):

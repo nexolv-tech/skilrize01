@@ -58,17 +58,18 @@ def _no_scanner_required(settings):
 
 
 @pytest.fixture(autouse=True)
-def _platform_bank_account(settings):
-    """Give the suite a bank account to pay into.
+def _payments_open(settings):
+    """Give the suite a Swich merchant account to pay through (D55).
 
-    Funding refuses outright on a deployment with no `PLATFORM_BANK_*`
-    configured (`payments.settlement.bank_transfer_available`), and no test
-    environment has one. The refusal itself is covered in
-    `payments/test_settlement.py`, by tests that clear these again.
+    Every payment refuses outright on a server with Swich off, and no test
+    environment has real keys. Tests pay by playing Swich's part with these
+    keys (`payments.testing.swich_pays`); the refusal itself is covered in
+    `payments/tests.py`, by tests that switch Swich off again.
     """
-    settings.PLATFORM_BANK_NAME = "Test Bank"
-    settings.PLATFORM_BANK_ACCOUNT_TITLE = "NEXOLV.TECH"
-    settings.PLATFORM_BANK_ACCOUNT_NUMBER = "0000000000000000"
+    settings.SWICH_ENABLED = True
+    settings.SWICH_ENV = "sandbox"
+    settings.SWICH_CLIENT_ID = "test-client"
+    settings.SWICH_SECRET_KEY = "test-secret-key"  # noqa: S105 — a test fixture, not a credential
 
 
 @pytest.fixture(autouse=True)
