@@ -270,7 +270,17 @@ function PlansTab({ state }: { state: State }) {
   );
 }
 
-function PayoutsTab({ state }: { state: State }) {
+/** What Swich said the last time, when it did not go through. */
+function SwichProblem({ message }: { message: string }) {
+  if (!message) return null;
+  return (
+    <Alert tone="caution" title="Not sent through Swich">
+      {message}
+    </Alert>
+  );
+}
+
+function PayoutsTab({ state, viaSwich }: { state: State; viaSwich: boolean }) {
   const [page, setPage] = React.useState(1);
   const list = useLoader(
     () => admin.payouts(state === "todo" ? "pending" : "paid", page),
@@ -302,28 +312,48 @@ function PayoutsTab({ state }: { state: State }) {
           </p>
           {row.status === "paid" ? (
             <StatusText tone="positive">
-              Sent {row.paid_at ? formatRelative(row.paid_at) : ""} by {row.paid_by?.name} ·
-              reference {row.note}
+              Sent {row.paid_at ? formatRelative(row.paid_at) : ""}{" "}
+              {row.paid_by ? `by ${row.paid_by.name}` : "through Swich"} · reference {row.note}
             </StatusText>
           ) : (
             <div className="space-y-3">
+              {row.destination && (
+                <p className="text-[13px] text-muted">
+                  To <span className="font-medium text-fg">{row.destination}</span>
+                  {row.swich_ready ? ", which Swich pays." : ", which is not on Swich's list: send it by hand."}
+                </p>
+              )}
+              <SwichProblem message={row.last_error} />
               <BankDetails
                 ready={row.bank_details_ready}
                 load={() => admin.payoutBankDetails(row.id)}
                 missing="No bank details yet. The freelancer adds them under Settings → Payouts; they have been told they are owed."
               />
-              <ActionWithInput
-                label="Mark as paid"
-                confirmLabel="Record payment"
-                tone="primary"
-                singleLine
-                prompt="Transfer reference from your bank's receipt. The freelancer is told it was sent."
-                placeholder="e.g. IBFT 8821 3310"
-                onConfirm={async (reference) => {
-                  await admin.markPayoutPaid(row.id, reference);
-                  await list.reload();
-                }}
-              />
+              <div className="flex flex-wrap items-start gap-2">
+                {viaSwich && row.swich_ready && (
+                  <QuickAction
+                    label={row.last_error ? "Try Swich again" : "Send through Swich"}
+                    variant="primary"
+                    icon="send"
+                    onRun={async () => {
+                      await admin.sendPayoutViaSwich(row.id);
+                      await list.reload();
+                    }}
+                  />
+                )}
+                <ActionWithInput
+                  label="Mark as paid"
+                  confirmLabel="Record payment"
+                  tone="primary"
+                  singleLine
+                  prompt="Transfer reference from your bank's receipt. The freelancer is told it was sent."
+                  placeholder="e.g. IBFT 8821 3310"
+                  onConfirm={async (reference) => {
+                    await admin.markPayoutPaid(row.id, reference);
+                    await list.reload();
+                  }}
+                />
+              </div>
             </div>
           )}
         </Row>
@@ -332,7 +362,7 @@ function PayoutsTab({ state }: { state: State }) {
   );
 }
 
-function RefundsTab({ state }: { state: State }) {
+function RefundsTab({ state, viaSwich }: { state: State; viaSwich: boolean }) {
   const [page, setPage] = React.useState(1);
   const list = useLoader(
     () => admin.refunds(state === "todo" ? "pending" : "refunded", page),
@@ -358,11 +388,23 @@ function RefundsTab({ state }: { state: State }) {
           </p>
           {row.status === "refunded" ? (
             <StatusText tone="positive">
-              Sent {row.refunded_at ? formatRelative(row.refunded_at) : ""} by{" "}
-              {row.refunded_by?.name} · reference {row.note}
+              Sent {row.refunded_at ? formatRelative(row.refunded_at) : ""}{" "}
+              {row.refunded_by ? `by ${row.refunded_by.name}` : "through Swich"} · {row.note}
             </StatusText>
           ) : (
             <div className="space-y-3">
+              <SwichProblem message={row.last_error} />
+              {viaSwich && (
+                <QuickAction
+                  label={row.last_error ? "Try Swich again" : "Refund through Swich"}
+                  variant="primary"
+                  icon="send"
+                  onRun={async () => {
+                    await admin.sendRefundViaSwich(row.id);
+                    await list.reload();
+                  }}
+                />
+              )}
               <BankDetails
                 ready={row.bank_details_ready}
                 load={() => admin.refundBankDetails(row.id)}
@@ -435,8 +477,12 @@ function PaymentsContent() {
       )}
       {tab === "transfers" && <TransfersTab key={state} state={state} />}
       {tab === "plans" && <PlansTab key={state} state={state} />}
-      {tab === "payouts" && <PayoutsTab key={state} state={state} />}
-      {tab === "refunds" && <RefundsTab key={state} state={state} />}
+      {tab === "payouts" && (
+        <PayoutsTab key={state} state={state} viaSwich={Boolean(overview?.swich_payouts)} />
+      )}
+      {tab === "refunds" && (
+        <RefundsTab key={state} state={state} viaSwich={Boolean(overview?.swich_payouts)} />
+      )}
     </>
   );
 }

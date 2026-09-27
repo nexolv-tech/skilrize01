@@ -79,7 +79,7 @@ custodial model it replaced.*
 | Confirm | Swich calls `/api/v1/payments/swich/callback/` server to server. The checksum is recomputed with the merchant SecretKey (constant-time compare); a forged, repeated or wrong-amount callback funds nothing. | `api/payments/views.py` (`swich_callback`), `checkout.record_callback` |
 | Hold | Only then is the milestone funded and the order opened to its seller, who never sees an unpaid (`awaiting_payment`) order. | `checkout._settle_order` / `_settle_milestone` / `_settle_plan` |
 | Return | The buyer lands on `/payments/return`, which reads what the callback recorded and never decides anything itself. | `web/app/(app)/payments/return` |
-| Release, refund | Unchanged: `payments.settlement`, fulfilled by an operator and recorded in the admin console. | `api/payments/settlement.py`, `/admin/payments` |
+| Release, refund | `payments.settlement` decides what is owed; with `SWICH_PAYOUTS_ENABLED` the payout goes to the freelancer's bank or Easypaisa/JazzCash wallet by Swich IBFT, and a refund back to the card or wallet through Swich's refund API (D56). Anything Swich refuses waits in the admin console with its reason, to retry or send by hand. | `api/payments/disburse.py`, `api/payments/settlement.py`, `/admin/payments` |
 
 A failed or abandoned payment can be retried from the order page; an order
 unpaid for `UNPAID_ORDER_HOURS` (48) is closed by the hourly sweep. Money

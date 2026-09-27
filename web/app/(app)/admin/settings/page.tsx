@@ -68,6 +68,20 @@ export default function AdminSettingsPage() {
                 }
               />
               <Line
+                label="Payouts and refunds (Swich)"
+                ok={data.payments.payouts}
+                value={
+                  data.payments.payouts
+                    ? `Sent automatically${data.payments.payout_balance !== null ? ` · balance Rs ${Number(data.payments.payout_balance).toLocaleString()}` : ""}`
+                    : "Sent by hand from Payments"
+                }
+                hint={
+                  data.payments.payouts
+                    ? "Keep the Swich payout balance funded: payouts are paid from it."
+                    : "Set SWICH_PAYOUTS_ENABLED once Swich has whitelisted this server's IP address and funded the payout balance."
+                }
+              />
+              <Line
                 label="Callback URL for Swich"
                 value={<span className="break-all font-mono text-[12.5px]">{data.payments.callback_url}</span>}
                 hint="Register this in the Swich merchant portal: it is how Swich confirms each payment."

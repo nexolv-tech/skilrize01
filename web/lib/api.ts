@@ -847,10 +847,20 @@ export interface ChargeStatus {
 }
 
 export interface PayoutProfile {
+  /** The bank or wallet as Swich knows it; blank for one typed by hand. */
+  bank_code: string;
   bank_name: string;
   account_title: string;
   msisdn: string;
   is_complete: boolean;
+  /** Paid automatically through Swich on release (D56). */
+  swich_ready: boolean;
+}
+
+export interface PayoutInstitution {
+  code: string;
+  name: string;
+  kind: "bank" | "wallet";
 }
 
 export interface Payout {
@@ -886,12 +896,14 @@ export const payments = {
     api.get<ChargeStatus>(`/payments/charges/${encodeURIComponent(reference)}/`),
   payoutProfile: () => api.get<PayoutProfile>("/payments/payout-profile/"),
   savePayoutProfile: (body: {
+    bank_code: string;
     bank_name: string;
     account_title: string;
     account_number: string;
     cnic: string;
     msisdn: string;
   }) => api.patch<PayoutProfile>("/payments/payout-profile/", body),
+  payoutInstitutions: () => api.get<PayoutInstitution[]>("/payments/payout-institutions/"),
   myPayouts: () => api.get<Paginated<Payout>>("/payments/payouts/"),
   myRefunds: () => api.get<Paginated<Refund>>("/payments/refunds/"),
 };
@@ -1940,6 +1952,8 @@ export interface AdminPerson {
 
 export interface AdminOverview {
   role: AdminRole;
+  /** Payouts and refunds go out through Swich (D56). */
+  swich_payouts: boolean;
   queues: Partial<{
     identity: number;
     students: number;
@@ -2009,6 +2023,12 @@ export interface AdminPayout {
   note: string;
   freelancer: AdminPerson;
   bank_details_ready: boolean;
+  /** A bank or wallet on Swich's list, so Swich can pay it (D56). */
+  swich_ready: boolean;
+  destination: string;
+  /** Why the last Swich attempt did not go through. */
+  last_error: string;
+  swich_reference: string;
   title: string;
   milestone: string;
   contract_id: number;
@@ -2027,6 +2047,7 @@ export interface AdminRefund {
   note: string;
   client: AdminPerson;
   bank_details_ready: boolean;
+  last_error: string;
   title: string;
   milestone: string;
   contract_id: number;
@@ -2143,6 +2164,8 @@ export interface AdminPlatformSettings {
     provider: string;
     environment: string;
     callback_url: string;
+    payouts: boolean;
+    payout_balance: string | null;
   };
   email: { backend: string; from: string; sending: boolean };
   security: {
@@ -2201,6 +2224,10 @@ export const admin = {
     api.get<Paginated<AdminPayout>>(`/admin/payments/payouts/${toQuery({ status, page })}`),
   payoutBankDetails: (id: number) =>
     api.get<AdminBankDetails>(`/admin/payments/payouts/${id}/bank-details/`),
+  sendPayoutViaSwich: (id: number) =>
+    api.post<{ outcome: string; payout: AdminPayout }>(`/admin/payments/payouts/${id}/send-swich/`),
+  sendRefundViaSwich: (id: number) =>
+    api.post<{ outcome: string; refund: AdminRefund }>(`/admin/payments/refunds/${id}/send-swich/`),
   markPayoutPaid: (id: number, reference: string) =>
     api.post<AdminPayout>(`/admin/payments/payouts/${id}/mark-paid/`, { reference }),
   refunds: (status: "pending" | "refunded", page?: number) =>

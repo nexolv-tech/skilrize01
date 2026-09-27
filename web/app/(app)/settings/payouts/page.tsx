@@ -15,6 +15,7 @@ import {
   Icon,
   Input,
   Money,
+  Select,
   Skeleton,
 } from "@/components/ui";
 import { payments, type Payout } from "@/lib/api";
@@ -26,15 +27,20 @@ const STATUS_TONE: Record<Payout["status"], "neutral" | "positive"> = {
 };
 
 /**
- * Where a freelancer's released milestones actually get paid — typed in
- * once, then read by whoever on the platform side sends the manual bank
- * transfer on release (Phase 3, D42). Nothing here verifies the account;
- * there is no gateway to ask.
+ * Where a freelancer's released payments are sent (D56). A bank or wallet
+ * chosen from Swich's list is paid automatically when a client approves the
+ * work; one typed in by hand is paid by our team instead. Swich checks the
+ * name on the account before paying, so a mistyped number stops a payout
+ * rather than sending it to a stranger.
  */
+const OTHER = "__other";
+
 function PayoutProfileForm() {
   const { data: profile, loading, reload } = useLoader(() => payments.payoutProfile(), []);
+  const { data: institutions } = useLoader(() => payments.payoutInstitutions(), []);
 
   const [form, setForm] = React.useState({
+    bank_code: "",
     bank_name: "",
     account_title: "",
     account_number: "",
@@ -42,13 +48,23 @@ function PayoutProfileForm() {
     msisdn: "",
   });
   const [saved, setSaved] = React.useState(false);
+  const chosen = institutions?.find((row) => row.code === form.bank_code);
+  const wallet = chosen?.kind === "wallet";
 
   const update = <K extends keyof typeof form>(key: K, value: string) =>
     setForm((current) => ({ ...current, [key]: value }));
 
   const save = useAsyncAction(async () => {
-    await payments.savePayoutProfile({ ...form, cnic: form.cnic.replace(/[^0-9]/g, "") });
-    setForm({ bank_name: "", account_title: "", account_number: "", cnic: "", msisdn: "" });
+    const other = form.bank_code === OTHER;
+    await payments.savePayoutProfile({
+      ...form,
+      bank_code: other ? "" : form.bank_code,
+      bank_name: other ? form.bank_name : "",
+      cnic: form.cnic.replace(/[^0-9]/g, ""),
+      // A wallet's account number is its mobile number.
+      account_number: form.account_number.replace(/\s+/g, ""),
+    });
+    setForm({ bank_code: "", bank_name: "", account_title: "", account_number: "", cnic: "", msisdn: "" });
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
     await reload();
@@ -59,11 +75,13 @@ function PayoutProfileForm() {
   return (
     <Card>
       <CardHeader
-        title="Payout account"
-        description="Where money goes when a client releases a milestone — sent manually by our team, once you've told us where."
+        title="Where to send your payments"
+        description="When a client approves your work, the payment minus our fee is sent here through Swich, usually the same day."
         action={
-          profile?.is_complete ? (
-            <Badge tone="positive">Set up</Badge>
+          profile?.swich_ready ? (
+            <Badge tone="positive">Paid automatically</Badge>
+          ) : profile?.is_complete ? (
+            <Badge tone="neutral">Paid by our team</Badge>
           ) : (
             <Badge tone="caution">Not set up</Badge>
           )
@@ -72,8 +90,12 @@ function PayoutProfileForm() {
       <div className="space-y-5 p-5">
         {profile?.is_complete && (
           <div className="rounded-md border border-line bg-sunken p-3.5 text-[13px] text-muted">
-            Currently paying out to <span className="font-medium text-fg">{profile.account_title}</span>{" "}
-            at {profile.bank_name}. Saving a new account below replaces this one.
+            Currently paying <span className="font-medium text-fg">{profile.account_title}</span> at{" "}
+            {profile.bank_name}
+            {profile.swich_ready
+              ? ", automatically through Swich."
+              : ". This bank is not on Swich's list, so our team sends it by hand."}{" "}
+            Saving below replaces it.
           </div>
         )}
 
@@ -88,17 +110,55 @@ function PayoutProfileForm() {
             <Alert tone="critical">{save.error}</Alert>
           )}
 
-          <Field label="Bank name" htmlFor="bank_name">
-            <Input
-              id="bank_name"
-              value={form.bank_name}
-              onChange={(event) => update("bank_name", event.target.value)}
-              placeholder="Habib Bank"
+          <Field label="Bank or wallet" htmlFor="bank_code">
+            <Select
+              id="bank_code"
+              value={form.bank_code}
+              onChange={(event) => update("bank_code", event.target.value)}
               required
-            />
+            >
+              <option value="" disabled>
+                Choose…
+              </option>
+              <optgroup label="Mobile wallets">
+                {(institutions ?? [])
+                  .filter((row) => row.kind === "wallet")
+                  .map((row) => (
+                    <option key={row.code} value={row.code}>
+                      {row.name}
+                    </option>
+                  ))}
+              </optgroup>
+              <optgroup label="Banks">
+                {(institutions ?? [])
+                  .filter((row) => row.kind === "bank")
+                  .map((row) => (
+                    <option key={row.code} value={row.code}>
+                      {row.name}
+                    </option>
+                  ))}
+              </optgroup>
+              <option value={OTHER}>Another bank (paid by our team)</option>
+            </Select>
           </Field>
 
-          <Field label="Account title" htmlFor="account_title" hint="The name on the account.">
+          {form.bank_code === OTHER && (
+            <Field label="Bank name" htmlFor="bank_name">
+              <Input
+                id="bank_name"
+                value={form.bank_name}
+                onChange={(event) => update("bank_name", event.target.value)}
+                placeholder="Bank name"
+                required
+              />
+            </Field>
+          )}
+
+          <Field
+            label="Account title"
+            htmlFor="account_title"
+            hint="Exactly as the bank or wallet shows it. Swich checks it before paying."
+          >
             <Input
               id="account_title"
               value={form.account_title}
@@ -108,12 +168,16 @@ function PayoutProfileForm() {
             />
           </Field>
 
-          <Field label="Account / IBAN number" htmlFor="account_number">
+          <Field
+            label={wallet ? "Wallet number" : "IBAN or account number"}
+            htmlFor="account_number"
+            hint={wallet ? "The mobile number of your wallet, 03xxxxxxxxx." : "Your IBAN starts with PK."}
+          >
             <Input
               id="account_number"
               value={form.account_number}
               onChange={(event) => update("account_number", event.target.value)}
-              placeholder="PK00HABB0000001234567"
+              placeholder={wallet ? "03001234567" : "PK36MEZN0000001234567890"}
               required
             />
           </Field>
@@ -128,12 +192,13 @@ function PayoutProfileForm() {
             />
           </Field>
 
-          <Field label="Mobile number" htmlFor="msisdn" hint="Format 03xxxxxxxxx.">
+          <Field label="Mobile number" htmlFor="msisdn" hint="Format 03xxxxxxxxx. Swich needs it with every payment.">
             <Input
               id="msisdn"
               value={form.msisdn}
               onChange={(event) => update("msisdn", event.target.value)}
               placeholder="03001234567"
+              required
             />
           </Field>
 
