@@ -435,6 +435,10 @@ SWICH_ENV = config("SWICH_ENV", default="sandbox")
 SWICH_CLIENT_ID = config("SWICH_CLIENT_ID", default="")
 SWICH_CLIENT_SECRET = config("SWICH_CLIENT_SECRET", default="")
 SWICH_SECRET_KEY = config("SWICH_SECRET_KEY", default="")
+#: Pay freelancers and refund buyers through Swich too (D56). A separate
+#: switch because it needs more than Pay In: Swich must whitelist this
+#: server's IP address and the payout balance must hold funds.
+SWICH_PAYOUTS_ENABLED = config("SWICH_PAYOUTS_ENABLED", default=False, cast=bool)
 #: An order left unpaid this long is cancelled; nothing was taken.
 UNPAID_ORDER_HOURS = config("UNPAID_ORDER_HOURS", default=48, cast=int)
 

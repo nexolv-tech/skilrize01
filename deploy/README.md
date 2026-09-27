@@ -223,6 +223,22 @@ merchant account:
 4. Place a small real order yourself and check it appears under Payments →
    Payments in (Done) as "Received through Swich".
 
+**Payouts and refunds through Swich** (freelancers paid automatically when
+work is approved; cancellations refunded to the card or wallet):
+
+1. Ask Swich to whitelist the server's IP address for its payout and refund
+   APIs (for this server, `155.248.240.55`), and how the payout balance is
+   funded (payouts are paid from it).
+2. Ask Swich for its list of bank and wallet codes and check it against
+   `api/payments/institutions.py`; send any differences to be updated.
+3. Set `SWICH_PAYOUTS_ENABLED=True` and run `./deploy/deploy.sh`. Admin
+   console → Settings shows "Payouts and refunds (Swich): Sent automatically"
+   with the payout balance.
+4. Approve a small order of your own and check the freelancer side receives
+   it. Anything Swich refuses stays under Payments → Payouts or Refunds with
+   Swich's reason, a "Try Swich again" button, and "Mark as paid" for
+   sending it by hand.
+
 ## 12. From now on: updating the live site
 
 Never edit files on this server. The workflow is always:

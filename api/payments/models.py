@@ -117,10 +117,20 @@ class PayoutProfile(TimestampedModel):
     account_number = EncryptedTextField(blank=True)
     cnic = EncryptedTextField(blank=True)
     msisdn = models.CharField(max_length=20, blank=True)
+    #: The bank or wallet as Swich knows it (`payments.institutions`), which
+    #: is what lets a payout go out automatically (D56). Blank for a bank
+    #: typed in by hand, which an operator pays instead.
+    bank_code = models.CharField(max_length=12, blank=True)
 
     @property
     def is_complete(self) -> bool:
         return bool(self.bank_name and self.account_title and self.account_number and self.cnic)
+
+    @property
+    def swich_ready(self) -> bool:
+        """Everything Swich's IBFT needs: a listed bank or wallet, and the
+        mobile number it asks for with every payout."""
+        return bool(self.is_complete and self.bank_code and self.msisdn)
 
     def __str__(self) -> str:
         return f"PayoutProfile({self.user_id})"
@@ -162,6 +172,12 @@ class Payout(TimestampedModel):
     #: A transfer reference, a note on which admin sent it — whatever
     #: makes this payout traceable back to the real bank transfer.
     note = models.TextField(blank=True)
+    #: The customerTransactionId of the latest attempt through Swich (D56),
+    #: asked about before any new attempt so nobody is paid twice.
+    swich_reference = models.CharField(max_length=40, blank=True)
+    swich_attempts = models.PositiveSmallIntegerField(default=0)
+    #: Why the last attempt did not go through, in Swich's words.
+    last_error = models.TextField(blank=True)
 
     class Meta:
         ordering = ["-created_at"]
@@ -233,6 +249,8 @@ class Refund(TimestampedModel):
     refunded_at = models.DateTimeField(null=True, blank=True)
     #: The bank transfer reference for the money sent back.
     note = models.TextField(blank=True)
+    #: Why Swich could not refund it automatically (D56), when it could not.
+    last_error = models.TextField(blank=True)
 
     class Meta:
         ordering = ["-created_at"]

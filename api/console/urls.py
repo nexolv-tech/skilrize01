@@ -38,7 +38,17 @@ urlpatterns = [
         views.payout_mark_paid,
         name="console-payout-mark-paid",
     ),
+    path(
+        "admin/payments/payouts/<int:pk>/send-swich/",
+        views.payout_send_swich,
+        name="console-payout-send-swich",
+    ),
     path("admin/payments/refunds/", views.refunds, name="console-refunds"),
+    path(
+        "admin/payments/refunds/<int:pk>/send-swich/",
+        views.refund_send_swich,
+        name="console-refund-send-swich",
+    ),
     path(
         "admin/payments/refunds/<int:pk>/bank-details/",
         views.refund_bank_details,

@@ -2170,7 +2170,7 @@ checkout URL, checksum formulas, callback verification) was restored from
 git history as `payments/swich.py`, with its documented formulas unchanged.
 Its Payout half was not: the IBFT bank-code question D41 left open is still
 open, so payouts and refunds stay operator-sent and are recorded in the
-admin console (D54).
+admin console (D54). (Superseded by D56, which sends both through Swich.)
 
 **The callback is the only thing that funds.** Paying now creates a
 `Charge` (one attempt; a declined card is retried with a new one) and sends
@@ -2210,6 +2210,51 @@ pointed at the Swich checkout before its next release.
 Tests pay the way production does, by delivering a correctly signed
 callback with a test key (`payments/testing.py`), so every order, milestone
 and plan in the suite goes through the real verification path.
+
+---
+
+## D56 · Payouts and refunds through Swich too
+
+D55 left payouts and refunds operator-sent. The owner pointed out that
+Swich does payouts, and it does: Swich's API reference now documents IBFT
+to a bank account **or an Easypaisa/JazzCash wallet**, a title fetch, a
+status inquiry and the payout balance, and a Pay In **refund** (full or
+partial, "for selected payment methods only"). D41's open question, which
+bank codes IBFT expects, is still answered only by "provided by Swich";
+its documented example (`BAHL`, Bank Al Habib, `PK00BAHL…`) is the IBAN
+bank code, so `payments/institutions.py` lists banks by that code and the
+wallets by their banks' (`TMFB` Easypaisa, `JCMA` JazzCash). The list must
+be checked against Swich's before payouts are switched on; a code Swich
+does not know is refused with "No bank found" and nothing is sent.
+
+**How a payout goes out.** Releasing work queues a `Payout` as before; once
+that is committed, a Celery task (`payments.disburse.send_payout`) sends it
+if `SWICH_PAYOUTS_ENABLED` is on and the freelancer chose a listed bank or
+wallet. It fetches the account title first and sends nothing if the name
+shares no word with the payout profile's: a mistyped number costs a
+message, not the freelancer's money. The payout is marked paid only on
+Swich's success. A refusal stays pending with Swich's reason.
+
+**Never twice.** Each attempt has a stored reference
+(`SRPO<id>-<attempt>`), and before any new attempt Swich is asked where the
+last one stands: paid means mark it paid, still processing means wait, and
+only failed or unknown is retried under a new reference. The HTTP session
+for these calls deliberately has no automatic retries, unlike the
+integrations session, because resending a slow payout could pay twice.
+
+**Refunds** go back through Swich's refund API against the paid charge's
+Swich order id. Methods Swich cannot refund, and payments that did not
+come through Swich, stay pending with the reason for an operator.
+
+**Operator controls.** The admin console shows each payout's destination,
+Swich's last answer, "Send through Swich" / "Try Swich again", and still
+"Mark as paid" for money sent by hand; Settings shows whether payouts are
+on and the payout balance. Freelancers pick their bank or wallet from the
+list under Settings → Payouts ("Another bank" is paid by hand).
+
+Switched off by default and separately from Pay In, because it needs more
+than keys: Swich must whitelist the server's IP, and the payout balance
+must be funded.
 
 ---
 

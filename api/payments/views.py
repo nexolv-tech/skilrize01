@@ -45,6 +45,20 @@ def payment_options(request):
     )
 
 
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def payout_institutions(request):
+    """The banks and wallets a payout can go to through Swich (D56)."""
+    from . import institutions
+
+    return Response(
+        [
+            {"code": code, "name": name, "kind": kind}
+            for code, name, kind in institutions.INSTITUTIONS
+        ]
+    )
+
+
 @api_view(["GET", "POST"])
 @permission_classes([AllowAny])
 def swich_callback(request):

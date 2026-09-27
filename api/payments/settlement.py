@@ -51,6 +51,10 @@ def queue_payout(milestone) -> Payout:
         commission_percent=commission_percent(),
     )
     payout.save()
+    # Paid automatically through Swich once this release is committed (D56).
+    from .disburse import queue_payout_sending
+
+    queue_payout_sending(payout)
     return payout
 
 
@@ -74,13 +78,18 @@ def queue_refund(milestone, *, reason: str, actor=None) -> Refund | None:
 
     milestone.status = Milestone.Status.CANCELLED
     milestone.save(update_fields=["status", "updated_at"])
-    return Refund.objects.create(
+    refund = Refund.objects.create(
         milestone=milestone,
         client=milestone.contract.client,
         amount=amount,
         reason=reason[:200],
         requested_by=actor,
     )
+    # Returned to the card or wallet automatically through Swich (D56).
+    from .disburse import queue_refund_sending
+
+    queue_refund_sending(refund)
+    return refund
 
 
 @transaction.atomic

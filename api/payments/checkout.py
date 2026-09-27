@@ -299,8 +299,15 @@ def _refund_orphan(charge: Charge, reason: str) -> None:
         if milestone is None and charge.order is not None and charge.order.contract is not None:
             milestone = charge.order.contract.milestones.first()
         if milestone is not None and not Refund.objects.filter(milestone=milestone).exists():
-            Refund.objects.create(
-                milestone=milestone, client=charge.payer, amount=charge.amount, reason=reason[:200]
+            from .disburse import queue_refund_sending
+
+            queue_refund_sending(
+                Refund.objects.create(
+                    milestone=milestone,
+                    client=charge.payer,
+                    amount=charge.amount,
+                    reason=reason[:200],
+                )
             )
     logger.warning("swich_payment_for_closed_item ref=%s reason=%s", charge.reference, reason)
     dispatch(

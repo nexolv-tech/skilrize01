@@ -161,7 +161,15 @@ def overview(request):
     if can(*MODERATE):
         queues["reports"] = Report.objects.filter(status=Report.Status.OPEN).count()
 
-    return Response({"role": role, "queues": queues, "figures": figures})
+    return Response(
+        {
+            "role": role,
+            "queues": queues,
+            "figures": figures,
+            # Whether payouts and refunds go out through Swich (D56).
+            "swich_payouts": swich.payouts_enabled(),
+        }
+    )
 
 
 # --- Payments: money in ------------------------------------------------------
@@ -423,6 +431,30 @@ def payout_mark_paid(request, pk):
     return Response(shapes.payout(item))
 
 
+@api_view(["POST"])
+@permission_classes([IsAuthenticated, require_admin_role(*FINANCE)])
+def payout_send_swich(request, pk):
+    """Send (or resend) a payout through Swich now, and say what happened.
+    Safe to press twice: `disburse.send_payout` asks Swich about the last
+    attempt before making another."""
+    from payments.disburse import send_payout
+
+    if not swich.payouts_enabled():
+        return _bad("Swich payouts are not switched on for this server.", "payouts_off")
+    outcome = send_payout(pk)
+    AuditLog.record(
+        actor=request.user,
+        action=AuditLog.Action.UPDATE,
+        target=Payout(pk=pk),
+        request=request,
+        justification=f"Payout sent through Swich from the console: {outcome}.",
+    )
+    item = Payout.objects.select_related(
+        "freelancer__payout_profile", "paid_by", "milestone__contract"
+    ).get(pk=pk)
+    return Response({"outcome": outcome, "payout": shapes.payout(item)})
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated, require_admin_role(*FINANCE)])
 def refunds(request):
@@ -441,6 +473,28 @@ def refunds(request):
 def refund_bank_details(request, pk):
     item = get_object_or_404(Refund.objects.select_related("client"), pk=pk)
     return _read_bank_details(request, item.client, why=f"Bank details read to send refund #{pk}.")
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated, require_admin_role(*FINANCE)])
+def refund_send_swich(request, pk):
+    """Refund through Swich now, to the card or wallet the buyer paid with."""
+    from payments.disburse import send_refund
+
+    if not swich.payouts_enabled():
+        return _bad("Swich refunds are not switched on for this server.", "payouts_off")
+    outcome = send_refund(pk)
+    AuditLog.record(
+        actor=request.user,
+        action=AuditLog.Action.UPDATE,
+        target=Refund(pk=pk),
+        request=request,
+        justification=f"Refund sent through Swich from the console: {outcome}.",
+    )
+    item = Refund.objects.select_related(
+        "client__payout_profile", "refunded_by", "milestone__contract"
+    ).get(pk=pk)
+    return Response({"outcome": outcome, "refund": shapes.refund(item)})
 
 
 @api_view(["POST"])
@@ -1078,6 +1132,17 @@ def user_sign_out(request, pk):
 # --- Settings --------------------------------------------------------------------
 
 
+def _swich_balance() -> str | None:
+    """The Swich payout balance, or None when payouts are off or Swich
+    cannot be asked right now (a settings page must still load)."""
+    if not swich.payouts_enabled():
+        return None
+    try:
+        return str(swich.payout_balance())
+    except (swich.SwichError, swich.SwichUnavailable):
+        return None
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated, require_admin_role(R.SUPER_ADMIN)])
 def platform_settings(request):
@@ -1097,6 +1162,8 @@ def platform_settings(request):
                 "provider": "Swich",
                 "environment": settings.SWICH_ENV,
                 "callback_url": request.build_absolute_uri("/api/v1/payments/swich/callback/"),
+                "payouts": swich.payouts_enabled(),
+                "payout_balance": _swich_balance(),
             },
             "email": {
                 "backend": backend,
