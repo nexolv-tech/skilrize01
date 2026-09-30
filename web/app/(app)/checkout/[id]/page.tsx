@@ -17,7 +17,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { PaymentMethods, PaymentsOpeningSoon, SwichPay } from "@/components/payments";
+import { PaymentMethods, SwichPay } from "@/components/payments";
 import { TwoFactorRequiredPrompt } from "@/components/two-factor";
 import {
   Alert,
@@ -373,6 +373,8 @@ function SummarySlip({ gig, selection }: { gig: GigDetail; selection: Selection 
 
 function PaymentCard({ gig, selection }: { gig: GigDetail; selection: Selection }) {
   const { user, loading: sessionLoading } = useSession();
+  const router = useRouter();
+  const next = encodeURIComponent(selection.here);
   const [accepted, setAccepted] = React.useState(false);
   const { data: options } = useLoader(() => payments.options(), []);
 
@@ -385,31 +387,13 @@ function PaymentCard({ gig, selection }: { gig: GigDetail; selection: Selection 
   let body: React.ReactNode;
   if (sessionLoading) {
     body = <Skeleton className="h-28 w-full" />;
-  } else if (options && !options.available) {
-    body = <PaymentsOpeningSoon />;
-  } else if (!user) {
-    const next = encodeURIComponent(selection.here);
-    body = (
-      <div className="space-y-4">
-        <p className="text-[14px] leading-relaxed text-muted">
-          Sign in to pay. New to SkilRize? Create a free account — you verify your email and
-          identity card once, which protects both you and the seller.
-        </p>
-        <div className="flex flex-wrap gap-3">
-          <ButtonLink href={`/login?next=${next}`}>Sign in to pay</ButtonLink>
-          <ButtonLink href={`/signup?next=${next}`} variant="secondary">
-            Create an account
-          </ButtonLink>
-        </div>
-      </div>
-    );
-  } else if (gig.is_owner) {
+  } else if (user && gig.is_owner) {
     body = <Alert tone="neutral">This is your own service, so you cannot order it.</Alert>;
-  } else if (!gig.can_order) {
+  } else if (user && !gig.can_order) {
     body = (
       <div className="space-y-4">
         <Alert tone="caution">{gig.order_blocked_reason}</Alert>
-        {!user.can_transact && (
+        {!user?.can_transact && (
           <ButtonLink href="/dashboard" variant="secondary">
             Finish verifying your account
             <Icon name="arrowRight" className="size-3.5" />
@@ -440,6 +424,19 @@ function PaymentCard({ gig, selection }: { gig: GigDetail; selection: Selection 
           </Alert>
         ) : null}
 
+        {!user && (
+          <p className="text-[13.5px] leading-relaxed text-muted">
+            You sign in before paying. New to SkilRize?{" "}
+            <Link
+              href={`/signup?next=${next}`}
+              className="font-medium text-accent underline-offset-4 hover:underline"
+            >
+              Create a free account
+            </Link>{" "}
+            — you verify your email and identity card once, which protects both you and the seller.
+          </p>
+        )}
+
         <label className="flex cursor-pointer gap-3 rounded-md border border-line p-3.5 text-[13.5px] leading-relaxed text-fg">
           <input
             type="checkbox"
@@ -466,7 +463,13 @@ function PaymentCard({ gig, selection }: { gig: GigDetail; selection: Selection 
           disabled={!accepted}
           showMethods={false}
           error={buy.code === "device_cooloff" ? null : buy.error}
-          onStart={() => buy.run()}
+          onStart={async () => {
+            if (!user) {
+              router.push(`/login?next=${next}`);
+              return undefined;
+            }
+            return buy.run();
+          }}
         />
       </div>
     );

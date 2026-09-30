@@ -61,6 +61,10 @@ export function PaymentsOpeningSoon() {
  * The pay button: starts the checkout with `onStart` and hands the browser
  * to Swich. `onStart` is the caller's own endpoint (an order, a milestone,
  * a plan), which also places what is being paid for.
+ *
+ * Before Swich is switched on the button is still shown, so the whole
+ * checkout can be seen (Swich's own reviewers asked to), and pressing it
+ * says payments are opening instead of placing anything.
  */
 export function SwichPay({
   amount,
@@ -80,19 +84,22 @@ export function SwichPay({
 }) {
   const { data: options } = useLoader(() => payments.options(), []);
   const [leaving, setLeaving] = React.useState(false);
-
-  if (options && !options.available) return <PaymentsOpeningSoon />;
+  const [notOpen, setNotOpen] = React.useState(false);
 
   return (
     <div className="space-y-4">
       {showMethods && <PaymentMethods options={options} />}
-      {error && <Alert tone="critical">{error}</Alert>}
+      {notOpen ? <PaymentsOpeningSoon /> : error && <Alert tone="critical">{error}</Alert>}
       <Button
         className="w-full"
         size="lg"
         loading={leaving}
-        disabled={!options || disabled}
+        disabled={!options || disabled || notOpen}
         onClick={async () => {
+          if (options && !options.available) {
+            setNotOpen(true);
+            return;
+          }
           setLeaving(true);
           const started = await onStart();
           if (started?.checkout_url) {
