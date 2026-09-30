@@ -48,3 +48,19 @@ def test_the_storefront_refuses_to_run_before_the_taxonomy():
 
     with pytest.raises(CommandError, match="taxonomy"):
         call_command("create_storefront", "--email", "studio@example.com")
+
+
+@pytest.mark.django_db
+def test_publish_puts_each_service_live_with_the_studios_cover():
+    """Swich's reviewers found nothing to check out (D57). With --publish each
+    service gets its cover, a picture of the studio's own work, and goes live;
+    running it again adds nothing twice."""
+    call_command("seed")
+    call_command("create_storefront", "--email", "studio@example.com", "--publish")
+    call_command("create_storefront", "--email", "studio@example.com", "--publish")
+
+    gigs = Gig.objects.unscoped().filter(seller__email="studio@example.com")
+    assert gigs.count() == 4
+    assert all(gig.status == Gig.Status.ACTIVE and gig.is_orderable for gig in gigs)
+    assert all(len(gig.images()) == 1 for gig in gigs)
+    assert {gig.images()[0].content_type for gig in gigs} == {"image/jpeg"}

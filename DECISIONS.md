@@ -2258,6 +2258,39 @@ must be funded.
 
 ---
 
+## D57 · Services on show and a checkout Swich can see
+
+Swich's reviewers came back with two requests: list services, because none
+were showing, and enable the checkout page. Both were true of production.
+`create_storefront` had never been run there, and its services would only
+have been drafts: D50 requires a picture to publish, and "only the owner
+has pictures of their own work".
+
+**The storefront publishes itself on request.** The studio does have
+pictures of its own work: SkilRize, its website and its Flutter app. Each
+of the four services now carries a cover in `core/storefront/` built from
+those real screens (the automation one is a labelled example flow, not a
+client's). `create_storefront --publish` stores each through the normal
+upload pipeline, so it is re-encoded and virus-scanned like any upload, and
+publishes the service. The pictures are stored outside the listing's
+transaction, so the scan task can see the file when the worker picks it up.
+The account, `nexolv.tech@gmail.com` on production (the owner's choice),
+is still created unverified and without a password; publishing from the
+server is the operator vouching for its own listings, which is what the
+listings say.
+
+**The checkout shows everything before Swich is on.** Until the merchant
+keys are set, the payment box used to be replaced by "opening shortly",
+so a reviewer saw no payment methods, no terms and no pay button. Now the
+whole checkout shows, signed in or not: the methods, the terms box and
+"Pay and place order". Pressing it before Swich is on says payments are
+opening and places nothing; pressing it signed out goes to sign-in and
+comes back to the same order. The same holds for every pay button
+(`SwichPay`), which checks the switch at the click rather than hiding
+itself.
+
+---
+
 ## Not mine to take
 
 These need a legal identity, a signature, a personal relationship, or an

@@ -630,13 +630,13 @@ To list the operator's own services on a fresh database (production
 included — it creates real listings, not demo ones):
 
 ```bash
-cd api && .venv/Scripts/python manage.py create_storefront --email you@example.com
+cd api && .venv/Scripts/python manage.py create_storefront --email you@example.com --publish
 ```
 
-Package prices in `core/management/commands/create_storefront.py` are
-placeholders; set real ones before running it against production. The
-services are created as drafts: each needs a picture before it can be
-published (D50).
+Without `--publish` the services are created as drafts: each needs a
+picture before it can be published (D50). With it, each gets its cover
+from `core/storefront/` (made from SkilRize's own screens) and goes live
+(D57).
 
 ### Tests
 

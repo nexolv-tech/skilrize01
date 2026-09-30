@@ -14,6 +14,12 @@ Idempotent: re-running skips services that already exist. Prices and package
 contents are a starting point for the owner to review and edit from the
 dashboard — they are ordinary listings, not fixtures.
 
+Without ``--publish`` the services are drafts: a service goes live only with
+a picture. With it, each gets its cover from ``core/storefront/`` (pictures
+of the studio's own work: SkilRize's website and app, which NEXOLV.TECH
+built) and is published. Swich's reviewers asked for this: they could not
+review a checkout with nothing listed to check out (D57).
+
 The account is created without a usable password and is **not** marked as
 verified. The owner sets a password through "Forgot password" and verifies
 email, phone and identity exactly as any other seller does before they can
@@ -23,16 +29,22 @@ take orders out of escrow.
 from __future__ import annotations
 
 from decimal import Decimal
+from pathlib import Path
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from core.scope import GLOBAL_SCOPE, use_scope
 
+#: The cover picture for each service, named by its ``picture`` key.
+PICTURES = Path(__file__).resolve().parents[2] / "storefront"
+
 SERVICES = [
     {
         "category": "Development & IT",
         "title": "I will build a fast, mobile-friendly website for your business",
+        "picture": "website",
         "description": (
             "A complete business website built with Next.js: designed around your content, "
             "fast on mobile networks, and set up so you can edit it yourself. Includes contact "
@@ -114,6 +126,7 @@ SERVICES = [
     {
         "category": "Development & IT",
         "title": "I will develop an Android and iOS app for your business",
+        "picture": "mobile-app",
         "description": (
             "One app for Android and iOS, built with Flutter from a single codebase. We design "
             "the screens with you first, build against your existing system or set up a new "
@@ -187,6 +200,7 @@ SERVICES = [
     {
         "category": "Development & IT",
         "title": "I will automate your business workflows with AI",
+        "picture": "automation",
         "description": (
             "Hand repetitive work to software: chatbots that answer customer questions on "
             "WhatsApp or your website from your own information, automatic data entry between "
@@ -264,6 +278,7 @@ SERVICES = [
     {
         "category": "Design & Creative",
         "title": "I will design a clear UI/UX for your website or app",
+        "picture": "ui-ux",
         "description": (
             "Screens your users understand the first time. We start from who uses the product "
             "and what they need to get done, then deliver wireframes, polished designs in Figma "
@@ -334,19 +349,70 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--email", required=True, help="The studio's seller account email.")
         parser.add_argument("--name", default="NEXOLV.TECH", help="Public display name.")
+        parser.add_argument(
+            "--publish",
+            action="store_true",
+            help="Add each service's cover picture and put it live.",
+        )
 
-    @transaction.atomic
     def handle(self, *args, **options):
+        email = options["email"].strip().lower()
+        with transaction.atomic():
+            seller, created, made = self._list_services(email, options["name"])
+
+        # Outside the transaction: a stored picture queues its virus scan, and
+        # the worker must be able to see the file row when it picks that up.
+        published = 0
+        if options["publish"]:
+            with use_scope(GLOBAL_SCOPE):
+                published = sum(self._publish(seller, spec) for spec in SERVICES)
+
+        self.stdout.write(
+            self.style.SUCCESS(f"Storefront ready: {made} service(s) created for {email}.")
+        )
+        if options["publish"]:
+            self.stdout.write(f"{published} service(s) published with their cover picture.")
+        else:
+            self.stdout.write(
+                "Each is a draft until it has a picture. Run again with --publish to use the "
+                "studio's covers, or sign in as that account, add a picture to each under "
+                "Services → Your services, and publish it."
+            )
+        if created:
+            self.stdout.write(
+                f"The account has no password yet. Set one with “Forgot password” for {email}, "
+                "then finish verification from the dashboard."
+            )
+
+    def _publish(self, seller, spec) -> bool:
+        """Give a draft service its cover picture and put it live."""
+        from core import files
+        from core.models import StoredFile
+        from gigs.models import Gig
+
+        gig = Gig.objects.filter(seller=seller, title=spec["title"]).first()
+        if gig is None or gig.status != Gig.Status.DRAFT:
+            return False
+        if not gig.images():
+            name = f"{spec['picture']}.jpg"
+            picture = SimpleUploadedFile(name, (PICTURES / name).read_bytes(), "image/jpeg")
+            stored = files.store(picture, owner=seller, purpose=StoredFile.Purpose.GIG_IMAGE)
+            gig.gallery.add(stored)
+        if gig.publish_blockers():
+            return False
+        gig.publish()
+        return True
+
+    def _list_services(self, email: str, name: str):
         from accounts.models import BuyerProfile, SellerProfile, User
         from gigs.models import Gig, GigExtra, Package
         from marketplace.models import Category
 
-        email = options["email"].strip().lower()
         seller, created = User.objects.get_or_create(
             email=email,
             defaults={
                 "handle": "nexolv-tech",
-                "full_name": options["name"],
+                "full_name": name,
                 "headline": "Software studio · websites, mobile apps, AI automation and UI/UX",
                 "bio": (
                     "NEXOLV.TECH is the software studio that builds and operates SkilRize. "
@@ -400,19 +466,7 @@ class Command(BaseCommand):
                     GigExtra.objects.create(
                         gig=gig, title=title, price=Decimal(price), extra_days=days
                     )
-                # Left as a draft: a service goes live only with a picture of
-                # the work (Gig.publish_blockers), and only the owner has one.
+                # A draft: a service goes live only with a picture of the
+                # work (Gig.publish_blockers); --publish adds the studio's.
                 made += 1
-
-        self.stdout.write(
-            self.style.SUCCESS(f"Storefront ready: {made} draft service(s) created for {email}.")
-        )
-        self.stdout.write(
-            "Each is a draft until it has a picture. Sign in as that account, open "
-            "Services → Your services, add at least one picture to each, and publish it."
-        )
-        if created:
-            self.stdout.write(
-                f"The account has no password yet. Set one with “Forgot password” for {email}, "
-                "then finish verification from the dashboard."
-            )
+        return seller, created, made

@@ -128,19 +128,20 @@ checks, and give other people roles (Users → Details). Other roles:
 `dispute_officer`; `none` removes one.
 
 Categories and skills are seeded automatically every time the API starts
-(`manage.py seed` is idempotent). To list your own services under a real
-account — set real prices in `api/core/management/commands/create_storefront.py`
-first; the ones in the file are placeholders:
+(`manage.py seed` is idempotent). To list NEXOLV.TECH's own four services
+(prices in `api/core/management/commands/create_storefront.py`) under the
+studio's account and put them live with their cover pictures:
 
 ```bash
-docker compose -f deploy/docker-compose.prod.yml --env-file deploy/production.env exec api python manage.py create_storefront --email you@example.com
+docker compose -f deploy/docker-compose.prod.yml --env-file deploy/production.env exec api python manage.py create_storefront --email nexolv.tech@gmail.com --publish
 ```
 
-The account it creates has no password. Use "Forgot password" on the site
-to set one, then finish verification from the dashboard. The services start
-as drafts, because a service needs at least one picture to go live: sign in,
-open Services → Your services, add a picture (and optionally a short MP4
-video) to each, and press Publish.
+Without `--publish` the services start as drafts, because a service needs
+at least one picture to go live; add your own under Services → Your
+services and press Publish. The account it creates has no password. Use
+"Forgot password" on the site to set one, then finish verification from
+the dashboard. Prices, pictures and descriptions are then edited there like
+any other seller's.
 
 Uploaded pictures and videos are served from the main domain: Caddy sends
 `/files/*` straight to the API (see `deploy/Caddyfile`). If you change the
